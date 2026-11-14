@@ -132,7 +132,10 @@ async function main() {
     companyId: null,
   });
   const company = await seedCompany();
-  await ensureUser({
+  // Only give the company a first admin if it has none (e.g. production already has its מ"פ).
+  const hasAdmin = await prisma.user.count({ where: { companyId: company.id, role: "ADMIN" } });
+  if (hasAdmin) console.log(`• company already has ${hasAdmin} admin(s) — no admin created`);
+  else await ensureUser({
     username: process.env.SEED_ADMIN_USERNAME ?? "admin",
     password: process.env.SEED_ADMIN_PASSWORD,
     name: 'מ"פ',

@@ -18,7 +18,8 @@
     "test:integration": "vitest run --project integration",
     "test:all": "vitest run",
     "test:watch": "vitest --project unit",
-    "test:mark-db": "tsx test/mark-test-db.ts"
+    "test:mark-db": "tsx test/mark-test-db.ts",
+    "db:rehearse": "tsx test/rehearse-migration.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.1",
