@@ -1,6 +1,10 @@
 // Gear-Hub — Prisma schema
 // Prisma 7: the connection URL lives in prisma.config.ts (migrations) and in
 // src/lib/prisma.ts (runtime, via the pg driver adapter). Not in this file.
+//
+// Multi-company: every company-owned model carries `companyId`. Companies share nothing.
+// App code reaches the database through scopedDb(companyId) (src/lib/db.ts), which adds the
+// company to every query and rejects writes for another company. Keep SCOPED_MODELS there in sync.
 
 generator client {
   provider = "prisma-client"
@@ -14,6 +18,8 @@ datasource db {
 // ───────────────────────────── Enums ─────────────────────────────
 
 enum Role {
+  /// System operator: creates companies and their first admin. Belongs to no company.
+  SUPER_ADMIN
   ADMIN // סמ"פ / מ"פ
   REGULAR // רס"פ / מ"מ
 }
@@ -53,10 +59,37 @@ enum StorageStatus {
   EXPIRED // פג תוקף
 }
 
+// ───────────────────────────── Companies (tenants) ─────────────────────────────
+
+/// A company (פלוגה). Created by a SUPER_ADMIN together with its first admin.
+model Company {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  /// Deactivated companies can't sign in.
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users          User[]
+  soldiers       Soldier[]
+  categories     EquipmentCategory[]
+  equipmentItems EquipmentItem[]
+  equipmentLogs  EquipmentLog[]
+  ammoStocks     AmmoStock[]
+  ammoLogs       AmmoLog[]
+  personalKits   PersonalKit[]
+  kitInspections KitInspection[]
+  storageItems   StorageItem[]
+}
+
 // ───────────────────────────── Users & roster ─────────────────────────────
 
 model User {
   id           String   @id @default(cuid())
+  /// Null only for SUPER_ADMIN.
+  companyId    String?
+  company      Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  /// Unique across all companies: we don't know the company until the user has signed in.
   username     String   @unique
   name         String
   passwordHash String
@@ -71,10 +104,13 @@ model User {
   ammoLogs       AmmoLog[]
   kitInspections KitInspection[]
   signedKits     PersonalKit[]  @relation("KitSignedBy")
+
+  @@index([companyId])
 }
 
 /// Login attempts, for rate limiting on serverless (in-memory counters don't survive across instances).
 /// Failed attempts are cleared on successful login; rows older than a day are pruned.
+/// Not company-scoped: login happens before we know the company.
 model LoginAttempt {
   id        String   @id @default(cuid())
   /// Normalized (lowercased) username as typed — may not exist.
@@ -91,9 +127,11 @@ model LoginAttempt {
 /// The company roster (סד"כ). Single source of truth for every assignment.
 model Soldier {
   id             String   @id @default(cuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   name           String
-  /// מספר אישי
-  personalNumber String?  @unique
+  /// מספר אישי — unique within the company
+  personalNumber String?
   phone          String?
   platoon        Platoon
   /// תפקיד (e.g. מטול, קשר, חובש)
@@ -102,20 +140,23 @@ model Soldier {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  equipment     EquipmentItem[]
-  kit           PersonalKit?
-  logsFrom      EquipmentLog[]  @relation("LogFromSoldier")
-  logsTo        EquipmentLog[]  @relation("LogToSoldier")
+  equipment EquipmentItem[]
+  kit       PersonalKit?
+  logsFrom  EquipmentLog[]  @relation("LogFromSoldier")
+  logsTo    EquipmentLog[]  @relation("LogToSoldier")
 
-  @@index([platoon])
-  @@index([name])
+  @@unique([companyId, personalNumber])
+  @@index([companyId, platoon])
+  @@index([companyId, name])
 }
 
-// ───────────────────────────── Global catalog ─────────────────────────────
+// ───────────────────────────── Catalog (per company) ─────────────────────────────
 
 /// Dynamic, admin-managed types (weapon models, optics, ammo types, storage items…).
 model EquipmentCategory {
   id             String        @id @default(cuid())
+  companyId      String
+  company        Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
   name           String
   domain         CatalogDomain
   description    String?
@@ -135,38 +176,41 @@ model EquipmentCategory {
   ammoStocks     AmmoStock[]
   storageItems   StorageItem[]
 
-  @@unique([domain, name])
+  @@unique([companyId, domain, name])
 }
 
 // ───────────────────────────── Module B: צל"ם ─────────────────────────────
 
 model EquipmentItem {
-  id                String          @id @default(cuid())
-  /// צ / מס"ט. Null = not recorded yet ("ללא צ"); unique when present.
-  serialNumber      String?         @unique
+  id                String            @id @default(cuid())
+  companyId         String
+  company           Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  /// צ / מס"ט. Null = not recorded yet ("ללא צ"); unique within the company when present.
+  serialNumber      String?
   categoryId        String
   category          EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  status            EquipmentStatus @default(IN_ARMORY)
+  status            EquipmentStatus   @default(IN_ARMORY)
   assignedSoldierId String?
-  assignedSoldier   Soldier?        @relation(fields: [assignedSoldierId], references: [id], onDelete: SetNull)
+  assignedSoldier   Soldier?          @relation(fields: [assignedSoldierId], references: [id], onDelete: SetNull)
   /// Auto-filled from the assigned soldier; can also be set directly for platoon-level bulk assignment.
   platoon           Platoon?
   lastVerifiedAt    DateTime?
   notes             String?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   /// Linked set: this item is a component of `parent` (e.g. a ציין or קנס"פ of a נגב).
   /// Components always follow their parent's holder / status / platoon. One level only.
-  parentId    String?
-  parent      EquipmentItem?  @relation("ItemComponents", fields: [parentId], references: [id], onDelete: SetNull)
-  components  EquipmentItem[] @relation("ItemComponents")
+  parentId   String?
+  parent     EquipmentItem?  @relation("ItemComponents", fields: [parentId], references: [id], onDelete: SetNull)
+  components EquipmentItem[] @relation("ItemComponents")
 
   logs        EquipmentLog[]
   /// When this item is someone's personal weapon in a kit sign-out.
   personalKit PersonalKit?
 
-  @@index([status])
+  @@unique([companyId, serialNumber])
+  @@index([companyId, status])
   @@index([parentId])
   @@index([platoon])
   @@index([assignedSoldierId])
@@ -176,6 +220,8 @@ model EquipmentItem {
 /// Digital history of assignments / status changes (יומן העברות).
 model EquipmentLog {
   id            String           @id @default(cuid())
+  companyId     String
+  company       Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
   itemId        String
   item          EquipmentItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
   fromSoldierId String?
@@ -191,12 +237,15 @@ model EquipmentLog {
   createdAt     DateTime         @default(now())
 
   @@index([itemId, createdAt])
+  @@index([companyId])
 }
 
 // ───────────────────────────── Module C: תחמושת ─────────────────────────────
 
 model AmmoStock {
   id            String            @id @default(cuid())
+  companyId     String
+  company       Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
   categoryId    String
   category      EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   /// מיקום (e.g. בונקר פלוגתי, מחלקה 2, רכב מבצעי)
@@ -210,6 +259,7 @@ model AmmoStock {
   logs AmmoLog[]
 
   @@unique([categoryId, location])
+  @@index([companyId])
 }
 
 enum AmmoLogType {
@@ -221,6 +271,8 @@ enum AmmoLogType {
 /// Accountability trail for every ammunition quantity change.
 model AmmoLog {
   id               String      @id @default(cuid())
+  companyId        String
+  company          Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
   stockId          String
   stock            AmmoStock   @relation(fields: [stockId], references: [id], onDelete: Cascade)
   type             AmmoLogType
@@ -234,6 +286,7 @@ model AmmoLog {
   createdAt        DateTime    @default(now())
 
   @@index([stockId, createdAt])
+  @@index([companyId])
 }
 
 // ───────────────────────────── Module D: ציוד אישי והחתמות ─────────────────────────────
@@ -242,8 +295,10 @@ model AmmoLog {
 /// Boolean fields are "present / signed for". Keep KIT_ITEMS in src/lib/kit.ts in sync.
 model PersonalKit {
   id        String   @id @default(cuid())
-  /// 1–98 (range enforced in the app layer)
-  kitNumber Int      @unique
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  /// 1–98 (range enforced in the app layer), unique within the company
+  kitNumber Int
   soldierId String?  @unique
   soldier   Soldier? @relation(fields: [soldierId], references: [id], onDelete: SetNull)
 
@@ -287,11 +342,15 @@ model PersonalKit {
   updatedAt       DateTime  @updatedAt
 
   inspections KitInspection[]
+
+  @@unique([companyId, kitNumber])
 }
 
 /// A physical inspection (מסדר) snapshot.
 model KitInspection {
   id            String      @id @default(cuid())
+  companyId     String
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
   kitId         String
   kit           PersonalKit @relation(fields: [kitId], references: [id], onDelete: Cascade)
   /// Keys of KIT_ITEMS found missing during this inspection.
@@ -302,12 +361,15 @@ model KitInspection {
   createdAt     DateTime    @default(now())
 
   @@index([kitId, createdAt])
+  @@index([companyId])
 }
 
 // ───────────────────────────── Module E: ציוד פלוגתי בימ"ח ─────────────────────────────
 
 model StorageItem {
   id              String            @id @default(cuid())
+  companyId       String
+  company         Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
   categoryId      String
   category        EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   /// תקן
@@ -322,5 +384,6 @@ model StorageItem {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
+  @@index([companyId])
   @@index([expiryDate])
 }

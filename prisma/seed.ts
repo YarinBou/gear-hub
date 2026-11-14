@@ -3,102 +3,58 @@ import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
-import type { AmmoCategory, Platoon } from "../src/generated/prisma/enums";
+import type { Platoon, Role } from "../src/generated/prisma/enums";
+import { provisionCompany } from "../src/lib/company-setup";
+
+// Idempotent seed — safe to re-run.
+//   1. The system SUPER_ADMIN (manages companies).            SEED_SUPERADMIN_USERNAME / _PASSWORD
+//   2. A first company with its default catalog and kits.      SEED_COMPANY_NAME
+//   3. That company's first admin.                             SEED_ADMIN_USERNAME / _PASSWORD
+//   4. Optional demo data in that company (SEED_DEMO=1).
+// Further companies are created by the super-admin on /admin/companies.
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: (process.env.DIRECT_URL ?? process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL)! }),
 });
 
-const TOTAL_KITS = 98;
-
-const EQUIPMENT_TYPES = [
-  "M16",
-  "M4",
-  "מאג",
-  "נגב",
-  "מטול רימונים",
-  "כוונת M5",
-  "כוונת טריג'יקון",
-  "משקפת",
-  "אמר\"ל (ראיית לילה)",
-  "רחפן",
-  "מכשיר קשר",
-];
-
-const AMMO_TYPES: { name: string; ammoCategory: AmmoCategory; minThreshold: number }[] = [
-  { name: "5.56 מ\"מ רגיל", ammoCategory: "STANDARD", minThreshold: 10000 },
-  { name: "5.56 מ\"מ נותב", ammoCategory: "STANDARD", minThreshold: 2000 },
-  { name: "7.62 מ\"מ שרשרת", ammoCategory: "STANDARD", minThreshold: 3000 },
-  { name: "רימון רסס", ammoCategory: "EXPLOSIVE", minThreshold: 50 },
-  { name: "רימון 40 מ\"מ", ammoCategory: "EXPLOSIVE", minThreshold: 60 },
-  { name: "רימון הלם", ammoCategory: "NON_LETHAL", minThreshold: 30 },
-  { name: "רימון גז", ammoCategory: "NON_LETHAL", minThreshold: 30 },
-];
-
-const STORAGE_TYPES: { name: string; requiresExpiry?: boolean; target: number }[] = [
-  { name: "רשת הסוואה", target: 12 },
-  { name: "חסם עורקים", requiresExpiry: true, target: 120 },
-  { name: "ערכת עזרה ראשונה", requiresExpiry: true, target: 20 },
-  { name: "מנשא מים (קמל)", target: 100 },
-  { name: "ציוד גשם", target: 100 },
-  { name: "כיסוי קסדה", target: 100 },
-];
-
-async function seedAdmin() {
-  const username = (process.env.SEED_ADMIN_USERNAME ?? "admin").toLowerCase();
+async function ensureUser(opts: {
+  username: string;
+  password: string | undefined;
+  name: string;
+  role: Role;
+  companyId: string | null;
+}) {
+  const username = opts.username.toLowerCase();
   const existing = await prisma.user.findUnique({ where: { username } });
   if (existing) {
-    console.log(`• admin user "${username}" already exists — skipped`);
+    console.log(`• user "${username}" already exists — skipped`);
     return;
   }
-  const password = process.env.SEED_ADMIN_PASSWORD || randomBytes(9).toString("base64url");
+  const password = opts.password || randomBytes(9).toString("base64url");
   await prisma.user.create({
-    data: { username, name: "מנהל מערכת", role: "ADMIN", passwordHash: await bcrypt.hash(password, 12) },
+    data: {
+      username,
+      name: opts.name,
+      role: opts.role,
+      companyId: opts.companyId,
+      passwordHash: await bcrypt.hash(password, 12),
+    },
   });
-  console.log(`• created admin "${username}"`);
-  if (!process.env.SEED_ADMIN_PASSWORD) console.log(`  generated password: ${password}  (change it after first login)`);
+  console.log(`• created ${opts.role} "${username}"`);
+  if (!opts.password) console.log(`  generated password: ${password}  (change it after first login)`);
 }
 
-async function seedCatalog() {
-  for (const name of EQUIPMENT_TYPES) {
-    await prisma.equipmentCategory.upsert({
-      where: { domain_name: { domain: "EQUIPMENT", name } },
-      update: {},
-      create: { domain: "EQUIPMENT", name },
-    });
-  }
-  for (const a of AMMO_TYPES) {
-    await prisma.equipmentCategory.upsert({
-      where: { domain_name: { domain: "AMMUNITION", name: a.name } },
-      update: {},
-      create: { domain: "AMMUNITION", ...a },
-    });
-  }
-  for (const s of STORAGE_TYPES) {
-    const cat = await prisma.equipmentCategory.upsert({
-      where: { domain_name: { domain: "STORAGE", name: s.name } },
-      update: {},
-      create: { domain: "STORAGE", name: s.name, requiresExpiry: s.requiresExpiry ?? false },
-    });
-    const exists = await prisma.storageItem.findFirst({ where: { categoryId: cat.id } });
-    if (!exists) {
-      await prisma.storageItem.create({ data: { categoryId: cat.id, targetQuantity: s.target, currentQuantity: 0 } });
-    }
-  }
-  console.log("• catalog seeded");
-}
-
-async function seedKits() {
-  const { count } = await prisma.personalKit.createMany({
-    data: Array.from({ length: TOTAL_KITS }, (_, i) => ({ kitNumber: i + 1 })),
-    skipDuplicates: true,
-  });
-  console.log(`• ${count} personal kits created (1–${TOTAL_KITS})`);
+async function seedCompany() {
+  const name = process.env.SEED_COMPANY_NAME || "פלוגה א";
+  const company = await prisma.company.upsert({ where: { name }, update: {}, create: { name } });
+  await prisma.$transaction((tx) => provisionCompany(tx, company.id));
+  console.log(`• company "${name}" ready (catalog, storage lines, kits)`);
+  return company;
 }
 
 /** Optional demo data for local development (SEED_DEMO=1). */
-async function seedDemo() {
-  if (await prisma.soldier.count()) {
+async function seedDemo(companyId: string) {
+  if (await prisma.soldier.count({ where: { companyId } })) {
     console.log("• soldiers exist — demo data skipped");
     return;
   }
@@ -106,7 +62,7 @@ async function seedDemo() {
   const firstNames = ["יוסי", "דניאל", "איתי", "נועם", "עומר", "אביב", "רועי", "אורי", "תומר", "עידו"];
   const lastNames = ["כהן", "לוי", "מזרחי", "פרץ", "ביטון", "אברהם", "פרידמן", "דהן", "אזולאי", "שפירא"];
 
-  const m16 = await prisma.equipmentCategory.findFirstOrThrow({ where: { domain: "EQUIPMENT", name: "M16" } });
+  const m16 = await prisma.equipmentCategory.findFirstOrThrow({ where: { companyId, domain: "EQUIPMENT", name: "M16" } });
   const kitKeys = [
     "weaponIssued", "cleaningKit", "weaponSling", "weaponOil", "uniform1", "uniform2", "workBelt",
     "sleepingBag", "tacticalEyewear", "kneePads", "gearBag90L", "tacticalVest", "ceramicPlates",
@@ -117,6 +73,7 @@ async function seedDemo() {
     const platoon = platoons[i % 4];
     const soldier = await prisma.soldier.create({
       data: {
+        companyId,
         name: `${firstNames[i % 10]} ${lastNames[(i * 3) % 10]}`,
         personalNumber: String(8_000_000 + i * 137),
         platoon,
@@ -124,6 +81,7 @@ async function seedDemo() {
     });
     const weapon = await prisma.equipmentItem.create({
       data: {
+        companyId,
         serialNumber: `M16-${100200 + i}`,
         categoryId: m16.id,
         status: "WITH_SOLDIER",
@@ -134,15 +92,16 @@ async function seedDemo() {
     });
     const flags = Object.fromEntries(kitKeys.map((k, j) => [k, (i + j) % 9 !== 0]));
     await prisma.personalKit.update({
-      where: { kitNumber: i + 1 },
+      where: { companyId_kitNumber: { companyId, kitNumber: i + 1 } },
       data: { soldierId: soldier.id, personalWeaponId: weapon.id, rifleType: "M16", magazineCount: 7, ammoCount: 210, ...flags },
     });
   }
 
-  const ammo = await prisma.equipmentCategory.findMany({ where: { domain: "AMMUNITION" } });
+  const ammo = await prisma.equipmentCategory.findMany({ where: { companyId, domain: "AMMUNITION" } });
   for (const [i, a] of ammo.entries()) {
     await prisma.ammoStock.create({
       data: {
+        companyId,
         categoryId: a.id,
         location: "בונקר פלוגתי",
         quantity: Math.round((a.minThreshold ?? 100) * (i % 3 === 0 ? 0.6 : 1.4)),
@@ -151,7 +110,7 @@ async function seedDemo() {
     });
   }
 
-  const storage = await prisma.storageItem.findMany({ include: { category: true } });
+  const storage = await prisma.storageItem.findMany({ where: { companyId }, include: { category: true } });
   for (const [i, s] of storage.entries()) {
     await prisma.storageItem.update({
       where: { id: s.id },
@@ -165,10 +124,22 @@ async function seedDemo() {
 }
 
 async function main() {
-  await seedAdmin();
-  await seedCatalog();
-  await seedKits();
-  if (process.env.SEED_DEMO === "1") await seedDemo();
+  await ensureUser({
+    username: process.env.SEED_SUPERADMIN_USERNAME ?? "superadmin",
+    password: process.env.SEED_SUPERADMIN_PASSWORD,
+    name: "מנהל מערכת",
+    role: "SUPER_ADMIN",
+    companyId: null,
+  });
+  const company = await seedCompany();
+  await ensureUser({
+    username: process.env.SEED_ADMIN_USERNAME ?? "admin",
+    password: process.env.SEED_ADMIN_PASSWORD,
+    name: 'מ"פ',
+    role: "ADMIN",
+    companyId: company.id,
+  });
+  if (process.env.SEED_DEMO === "1") await seedDemo(company.id);
 }
 
 main()

@@ -81,8 +81,8 @@ describe("linked sets", () => {
   });
 });
 
-describe("catalog uniqueness (today: global — becomes per company)", () => {
-  it("rejects a duplicate serial", async () => {
+describe("uniqueness within a company", () => {
+  it("rejects a duplicate serial in the same company", async () => {
     const cat = await makeCategory();
     await makeItem({ categoryId: cat.id, serialNumber: "123" });
     await expect(makeItem({ categoryId: cat.id, serialNumber: "123" })).rejects.toThrow();

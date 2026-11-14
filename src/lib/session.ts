@@ -4,6 +4,8 @@ import type { Role } from "@/generated/prisma/enums";
 // Edge/Node-safe JWT helpers (used by both src/proxy.ts and server code).
 
 export const SESSION_COOKIE = "gh_session";
+/** SUPER_ADMIN only: the company they are currently working in (re-checked on every request). */
+export const ACTIVE_COMPANY_COOKIE = "gh_company";
 export const SESSION_TTL_SECONDS = 60 * 60 * 12; // 12h — one shift
 
 export type SessionPayload = {

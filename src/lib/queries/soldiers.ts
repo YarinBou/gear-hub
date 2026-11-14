@@ -1,25 +1,32 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
+import { companyContext } from "@/lib/context";
+import { scopedDb } from "@/lib/db";
 import { PLATOONS } from "@/lib/constants";
 import type { Platoon } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
-/** Cache tag for anything derived from the roster. Mutations call updateTag(SOLDIERS_TAG). */
-export const SOLDIERS_TAG = "soldiers";
+/** Cache tag for one company's roster. Roster mutations call updateTag(soldiersTag(companyId)). */
+export const soldiersTag = (companyId: string) => `soldiers:${companyId}`;
 
 export type SoldierOption = { id: string; name: string; platoon: Platoon; personalNumber: string | null };
 
 /**
- * Active soldiers for dropdowns across the app (equipment assignment, kit sign-out, …).
- * Cached and shared across requests; invalidated whenever the roster changes.
- * Contains no per-user data — callers must still authorize with requireUser().
+ * Active soldiers of the current user's company, for dropdowns across the app (equipment
+ * assignment, kit sign-out, …). Cached per company; invalidated whenever that roster changes.
  */
 export async function getSoldierOptions(): Promise<SoldierOption[]> {
+  const { companyId } = await requireUser();
+  return cachedSoldierOptions(companyId);
+}
+
+/** companyId is part of the cache key, so companies never see each other's entries. */
+async function cachedSoldierOptions(companyId: string): Promise<SoldierOption[]> {
   "use cache";
-  cacheTag(SOLDIERS_TAG);
+  cacheTag(soldiersTag(companyId));
   cacheLife("hours");
-  return prisma.soldier.findMany({
+  return scopedDb(companyId).soldier.findMany({
     where: { isActive: true },
     orderBy: [{ platoon: "asc" }, { name: "asc" }],
     select: { id: true, name: true, platoon: true, personalNumber: true },
@@ -29,6 +36,7 @@ export async function getSoldierOptions(): Promise<SoldierOption[]> {
 export type RosterFilters = { platoon?: Platoon; q?: string; includeInactive?: boolean };
 
 export async function listSoldiers({ platoon, q, includeInactive }: RosterFilters) {
+  const { db } = await companyContext();
   const where: Prisma.SoldierWhereInput = {
     ...(includeInactive ? {} : { isActive: true }),
     ...(platoon ? { platoon } : {}),
@@ -43,7 +51,7 @@ export async function listSoldiers({ platoon, q, includeInactive }: RosterFilter
         }
       : {}),
   };
-  return prisma.soldier.findMany({
+  return db.soldier.findMany({
     where,
     orderBy: [{ isActive: "desc" }, { platoon: "asc" }, { name: "asc" }],
     select: {
@@ -61,14 +69,16 @@ export async function listSoldiers({ platoon, q, includeInactive }: RosterFilter
 }
 
 export async function getRosterCounts() {
-  const rows = await prisma.soldier.groupBy({ by: ["platoon"], where: { isActive: true }, _count: { _all: true } });
+  const { db } = await companyContext();
+  const rows = await db.soldier.groupBy({ by: ["platoon"], where: { isActive: true }, _count: { _all: true } });
   const counts = Object.fromEntries(PLATOONS.map((p) => [p, 0])) as Record<Platoon, number>;
   for (const r of rows) counts[r.platoon] = r._count._all;
   return { byPlatoon: counts, total: rows.reduce((a, r) => a + r._count._all, 0) };
 }
 
 export async function getSoldier(id: string) {
-  return prisma.soldier.findUnique({
+  const { db } = await companyContext();
+  return db.soldier.findUnique({
     where: { id },
     include: {
       kit: { select: { id: true, kitNumber: true, signedAt: true } },

@@ -8,6 +8,7 @@ import { cn, formatNumber } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { StorageRow } from "./storage-row";
+import { isCompanyAdmin } from "@/lib/roles";
 
 export const metadata: Metadata = { title: 'ציוד פלוגתי בימ"ח' };
 
@@ -78,7 +79,7 @@ export default async function StoragePage({ searchParams }: PageProps<"/storage"
       {lines.length === 0 ? (
         <Card className="items-center py-10 text-center">
           <p className="text-muted-foreground">אין פריטי בימ&quot;ח בקטלוג.</p>
-          {user.role === "ADMIN" && (
+          {isCompanyAdmin(user.role) && (
             <Link href="/catalog?domain=STORAGE" className="text-primary underline-offset-4 hover:underline">
               הוספת פריטים בקטלוג
             </Link>

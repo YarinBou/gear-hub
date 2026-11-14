@@ -20,6 +20,7 @@ import { PlatoonBadge } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AssignForm, ComponentsEditor, DeleteItem, DetachButton, DetailsForm, VerifyNowButton } from "./item-forms";
+import { isCompanyAdmin } from "@/lib/roles";
 
 export const metadata: Metadata = { title: 'פריט צל"ם' };
 
@@ -155,7 +156,7 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
 
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
           <HistoryCard logs={item.logs} />
-          {user.role === "ADMIN" && (
+          {isCompanyAdmin(user.role) && (
             <Card className="py-4">
               <CardContent>
                 <DeleteItem itemId={item.id} label={itemLabel(item)} hasComponents={item.components.length > 0} />

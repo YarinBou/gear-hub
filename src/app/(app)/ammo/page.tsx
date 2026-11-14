@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import type { AmmoCategory } from "@/generated/prisma/enums";
 import { AddStockForm, StockRow } from "./ammo-forms";
+import { isCompanyAdmin } from "@/lib/roles";
 
 export const metadata: Metadata = { title: "ניהול תחמושת" };
 
@@ -103,7 +104,7 @@ export default async function AmmoPage({ searchParams }: PageProps<"/ammo">) {
       {categories.length === 0 ? (
         <Card className="items-center py-10 text-center">
           <p className="text-muted-foreground">אין סוגי תחמושת בקטלוג.</p>
-          {user.role === "ADMIN" && (
+          {isCompanyAdmin(user.role) && (
             <Link href="/catalog?domain=AMMUNITION" className="text-primary underline-offset-4 hover:underline">
               הוספת סוגים בקטלוג
             </Link>
@@ -120,7 +121,7 @@ export default async function AmmoPage({ searchParams }: PageProps<"/ammo">) {
           </h2>
           <div className="grid gap-3 lg:grid-cols-2">
             {g.types.map((t) => (
-              <AmmoTypeCard key={t.id} type={t} isAdmin={user.role === "ADMIN"} />
+              <AmmoTypeCard key={t.id} type={t} isAdmin={isCompanyAdmin(user.role)} />
             ))}
           </div>
         </section>

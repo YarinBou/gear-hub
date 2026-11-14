@@ -1,6 +1,6 @@
 import "server-only";
 import { connection } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { companyContext } from "@/lib/context";
 import { ammoLevel, type AmmoLevel } from "@/lib/ammo-rules";
 import type { AmmoCategory } from "@/generated/prisma/enums";
 
@@ -12,7 +12,8 @@ const RECENT_LOGS = 5;
  */
 export async function getAmmoOverview() {
   await connection();
-  const categories = await prisma.equipmentCategory.findMany({
+  const { db } = await companyContext();
+  const categories = await db.equipmentCategory.findMany({
     where: { domain: "AMMUNITION", OR: [{ isActive: true }, { ammoStocks: { some: { quantity: { gt: 0 } } } }] },
     orderBy: { name: "asc" },
     select: {
@@ -69,6 +70,7 @@ export type AmmoStockRow = AmmoTypeOverview["ammoStocks"][number];
 
 /** Existing location names, for the location autocomplete. */
 export async function getAmmoLocations() {
-  const rows = await prisma.ammoStock.findMany({ distinct: ["location"], select: { location: true }, orderBy: { location: "asc" } });
+  const { db } = await companyContext();
+  const rows = await db.ammoStock.findMany({ distinct: ["location"], select: { location: true }, orderBy: { location: "asc" } });
   return rows.map((r) => r.location);
 }

@@ -4,8 +4,7 @@ import { refresh } from "next/cache";
 import { Prisma } from "@/generated/prisma/client";
 import type { AmmoLogType } from "@/generated/prisma/enums";
 import { applyMovement } from "@/lib/ammo-rules";
-import { requireAdmin, requireUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { companyContext, adminContext } from "@/lib/context";
 import { formatNumber } from "@/lib/utils";
 import { AddStockSchema, MovementSchema } from "@/lib/validation/ammo";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
@@ -18,7 +17,7 @@ class MovementError extends Error {}
 
 /** Open a new (type, location) stock row with an initial count. */
 export async function addStock(_prev: AmmoFormState, fd: FormData): Promise<AmmoFormState> {
-  const user = await requireUser();
+  const { user, db } = await companyContext();
   const parsed = AddStockSchema.safeParse({
     categoryId: fd.get("categoryId") ?? "",
     location: fd.get("location") ?? "",
@@ -28,19 +27,20 @@ export async function addStock(_prev: AmmoFormState, fd: FormData): Promise<Ammo
   if (!parsed.success) return { errors: toFieldErrors(parsed.error) };
   const { categoryId, location, quantity, note } = parsed.data;
 
-  const category = await prisma.equipmentCategory.findFirst({
+  const category = await db.equipmentCategory.findFirst({
     where: { id: categoryId, domain: "AMMUNITION", isActive: true },
     select: { name: true },
   });
   if (!category) return { errors: { categoryId: "סוג תחמושת לא תקין" } };
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       const stock = await tx.ammoStock.create({
-        data: { categoryId, location, quantity, lastCountedAt: new Date() },
+        data: { companyId: user.companyId, categoryId, location, quantity, lastCountedAt: new Date() },
       });
       await tx.ammoLog.create({
         data: {
+          companyId: user.companyId,
           stockId: stock.id,
           type: "COUNT",
           amount: quantity,
@@ -63,7 +63,7 @@ export async function addStock(_prev: AmmoFormState, fd: FormData): Promise<Ammo
 
 /** Count / receive / issue at one location. Row-locked so concurrent updates can't lose a movement. */
 export async function recordMovement(stockId: string, _prev: AmmoFormState, fd: FormData): Promise<AmmoFormState> {
-  const user = await requireUser();
+  const { user, db } = await companyContext();
   const parsed = MovementSchema.safeParse({
     type: fd.get("type") ?? "",
     amount: fd.get("amount") ?? "",
@@ -75,10 +75,11 @@ export async function recordMovement(stockId: string, _prev: AmmoFormState, fd: 
 
   let result: { previous: number; next: number };
   try {
-    result = await prisma.$transaction(async (tx) => {
-      // Lock the row for the duration of the transaction.
+    result = await db.$transaction(async (tx) => {
+      // Lock the row for the duration of the transaction. Raw SQL isn't scoped by scopedDb,
+      // so the company condition is written out here.
       const rows = await tx.$queryRaw<{ quantity: number }[]>`
-        SELECT quantity FROM "AmmoStock" WHERE id = ${stockId} FOR UPDATE`;
+        SELECT quantity FROM "AmmoStock" WHERE id = ${stockId} AND "companyId" = ${user.companyId} FOR UPDATE`;
       if (!rows.length) throw new MovementError("המיקום לא נמצא");
       const previous = rows[0].quantity;
       const moved = applyMovement(previous, type, amount);
@@ -90,6 +91,7 @@ export async function recordMovement(stockId: string, _prev: AmmoFormState, fd: 
       });
       await tx.ammoLog.create({
         data: {
+          companyId: user.companyId,
           stockId,
           type,
           amount,
@@ -119,8 +121,8 @@ export async function recordMovement(stockId: string, _prev: AmmoFormState, fd: 
 
 /** Remove an empty location. Admin only — it also removes that location's log. */
 export async function deleteStock(stockId: string): Promise<{ ok: boolean; message?: string }> {
-  await requireAdmin();
-  const { count } = await prisma.ammoStock.deleteMany({ where: { id: stockId, quantity: 0 } });
+  const { db } = await adminContext();
+  const { count } = await db.ammoStock.deleteMany({ where: { id: stockId, quantity: 0 } });
   if (!count) return { ok: false, message: "ניתן להסיר רק מיקום ריק (כמות 0)" };
   refresh();
   return { ok: true };

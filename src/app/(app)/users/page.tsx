@@ -1,14 +1,13 @@
 import type { Metadata } from "next";
-import { requireAdmin } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { adminContext } from "@/lib/context";
 import { Card } from "@/components/ui/card";
 import { AddUserForm, UserRow } from "./user-forms";
 
 export const metadata: Metadata = { title: "ניהול משתמשים" };
 
 export default async function UsersPage() {
-  const me = await requireAdmin();
-  const users = await prisma.user.findMany({
+  const { user: me, db } = await adminContext();
+  const users = await db.user.findMany({
     orderBy: [{ isActive: "desc" }, { role: "asc" }, { name: "asc" }],
     select: { id: true, name: true, username: true, role: true, platoon: true, isActive: true },
   });

@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Backpack, Crosshair, User } from "lucide-react";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth";
+import { companyContext } from "@/lib/context";
 import { EQUIPMENT_STATUS_LABELS, TOTAL_KITS } from "@/lib/constants";
 import { Serial } from "@/components/equipment/serial";
 import { PlatoonBadge } from "@/components/platoon-badge";
@@ -13,14 +12,14 @@ import { GlobalSearch } from "@/components/layout/global-search";
 export const metadata: Metadata = { title: "חיפוש" };
 
 export default async function SearchPage({ searchParams }: PageProps<"/search">) {
-  await requireUser();
+  const { db } = await companyContext();
   const raw = (await searchParams).q;
   const q = (Array.isArray(raw) ? raw[0] : raw)?.trim() ?? "";
 
   const kitNumber = /^\d{1,2}$/.test(q) ? Number(q) : null;
   const [soldiers, items, kit] = q
     ? await Promise.all([
-        prisma.soldier.findMany({
+        db.soldier.findMany({
           where: {
             isActive: true,
             OR: [{ name: { contains: q, mode: "insensitive" } }, { personalNumber: { contains: q } }],
@@ -29,7 +28,7 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
           orderBy: { name: "asc" },
           select: { id: true, name: true, personalNumber: true, platoon: true },
         }),
-        prisma.equipmentItem.findMany({
+        db.equipmentItem.findMany({
           where: { serialNumber: { contains: q, mode: "insensitive" } },
           take: 20,
           orderBy: { serialNumber: "asc" },
@@ -42,7 +41,7 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
           },
         }),
         kitNumber && kitNumber >= 1 && kitNumber <= TOTAL_KITS
-          ? prisma.personalKit.findUnique({
+          ? db.personalKit.findFirst({
               where: { kitNumber },
               select: { kitNumber: true, soldier: { select: { name: true } } },
             })

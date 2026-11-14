@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { LogOut, ShieldHalf } from "lucide-react";
+import { Building2, LogOut, ShieldHalf } from "lucide-react";
+import { leaveCompany } from "@/app/admin/companies/actions";
 import { logout } from "@/app/login/actions";
 import { requireUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,17 @@ export async function AppHeader() {
   const user = await requireUser();
   return (
     <HeaderFrame>
+      {user.role === "SUPER_ADMIN" ? (
+        // Super-admin working inside a company: show which one, and a way back to the company list.
+        <form action={leaveCompany}>
+          <Button variant="outline" size="sm" type="submit" title="החלפת פלוגה">
+            <Building2 />
+            <span className="max-w-32 truncate">{user.companyName}</span>
+          </Button>
+        </form>
+      ) : (
+        <span className="text-muted-foreground hidden max-w-40 truncate text-sm md:block">{user.companyName}</span>
+      )}
       <Link href="/account" className="hover:bg-accent hidden rounded-md px-2 py-1 text-end leading-tight sm:block" title="החשבון שלי">
         <p className="text-sm font-medium">{user.name}</p>
         <p className="text-muted-foreground text-xs">{ROLE_LABELS[user.role]}</p>

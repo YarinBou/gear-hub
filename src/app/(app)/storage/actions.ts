@@ -2,8 +2,7 @@
 
 import { refresh } from "next/cache";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { companyContext } from "@/lib/context";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
 
 export type StorageFormState = { ok?: boolean; message?: string; error?: string; errors?: FieldErrors; at?: number } | undefined;
@@ -38,7 +37,7 @@ const StorageSchema = z.object({
 
 /** Create or update the storage line of one type. */
 export async function saveStorageLine(categoryId: string, _prev: StorageFormState, fd: FormData): Promise<StorageFormState> {
-  await requireUser();
+  const { user, db } = await companyContext();
   const parsed = StorageSchema.safeParse(
     Object.fromEntries(
       ["targetQuantity", "currentQuantity", "expiryDate", "location", "notes", "damaged"].map((k) => [k, fd.get(k) ?? ""]),
@@ -47,7 +46,7 @@ export async function saveStorageLine(categoryId: string, _prev: StorageFormStat
   if (!parsed.success) return { errors: toFieldErrors(parsed.error) };
   const d = parsed.data;
 
-  const category = await prisma.equipmentCategory.findFirst({
+  const category = await db.equipmentCategory.findFirst({
     where: { id: categoryId, domain: "STORAGE" },
     select: { name: true, requiresExpiry: true, storageItems: { take: 1, orderBy: { createdAt: "asc" }, select: { id: true } } },
   });
@@ -67,8 +66,8 @@ export async function saveStorageLine(categoryId: string, _prev: StorageFormStat
     status: d.damaged ? ("DAMAGED" as const) : ("OK" as const),
   };
   const existing = category.storageItems[0];
-  if (existing) await prisma.storageItem.update({ where: { id: existing.id }, data });
-  else await prisma.storageItem.create({ data: { ...data, categoryId } });
+  if (existing) await db.storageItem.update({ where: { id: existing.id }, data });
+  else await db.storageItem.create({ data: { ...data, categoryId, companyId: user.companyId } });
 
   refresh();
   return { ok: true, message: `${category.name} עודכן`, at: Date.now() };

@@ -14,6 +14,32 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // Multi-company: app code must use scopedDb() (src/lib/db.ts) via companyContext(), never the
+  // unscoped client. Only these files may import it.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/lib/prisma.ts",
+      "src/lib/db.ts",
+      "src/lib/auth.ts",
+      "src/lib/login-throttle.ts",
+      "src/app/login/actions.ts",
+      "src/app/admin/**",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@/lib/prisma",
+              message: "Use companyContext() / scopedDb() from @/lib/context or @/lib/db — the raw client is not company-scoped.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

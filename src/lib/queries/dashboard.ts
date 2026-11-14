@@ -1,6 +1,6 @@
 import "server-only";
 import { connection } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { companyContext } from "@/lib/context";
 import { kitChecklistSelect, kitReadiness } from "@/lib/kit";
 import { PLATOONS, TOTAL_KITS } from "@/lib/constants";
 import { staleWhere } from "@/lib/equipment-rules";
@@ -16,6 +16,7 @@ export type KitCell = {
 };
 
 export async function getDashboardData() {
+  const { db } = await companyContext();
   // Live operational data: always render at request time (before reading the clock).
   await connection();
   const stale = staleWhere();
@@ -31,10 +32,10 @@ export async function getDashboardData() {
     kits,
     storageItems,
   ] = await Promise.all([
-    prisma.soldier.groupBy({ by: ["platoon"], where: { isActive: true }, _count: { _all: true } }),
-    prisma.equipmentItem.groupBy({ by: ["status"], _count: { _all: true } }),
-    prisma.equipmentItem.groupBy({ by: ["platoon"], _count: { _all: true } }),
-    prisma.equipmentItem.findMany({
+    db.soldier.groupBy({ by: ["platoon"], where: { isActive: true }, _count: { _all: true } }),
+    db.equipmentItem.groupBy({ by: ["status"], _count: { _all: true } }),
+    db.equipmentItem.groupBy({ by: ["platoon"], _count: { _all: true } }),
+    db.equipmentItem.findMany({
       where: stale,
       orderBy: [{ lastVerifiedAt: { sort: "asc", nulls: "first" } }],
       take: 5,
@@ -46,15 +47,15 @@ export async function getDashboardData() {
         assignedSoldier: { select: { name: true } },
       },
     }),
-    prisma.equipmentItem.count({
+    db.equipmentItem.count({
       where: stale,
     }),
-    prisma.equipmentCategory.findMany({
+    db.equipmentCategory.findMany({
       where: { domain: "AMMUNITION", isActive: true },
       select: { id: true, name: true, ammoCategory: true, minThreshold: true },
     }),
-    prisma.ammoStock.groupBy({ by: ["categoryId"], _sum: { quantity: true } }),
-    prisma.personalKit.findMany({
+    db.ammoStock.groupBy({ by: ["categoryId"], _sum: { quantity: true } }),
+    db.personalKit.findMany({
       orderBy: { kitNumber: "asc" },
       select: {
         kitNumber: true,
@@ -62,7 +63,7 @@ export async function getDashboardData() {
         ...kitChecklistSelect,
       },
     }),
-    prisma.storageItem.findMany({
+    db.storageItem.findMany({
       select: {
         id: true,
         targetQuantity: true,

@@ -1,7 +1,7 @@
 import "server-only";
 import { connection } from "next/server";
 import { getActiveCategories } from "@/lib/queries/catalog";
-import { prisma } from "@/lib/prisma";
+import { companyContext } from "@/lib/context";
 import { EQUIPMENT_STATUSES } from "@/lib/constants";
 import { staleWhere } from "@/lib/equipment-rules";
 import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
@@ -49,11 +49,12 @@ function buildWhere(f: EquipmentFilters, now: Date): Prisma.EquipmentItemWhereIn
 
 export async function listEquipment(f: EquipmentFilters) {
   await connection();
+  const { db } = await companyContext();
   const now = new Date();
   const where = buildWhere(f, now);
   const page = Math.max(1, f.page ?? 1);
   const [items, total] = await Promise.all([
-    prisma.equipmentItem.findMany({
+    db.equipmentItem.findMany({
       where,
       orderBy: [{ category: { name: "asc" } }, { serialNumber: { sort: "asc", nulls: "last" } }],
       skip: (page - 1) * PAGE_SIZE,
@@ -70,7 +71,7 @@ export async function listEquipment(f: EquipmentFilters) {
         _count: { select: { components: true } },
       },
     }),
-    prisma.equipmentItem.count({ where }),
+    db.equipmentItem.count({ where }),
   ]);
   return { items, total, page, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
 }
@@ -80,11 +81,12 @@ export type EquipmentListItem = Awaited<ReturnType<typeof listEquipment>>["items
 /** Counts for the status chips + stale chip (unfiltered, company-wide). */
 export async function getEquipmentCounts() {
   await connection();
+  const { db } = await companyContext();
   const [byStatus, stale, total, noSerial] = await Promise.all([
-    prisma.equipmentItem.groupBy({ by: ["status"], _count: { _all: true } }),
-    prisma.equipmentItem.count({ where: staleWhere() }),
-    prisma.equipmentItem.count(),
-    prisma.equipmentItem.count({ where: { serialNumber: null } }),
+    db.equipmentItem.groupBy({ by: ["status"], _count: { _all: true } }),
+    db.equipmentItem.count({ where: staleWhere() }),
+    db.equipmentItem.count(),
+    db.equipmentItem.count({ where: { serialNumber: null } }),
   ]);
   const status = Object.fromEntries(EQUIPMENT_STATUSES.map((s) => [s, 0])) as Record<EquipmentStatus, number>;
   for (const r of byStatus) status[r.status] = r._count._all;
@@ -92,7 +94,8 @@ export async function getEquipmentCounts() {
 }
 
 export async function getEquipmentItem(id: string) {
-  return prisma.equipmentItem.findUnique({
+  const { db } = await companyContext();
+  return db.equipmentItem.findUnique({
     where: { id },
     include: {
       category: { select: { id: true, name: true } },
@@ -123,7 +126,8 @@ export type EquipmentDetail = NonNullable<Awaited<ReturnType<typeof getEquipment
  * themselves, and either unassigned or held by the same soldier as the parent.
  */
 export async function getComponentCandidates(parent: { id: string; assignedSoldierId: string | null }) {
-  return prisma.equipmentItem.findMany({
+  const { db } = await companyContext();
+  return db.equipmentItem.findMany({
     where: {
       id: { not: parent.id },
       parentId: null,
@@ -144,7 +148,8 @@ export type ComponentCandidate = Awaited<ReturnType<typeof getComponentCandidate
  */
 export async function getEquipmentReport(platoon?: Platoon) {
   await connection();
-  const categories = await prisma.equipmentCategory.findMany({
+  const { db } = await companyContext();
+  const categories = await db.equipmentCategory.findMany({
     where: { domain: "EQUIPMENT", OR: [{ isActive: true }, { equipmentItems: { some: {} } }] },
     orderBy: { name: "asc" },
     select: {

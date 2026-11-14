@@ -1,6 +1,6 @@
 import "server-only";
 import { connection } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { companyContext } from "@/lib/context";
 import { TOTAL_KITS } from "@/lib/constants";
 import { KIT_ITEM_KEYS, kitChecklistSelect, kitReadiness, type KitBooleanKey } from "@/lib/kit";
 import type { Platoon } from "@/generated/prisma/enums";
@@ -17,7 +17,8 @@ export type KitTile = {
 /** All 98 slots, including kits whose DB row doesn't exist yet. */
 export async function listKits(): Promise<KitTile[]> {
   await connection();
-  const kits = await prisma.personalKit.findMany({
+  const { db } = await companyContext();
+  const kits = await db.personalKit.findMany({
     select: {
       kitNumber: true,
       signedAt: true,
@@ -41,7 +42,9 @@ export async function listKits(): Promise<KitTile[]> {
 }
 
 export async function getKit(kitNumber: number) {
-  return prisma.personalKit.findUnique({
+  const { db } = await companyContext();
+  // Kit numbers repeat across companies; the scoped client limits this to the user's company.
+  return db.personalKit.findFirst({
     where: { kitNumber },
     include: {
       soldier: { select: { id: true, name: true, platoon: true, personalNumber: true, phone: true } },
@@ -62,14 +65,15 @@ export type KitDetail = NonNullable<Awaited<ReturnType<typeof getKit>>>;
 
 /** Previous / next *issued* kit numbers, for walking through a מסדר. */
 export async function getKitNeighbours(kitNumber: number, platoon?: Platoon) {
+  const { db } = await companyContext();
   const where = { soldierId: { not: null }, ...(platoon ? { soldier: { platoon } } : {}) };
   const [prev, next] = await Promise.all([
-    prisma.personalKit.findFirst({
+    db.personalKit.findFirst({
       where: { ...where, kitNumber: { lt: kitNumber } },
       orderBy: { kitNumber: "desc" },
       select: { kitNumber: true },
     }),
-    prisma.personalKit.findFirst({
+    db.personalKit.findFirst({
       where: { ...where, kitNumber: { gt: kitNumber } },
       orderBy: { kitNumber: "asc" },
       select: { kitNumber: true },
@@ -80,7 +84,8 @@ export async function getKitNeighbours(kitNumber: number, platoon?: Platoon) {
 
 /** Soldier ids that already hold a kit (other than `exceptKit`). */
 export async function getSoldiersWithKit(exceptKit?: number) {
-  const rows = await prisma.personalKit.findMany({
+  const { db } = await companyContext();
+  const rows = await db.personalKit.findMany({
     where: { soldierId: { not: null }, ...(exceptKit ? { kitNumber: { not: exceptKit } } : {}) },
     select: { soldierId: true, kitNumber: true },
   });
@@ -93,7 +98,8 @@ export async function getSoldiersWithKit(exceptKit?: number) {
  * Items linked to another kit are excluded.
  */
 export async function getWeaponOptions(soldierId: string | null, currentWeaponId: string | null) {
-  const items = await prisma.equipmentItem.findMany({
+  const { db } = await companyContext();
+  const items = await db.equipmentItem.findMany({
     where: {
       OR: [
         ...(soldierId ? [{ assignedSoldierId: soldierId }] : []),

@@ -6,6 +6,7 @@ import { getSoldierOptions } from "@/lib/queries/soldiers";
 import { BackLink } from "@/components/layout/back-link";
 import { Card, CardContent } from "@/components/ui/card";
 import { NewEquipmentForm } from "./new-equipment-form";
+import { isCompanyAdmin } from "@/lib/roles";
 
 export const metadata: Metadata = { title: 'הוספת צל"ם' };
 
@@ -21,7 +22,7 @@ export default async function NewEquipmentPage({ searchParams }: PageProps<"/equ
       {categories.length === 0 ? (
         <Card className="items-center py-10 text-center">
           <p className="text-muted-foreground">אין סוגי צל&quot;ם בקטלוג.</p>
-          {user.role === "ADMIN" ? (
+          {isCompanyAdmin(user.role) ? (
             <Link href="/catalog" className="text-primary underline-offset-4 hover:underline">
               הוספת סוגים בקטלוג
             </Link>

@@ -4,10 +4,9 @@ import { updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma } from "@/generated/prisma/client";
 import type { Platoon } from "@/generated/prisma/enums";
-import { requireUser } from "@/lib/auth";
+import { companyContext } from "@/lib/context";
 import { PLATOONS } from "@/lib/constants";
-import { prisma } from "@/lib/prisma";
-import { SOLDIERS_TAG } from "@/lib/queries/soldiers";
+import { soldiersTag } from "@/lib/queries/soldiers";
 import { MAX_IMPORT_ROWS, parseRosterText } from "@/lib/roster-import";
 import { fieldErrors, SoldierSchema, type SoldierFieldErrors } from "@/lib/validation/soldier";
 
@@ -37,22 +36,22 @@ function isUniqueViolation(e: unknown) {
 const DUPLICATE_PN: SoldierFieldErrors = { personalNumber: "מספר אישי זה כבר קיים בסד\"כ" };
 
 export async function createSoldier(_prev: SoldierFormState, formData: FormData): Promise<SoldierFormState> {
-  await requireUser();
+  const { user, db } = await companyContext();
   const values = readForm(formData);
   const parsed = SoldierSchema.safeParse(values);
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values };
 
   let id: string;
   try {
-    const soldier = await prisma.soldier.create({
-      data: { ...parsed.data, platoon: parsed.data.platoon as Platoon },
+    const soldier = await db.soldier.create({
+      data: { ...parsed.data, platoon: parsed.data.platoon as Platoon, companyId: user.companyId },
     });
     id = soldier.id;
   } catch (e) {
     if (isUniqueViolation(e)) return { errors: DUPLICATE_PN, values };
     throw e;
   }
-  updateTag(SOLDIERS_TAG);
+  updateTag(soldiersTag(user.companyId));
 
   if (formData.get("intent") === "again") {
     // Keep the platoon selected for fast consecutive entry.
@@ -66,14 +65,14 @@ export async function updateSoldier(
   _prev: SoldierFormState,
   formData: FormData,
 ): Promise<SoldierFormState> {
-  await requireUser();
+  const { user, db } = await companyContext();
   const values = readForm(formData);
   const parsed = SoldierSchema.safeParse(values);
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values };
   const platoon = parsed.data.platoon as Platoon;
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await db.$transaction(async (tx) => {
       const before = await tx.soldier.findUniqueOrThrow({ where: { id }, select: { platoon: true } });
       await tx.soldier.update({
         where: { id },
@@ -94,7 +93,7 @@ export async function updateSoldier(
     if (isUniqueViolation(e)) return { errors: DUPLICATE_PN, values };
     throw e;
   }
-  updateTag(SOLDIERS_TAG);
+  updateTag(soldiersTag(user.companyId));
   return { ok: true, message: "הפרטים נשמרו", values };
 }
 
@@ -107,9 +106,9 @@ export async function setSoldierActive(
   _prev: ActiveState,
   _formData: FormData,
 ): Promise<ActiveState> {
-  await requireUser();
+  const { user, db } = await companyContext();
   if (!active) {
-    const s = await prisma.soldier.findUnique({
+    const s = await db.soldier.findUnique({
       where: { id },
       select: { _count: { select: { equipment: true } }, kit: { select: { kitNumber: true } } },
     });
@@ -121,8 +120,8 @@ export async function setSoldierActive(
       return { error: `לא ניתן להוציא מהסד"כ לפני זיכוי: ${blockers.join(", ")}` };
     }
   }
-  await prisma.soldier.update({ where: { id }, data: { isActive: active } });
-  updateTag(SOLDIERS_TAG);
+  await db.soldier.update({ where: { id }, data: { isActive: active } });
+  updateTag(soldiersTag(user.companyId));
   return undefined;
 }
 
@@ -135,7 +134,7 @@ export type ImportState =
   | undefined;
 
 export async function importSoldiers(_prev: ImportState, formData: FormData): Promise<ImportState> {
-  await requireUser();
+  const { user, db } = await companyContext();
   const text = String(formData.get("text") ?? "");
   const defaultRaw = String(formData.get("defaultPlatoon") ?? "");
   const defaultPlatoon = (PLATOONS as string[]).includes(defaultRaw) ? (defaultRaw as Platoon) : null;
@@ -155,7 +154,7 @@ export async function importSoldiers(_prev: ImportState, formData: FormData): Pr
   const pns = valid.map((r) => r.data.personalNumber).filter((v): v is string => !!v);
   const existing = new Set(
     (
-      await prisma.soldier.findMany({ where: { personalNumber: { in: pns } }, select: { personalNumber: true } })
+      await db.soldier.findMany({ where: { personalNumber: { in: pns } }, select: { personalNumber: true } })
     ).map((s) => s.personalNumber),
   );
 
@@ -167,11 +166,11 @@ export async function importSoldiers(_prev: ImportState, formData: FormData): Pr
     return true;
   });
 
-  const { count } = await prisma.soldier.createMany({
-    data: toCreate.map((r) => ({ ...r.data, platoon: r.data.platoon as Platoon })),
+  const { count } = await db.soldier.createMany({
+    data: toCreate.map((r) => ({ ...r.data, platoon: r.data.platoon as Platoon, companyId: user.companyId })),
     skipDuplicates: true,
   });
-  if (count) updateTag(SOLDIERS_TAG);
+  if (count) updateTag(soldiersTag(user.companyId));
 
   skipped.sort((a, b) => a.line - b.line);
   return { created: count, skipped };

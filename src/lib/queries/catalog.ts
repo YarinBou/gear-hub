@@ -1,22 +1,27 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
+import { companyContext } from "@/lib/context";
+import { scopedDb } from "@/lib/db";
 import type { CatalogDomain } from "@/generated/prisma/enums";
 
-/** Cache tag for every catalog-derived dropdown. Catalog mutations call updateTag(CATALOG_TAG). */
-export const CATALOG_TAG = "catalog";
+/** Cache tag for one company's catalog dropdowns. Catalog mutations call updateTag(catalogTag(companyId)). */
+export const catalogTag = (companyId: string) => `catalog:${companyId}`;
 
 export const CATALOG_DOMAINS: CatalogDomain[] = ["EQUIPMENT", "AMMUNITION", "STORAGE"];
 
-/**
- * Active types of one domain, for dropdowns in every module (cached, shared across requests).
- * Contains no per-user data — callers still authorize with requireUser().
- */
+/** Active types of one domain in the current user's company, for dropdowns (cached per company). */
 export async function getActiveCategories(domain: CatalogDomain) {
+  const { companyId } = await requireUser();
+  return cachedActiveCategories(companyId, domain);
+}
+
+/** companyId is part of the cache key, so companies never see each other's entries. */
+async function cachedActiveCategories(companyId: string, domain: CatalogDomain) {
   "use cache";
-  cacheTag(CATALOG_TAG);
+  cacheTag(catalogTag(companyId));
   cacheLife("hours");
-  return prisma.equipmentCategory.findMany({
+  return scopedDb(companyId).equipmentCategory.findMany({
     where: { domain, isActive: true },
     orderBy: { name: "asc" },
     select: { id: true, name: true, ammoCategory: true, minThreshold: true, requiresExpiry: true },
@@ -25,7 +30,8 @@ export async function getActiveCategories(domain: CatalogDomain) {
 
 /** Admin catalog screen: all types of a domain, including inactive, with usage counts. */
 export async function listCatalog(domain: CatalogDomain) {
-  const rows = await prisma.equipmentCategory.findMany({
+  const { db } = await companyContext();
+  const rows = await db.equipmentCategory.findMany({
     where: { domain },
     orderBy: [{ isActive: "desc" }, { name: "asc" }],
     include: {
@@ -46,7 +52,8 @@ export async function listCatalog(domain: CatalogDomain) {
 export type CatalogRow = Awaited<ReturnType<typeof listCatalog>>[number];
 
 export async function getCatalogCounts() {
-  const rows = await prisma.equipmentCategory.groupBy({ by: ["domain"], _count: { _all: true } });
+  const { db } = await companyContext();
+  const rows = await db.equipmentCategory.groupBy({ by: ["domain"], _count: { _all: true } });
   const counts = Object.fromEntries(CATALOG_DOMAINS.map((d) => [d, 0])) as Record<CatalogDomain, number>;
   for (const r of rows) counts[r.domain] = r._count._all;
   return counts;

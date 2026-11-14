@@ -25,11 +25,12 @@ export type AssignmentInput = {
 export class AssignmentError extends Error {}
 
 type State = { assignedSoldierId: string | null; status: EquipmentStatus; platoon: Platoon | null };
+type ItemRef = State & { id: string; companyId: string };
 
 /** Set one item's holder/status/platoon and log the change. No rules — callers decide the target state. */
 async function writeState(
   tx: Tx,
-  item: State & { id: string },
+  item: ItemRef,
   next: State,
   opts: { note?: string; verify?: boolean; userId: string },
 ) {
@@ -48,6 +49,7 @@ async function writeState(
   if (changed || opts.note) {
     await tx.equipmentLog.create({
       data: {
+        companyId: item.companyId,
         itemId: item.id,
         fromSoldierId: item.assignedSoldierId,
         toSoldierId: next.assignedSoldierId,
@@ -71,7 +73,7 @@ async function syncComponents(
 ) {
   const components = await tx.equipmentItem.findMany({
     where: { parentId: parent.id },
-    select: { id: true, assignedSoldierId: true, status: true, platoon: true },
+    select: { id: true, companyId: true, assignedSoldierId: true, status: true, platoon: true },
   });
   const note = `עבר יחד עם ${itemLabel(parent)}`;
   for (const c of components) {
@@ -82,10 +84,12 @@ async function syncComponents(
 }
 
 export async function applyAssignment(tx: Tx, itemId: string, input: AssignmentInput, userId: string) {
-  const item = await tx.equipmentItem.findUniqueOrThrow({
+  // With a company-scoped client, another company's item reads as "not found".
+  const item = await tx.equipmentItem.findUnique({
     where: { id: itemId },
     select: {
       id: true,
+      companyId: true,
       serialNumber: true,
       status: true,
       platoon: true,
@@ -94,6 +98,7 @@ export async function applyAssignment(tx: Tx, itemId: string, input: AssignmentI
       parent: { select: { serialNumber: true, category: { select: { name: true } } } },
     },
   });
+  if (!item) throw new AssignmentError("הפריט לא נמצא");
   if (item.parent) {
     throw new AssignmentError(
       `הפריט הוא רכיב של ${itemLabel(item.parent)}. יש לעדכן את השיוך בפריט הראשי, או לנתק את הרכיב תחילה.`,
@@ -146,6 +151,7 @@ export async function attachComponent(tx: Tx, parentId: string, childId: string,
       where: { id: childId },
       select: {
         id: true,
+        companyId: true,
         serialNumber: true,
         parentId: true,
         assignedSoldierId: true,
@@ -180,6 +186,7 @@ export async function detachComponent(tx: Tx, childId: string, userId: string) {
     where: { id: childId },
     select: {
       id: true,
+      companyId: true,
       assignedSoldierId: true,
       status: true,
       platoon: true,

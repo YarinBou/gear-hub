@@ -25,6 +25,15 @@ vi.mock("next/server", async (importOriginal) => ({
   connection: async () => {},
 }));
 
+// The real auth layer runs; it reads cookies from the test jar (see auth-mock.ts).
+vi.mock("next/headers", async () => {
+  const { cookieStore } = await import("./auth-mock");
+  return {
+    cookies: async () => cookieStore,
+    headers: async () => new Headers({ "x-forwarded-for": "127.0.0.1" }),
+  };
+});
+
 vi.mock("next/navigation", async () => {
   const { RedirectSignal } = await import("./auth-mock");
   return {
@@ -37,9 +46,6 @@ vi.mock("next/navigation", async () => {
   };
 });
 
-// The real DAL reads the session cookie; tests choose the user with signInAs().
-vi.mock("@/lib/auth", () => import("./auth-mock"));
-
 // ── Clean slate before every test ──
 
 beforeEach(async () => {
@@ -47,6 +53,8 @@ beforeEach(async () => {
   await resetDatabase();
   const { signOut } = await import("./auth-mock");
   signOut();
+  const { resetFactories } = await import("./factories");
+  resetFactories();
 });
 
 afterAll(async () => {

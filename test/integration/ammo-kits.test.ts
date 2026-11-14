@@ -49,12 +49,12 @@ describe("personal kits", () => {
     });
 
     expect(await signKit(7, SIGNATURE)).toMatchObject({ ok: true });
-    let kit = await prisma.personalKit.findUniqueOrThrow({ where: { kitNumber: 7 } });
+    let kit = await prisma.personalKit.findFirstOrThrow({ where: { kitNumber: 7 } });
     expect(kit).toMatchObject({ soldierId: a.id, personalWeaponId: rifle.id, weaponIssued: true });
     expect(kit.signedAt).not.toBeNull();
 
     await assignKit(7, undefined, form({ soldierId: b.id }));
-    kit = await prisma.personalKit.findUniqueOrThrow({ where: { kitNumber: 7 } });
+    kit = await prisma.personalKit.findFirstOrThrow({ where: { kitNumber: 7 } });
     expect(kit).toMatchObject({ soldierId: b.id, personalWeaponId: null, signedAt: null, signatureData: null });
   });
 

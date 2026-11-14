@@ -1,6 +1,6 @@
 import "server-only";
 import { connection } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { companyContext } from "@/lib/context";
 import { effectiveStatus, storageFlags } from "@/lib/storage-rules";
 
 /**
@@ -9,8 +9,9 @@ import { effectiveStatus, storageFlags } from "@/lib/storage-rules";
  */
 export async function getStorageOverview() {
   await connection();
+  const { db } = await companyContext();
   const now = new Date();
-  const categories = await prisma.equipmentCategory.findMany({
+  const categories = await db.equipmentCategory.findMany({
     where: {
       domain: "STORAGE",
       OR: [{ isActive: true }, { storageItems: { some: { currentQuantity: { gt: 0 } } } }],

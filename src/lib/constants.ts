@@ -19,6 +19,7 @@ export const PLATOON_LABELS: Record<Platoon, string> = {
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
+  SUPER_ADMIN: "מנהל מערכת",
   ADMIN: 'מנהל (מ"פ / סמ"פ)',
   REGULAR: 'משתמש (רס"פ / מ"מ)',
 };

@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/auth";
 import { AppHeader, AppHeaderFallback } from "@/components/layout/app-header";
 import { BottomNav, BottomNavView } from "@/components/layout/bottom-nav";
 import { SidebarNav, SidebarNavView } from "@/components/layout/sidebar-nav";
+import { isCompanyAdmin } from "@/lib/roles";
 
 // Cache Components: the shell (sidebar frame, bottom nav) prerenders statically;
 // everything that reads the session streams in behind <Suspense>.
@@ -12,7 +13,7 @@ import { SidebarNav, SidebarNavView } from "@/components/layout/sidebar-nav";
 
 async function UserSidebarNav() {
   const user = await requireUser();
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = isCompanyAdmin(user.role);
   return (
     <Suspense fallback={<SidebarNavView isAdmin={isAdmin} />}>
       <SidebarNav isAdmin={isAdmin} />

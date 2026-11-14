@@ -22,7 +22,7 @@ function submitWith(action: (fd: FormData) => void) {
 }
 
 /** One-time display of a temporary password, with copy. */
-function TempPassword({ username, password }: { username: string; password: string }) {
+export function TempPassword({ username, password }: { username: string; password: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div role="status" className="border-warning/60 bg-warning/10 flex flex-col gap-2 rounded-lg border p-3 text-sm">

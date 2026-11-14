@@ -4,13 +4,14 @@ import { ChevronLeft, UserRound } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { NAV_ITEMS } from "@/lib/nav";
 import { Card } from "@/components/ui/card";
+import { isCompanyAdmin } from "@/lib/roles";
 
 export const metadata: Metadata = { title: "כל המודולים" };
 
 /** Mobile "עוד" tab — every module in one tappable list. */
 export default async function MorePage() {
   const user = await requireUser();
-  const items = NAV_ITEMS.filter((i) => !i.adminOnly || user.role === "ADMIN");
+  const items = NAV_ITEMS.filter((i) => !i.adminOnly || isCompanyAdmin(user.role));
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-4">
