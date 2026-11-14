@@ -73,6 +73,21 @@ model User {
   signedKits     PersonalKit[]  @relation("KitSignedBy")
 }
 
+/// Login attempts, for rate limiting on serverless (in-memory counters don't survive across instances).
+/// Failed attempts are cleared on successful login; rows older than a day are pruned.
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  /// Normalized (lowercased) username as typed — may not exist.
+  username  String
+  ip        String?
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([username, createdAt])
+  @@index([ip, createdAt])
+  @@index([createdAt])
+}
+
 /// The company roster (סד"כ). Single source of truth for every assignment.
 model Soldier {
   id             String   @id @default(cuid())

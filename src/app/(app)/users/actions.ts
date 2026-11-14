@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { Prisma } from "@/generated/prisma/client";
 import type { Platoon, Role } from "@/generated/prisma/enums";
 import { requireAdmin } from "@/lib/auth";
+import { clearFailures } from "@/lib/login-throttle";
 import { generateTempPassword, hashPassword } from "@/lib/passwords";
 import { prisma } from "@/lib/prisma";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
@@ -97,5 +98,7 @@ export async function resetPassword(id: string): Promise<SimpleResult> {
   if (!user) return { ok: false, message: "המשתמש לא נמצא" };
   const password = generateTempPassword();
   await prisma.user.update({ where: { id }, data: { passwordHash: await hashPassword(password) } });
+  // A locked-out user is usually why the reset happened — let them in right away.
+  await clearFailures(user.username);
   return { ok: true, tempPassword: { username: user.username, password } };
 }
