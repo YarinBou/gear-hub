@@ -1,25 +1,18 @@
 import "server-only";
-import { cacheLife, cacheTag } from "next/cache";
 import { connection } from "next/server";
+import { getActiveCategories } from "@/lib/queries/catalog";
 import { prisma } from "@/lib/prisma";
 import { EQUIPMENT_STATUSES } from "@/lib/constants";
 import { staleWhere } from "@/lib/equipment-rules";
 import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
-export const CATALOG_TAG = "catalog";
 export const PAGE_SIZE = 100;
 
-/** Active equipment types for dropdowns. Invalidate with updateTag(CATALOG_TAG). */
+/** Active equipment types for dropdowns (cached; see lib/queries/catalog.ts). */
 export async function getEquipmentCategories() {
-  "use cache";
-  cacheTag(CATALOG_TAG);
-  cacheLife("hours");
-  return prisma.equipmentCategory.findMany({
-    where: { domain: "EQUIPMENT", isActive: true },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true },
-  });
+  const all = await getActiveCategories("EQUIPMENT");
+  return all.map(({ id, name }) => ({ id, name }));
 }
 
 export type EquipmentFilters = {

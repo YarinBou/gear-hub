@@ -73,7 +73,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
         </Button>
       </div>
 
-      <nav aria-label="סינון לפי סטטוס" className="-mx-4 overflow-x-auto px-4">
+      <nav aria-label="סינון לפי סטטוס" className="no-scrollbar -mx-4 overflow-x-auto px-4">
         <ul className="flex w-max gap-2">
           <Chip href={chipHref({})} active={noFilterChip} label="הכל" count={counts.total} />
           <Chip

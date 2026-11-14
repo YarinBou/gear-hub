@@ -62,7 +62,7 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
       </div>
 
       {/* Platoon filter — horizontally scrollable chips on mobile */}
-      <nav aria-label="סינון לפי מחלקה" className="-mx-4 overflow-x-auto px-4">
+      <nav aria-label="סינון לפי מחלקה" className="no-scrollbar -mx-4 overflow-x-auto px-4">
         <ul className="flex w-max gap-2">
           <Chip href={href({ platoon: null })} active={!platoon} label="כל הפלוגה" count={counts.total} />
           {PLATOONS.map((p) => (
