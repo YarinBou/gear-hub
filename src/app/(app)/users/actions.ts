@@ -1,0 +1,101 @@
+"use server";
+
+import { refresh } from "next/cache";
+import { Prisma } from "@/generated/prisma/client";
+import type { Platoon, Role } from "@/generated/prisma/enums";
+import { requireAdmin } from "@/lib/auth";
+import { generateTempPassword, hashPassword } from "@/lib/passwords";
+import { prisma } from "@/lib/prisma";
+import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
+import { CreateUserSchema, UserFieldsSchema } from "@/lib/validation/user";
+
+export type UserFormState =
+  | {
+      ok?: boolean;
+      message?: string;
+      error?: string;
+      errors?: FieldErrors;
+      /** Shown once to the admin, never stored in plain text. */
+      tempPassword?: { username: string; password: string };
+      at?: number;
+    }
+  | undefined;
+
+function read(fd: FormData, keys: string[]) {
+  return Object.fromEntries(keys.map((k) => [k, fd.get(k) ?? ""]));
+}
+
+async function activeAdminCount(excludeId?: string) {
+  return prisma.user.count({ where: { role: "ADMIN", isActive: true, ...(excludeId ? { id: { not: excludeId } } : {}) } });
+}
+
+export async function createUser(_prev: UserFormState, fd: FormData): Promise<UserFormState> {
+  await requireAdmin();
+  const parsed = CreateUserSchema.safeParse(read(fd, ["name", "username", "role", "platoon"]));
+  if (!parsed.success) return { errors: toFieldErrors(parsed.error) };
+  const { name, username, role, platoon } = parsed.data;
+
+  const password = generateTempPassword();
+  try {
+    await prisma.user.create({
+      data: {
+        name,
+        username,
+        role: role as Role,
+        platoon: (platoon as Platoon | undefined) ?? null,
+        passwordHash: await hashPassword(password),
+      },
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return { errors: { username: "שם המשתמש תפוס" } };
+    }
+    throw e;
+  }
+  refresh();
+  return { ok: true, message: `המשתמש ${name} נוצר`, tempPassword: { username, password }, at: Date.now() };
+}
+
+export async function updateUser(id: string, _prev: UserFormState, fd: FormData): Promise<UserFormState> {
+  const me = await requireAdmin();
+  const parsed = UserFieldsSchema.safeParse(read(fd, ["name", "role", "platoon"]));
+  if (!parsed.success) return { errors: toFieldErrors(parsed.error) };
+  const role = parsed.data.role as Role;
+
+  if (role !== "ADMIN") {
+    if (id === me.id) return { error: "לא ניתן להסיר הרשאת מנהל מעצמך" };
+    if ((await activeAdminCount(id)) === 0) return { error: "חייב להישאר לפחות מנהל פעיל אחד" };
+  }
+  await prisma.user.update({
+    where: { id },
+    data: { name: parsed.data.name, role, platoon: (parsed.data.platoon as Platoon | undefined) ?? null },
+  });
+  refresh();
+  return { ok: true, message: "נשמר", at: Date.now() };
+}
+
+export type SimpleResult = { ok: boolean; message?: string; tempPassword?: { username: string; password: string } };
+
+/** Deactivate / reactivate. Deactivated users are signed out on their next request (requireUser checks the DB). */
+export async function setUserActive(id: string, active: boolean): Promise<SimpleResult> {
+  const me = await requireAdmin();
+  if (!active) {
+    if (id === me.id) return { ok: false, message: "לא ניתן להשבית את המשתמש שלך" };
+    const target = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+    if (target?.role === "ADMIN" && (await activeAdminCount(id)) === 0) {
+      return { ok: false, message: "חייב להישאר לפחות מנהל פעיל אחד" };
+    }
+  }
+  await prisma.user.update({ where: { id }, data: { isActive: active } });
+  refresh();
+  return { ok: true };
+}
+
+export async function resetPassword(id: string): Promise<SimpleResult> {
+  await requireAdmin();
+  const user = await prisma.user.findUnique({ where: { id }, select: { username: true } });
+  if (!user) return { ok: false, message: "המשתמש לא נמצא" };
+  const password = generateTempPassword();
+  await prisma.user.update({ where: { id }, data: { passwordHash: await hashPassword(password) } });
+  return { ok: true, tempPassword: { username: user.username, password } };
+}

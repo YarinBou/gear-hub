@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, UserRound } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { NAV_ITEMS } from "@/lib/nav";
 import { Card } from "@/components/ui/card";
@@ -27,6 +27,14 @@ export default async function MorePage() {
             </li>
           ))}
         </ul>
+      </Card>
+      <Card className="gap-0 py-0">
+        <Link href="/account" className="hover:bg-accent flex h-14 items-center gap-3 px-4">
+          <UserRound className="text-primary size-5" />
+          <span className="flex-1 font-medium">החשבון שלי</span>
+          <span className="text-muted-foreground text-sm">{user.name}</span>
+          <ChevronLeft className="text-muted-foreground size-4" />
+        </Link>
       </Card>
     </div>
   );

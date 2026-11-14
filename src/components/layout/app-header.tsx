@@ -31,10 +31,10 @@ export async function AppHeader() {
   const user = await requireUser();
   return (
     <HeaderFrame>
-      <div className="hidden text-end leading-tight sm:block">
+      <Link href="/account" className="hover:bg-accent hidden rounded-md px-2 py-1 text-end leading-tight sm:block" title="החשבון שלי">
         <p className="text-sm font-medium">{user.name}</p>
         <p className="text-muted-foreground text-xs">{ROLE_LABELS[user.role]}</p>
-      </div>
+      </Link>
       <form action={logout}>
         <Button variant="ghost" size="icon" type="submit" aria-label="התנתקות" title="התנתקות">
           <LogOut className="size-5 rtl:-scale-x-100" />

@@ -1,6 +1,6 @@
 "use server";
 
-import bcrypt from "bcryptjs";
+import { verifyPassword } from "@/lib/passwords";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -22,7 +22,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   const { username, password, next } = parsed.data;
 
   const user = await prisma.user.findUnique({ where: { username: username.toLowerCase() } });
-  const ok = user && user.isActive && (await bcrypt.compare(password, user.passwordHash));
+  const ok = user && user.isActive && (await verifyPassword(password, user.passwordHash));
   if (!ok) return { error: "שם משתמש או סיסמה שגויים" };
 
   await createSession({ userId: user.id, role: user.role, name: user.name });
