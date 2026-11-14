@@ -70,6 +70,8 @@ src/
 - **RTL.** Use logical utilities only: `ms-/me-/ps-/pe-/start-/end-/text-start/text-end/border-s/border-e`. Never `ml-/mr-/pl-/pr-/left-/right-/text-left/text-right`. Wrap LTR content such as serial numbers in `ltr-text`. Flip directional icons with `rtl:-scale-x-100`. "Forward" chevrons point left (`ChevronLeft`).
 - **Authorization lives in the DAL.** Every page and server action calls `requireUser()` or `requireAdmin()`. `proxy.ts` only does an optimistic redirect.
 - **Cache Components.** Anything that reads cookies, `searchParams`, `usePathname`, or the clock must sit inside `<Suspense>` (`(app)/loading.tsx` covers pages). Call `await connection()` before using `Date.now()` in data functions.
+- **Soldier picker.** Anywhere a soldier is chosen, use `<SoldierSelect options={await getSoldierOptions()} />` (`src/components/soldier-select.tsx`). The options are cached under the `soldiers` tag; any server action that changes the roster must call `updateTag(SOLDIERS_TAG)`.
+- **Soft delete.** Soldiers are never hard-deleted (history logs reference them). Removing one from the roster sets `isActive = false` and is blocked while they still hold equipment or a kit.
 - **Kit checklist.** To add an item to the sign-out form, add a boolean column to `PersonalKit` and an entry to `KIT_ITEMS` in `src/lib/kit.ts`. Readiness percentages update automatically.
 - **Mobile first.** Default tap targets are 44px (`h-11`). The bottom nav is visible below `lg`.
 
