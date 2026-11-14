@@ -2,15 +2,10 @@ import "server-only";
 import { connection } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { kitChecklistSelect, kitReadiness } from "@/lib/kit";
-import {
-  EXPIRY_WARNING_DAYS,
-  PLATOONS,
-  TOTAL_KITS,
-
-} from "@/lib/constants";
-import { daysFromNow } from "@/lib/utils";
+import { PLATOONS, TOTAL_KITS } from "@/lib/constants";
 import { staleWhere } from "@/lib/equipment-rules";
 import { isLowStock } from "@/lib/ammo-rules";
+import { storageFlags } from "@/lib/storage-rules";
 import type { AmmoCategory, EquipmentStatus, Platoon } from "@/generated/prisma/enums";
 
 export type KitCell = {
@@ -24,7 +19,6 @@ export async function getDashboardData() {
   // Live operational data: always render at request time (before reading the clock).
   await connection();
   const stale = staleWhere();
-  const expiryBefore = daysFromNow(EXPIRY_WARNING_DAYS);
 
   const [
     soldiersByPlatoon,
@@ -125,11 +119,13 @@ export async function getDashboardData() {
   const fullKits = issuedKits.filter((k) => k.readiness === 100).length;
 
   // ── Storage ──
-  const storageShortages = storageItems.filter((s) => s.currentQuantity < s.targetQuantity);
+  // Same rules as the storage page (an empty batch can't "expire").
   const now = new Date();
-  const expiring = storageItems
-    .filter((s) => s.expiryDate && s.expiryDate <= expiryBefore)
-    .map((s) => ({ ...s, expired: s.expiryDate! < now }))
+  const withFlags = storageItems.map((s) => ({ ...s, flags: storageFlags(s, now) }));
+  const storageShortages = withFlags.filter((s) => s.flags.shortage);
+  const expiring = withFlags
+    .filter((s) => s.flags.expired || s.flags.expiringSoon)
+    .map((s) => ({ ...s, expired: s.flags.expired }))
     .sort((a, b) => a.expiryDate!.getTime() - b.expiryDate!.getTime());
   const storageTarget = storageItems.reduce((a, s) => a + s.targetQuantity, 0);
   const storageCurrent = storageItems.reduce((a, s) => a + Math.min(s.currentQuantity, s.targetQuantity), 0);
