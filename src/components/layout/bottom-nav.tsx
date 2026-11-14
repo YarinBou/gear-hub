@@ -31,7 +31,7 @@ export function BottomNavView({ pathname }: { pathname?: string }) {
   return (
     <nav
       aria-label="ניווט תחתון"
-      className="bg-card/95 pb-safe fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur lg:hidden"
+      className="bg-card/95 pb-safe fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur lg:hidden print:hidden"
     >
       <ul className="flex">
         {items.map((i) =>

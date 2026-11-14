@@ -24,7 +24,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh">
       {/* Desktop sidebar — sits on the inline-start edge (right side in RTL) */}
-      <aside className="bg-card sticky top-0 hidden h-dvh w-64 shrink-0 flex-col gap-6 border-e p-4 lg:flex">
+      <aside className="bg-card sticky top-0 hidden h-dvh w-64 shrink-0 flex-col gap-6 border-e p-4 lg:flex print:hidden">
         <Link href="/" className="flex items-center gap-2 px-3 pt-2 text-lg font-bold">
           <ShieldHalf className="text-primary size-7" />
           Gear-Hub
@@ -39,7 +39,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <AppHeader />
         </Suspense>
         {/* Bottom padding leaves room for the mobile tab bar */}
-        <main className="flex-1 px-4 pt-4 pb-24 lg:px-6 lg:pt-6 lg:pb-8">{children}</main>
+        <main className="flex-1 px-4 pt-4 pb-24 lg:px-6 lg:pt-6 lg:pb-8 print:p-0">{children}</main>
       </div>
 
       <Suspense fallback={<BottomNavView />}>

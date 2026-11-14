@@ -8,7 +8,7 @@ import { ROLE_LABELS } from "@/lib/constants";
 
 function HeaderFrame({ children }: { children?: React.ReactNode }) {
   return (
-    <header className="bg-card/95 sticky top-0 z-30 border-b backdrop-blur">
+    <header className="bg-card/95 sticky top-0 z-30 border-b backdrop-blur print:hidden">
       <div className="flex h-16 items-center gap-3 px-4 lg:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2 font-bold lg:hidden">
           <ShieldHalf className="text-primary size-6" />
