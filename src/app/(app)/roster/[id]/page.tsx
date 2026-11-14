@@ -48,7 +48,7 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
       </div>
 
       <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
+        <Card className="min-w-0 lg:col-span-3">
           <CardHeader>
             <CardTitle>פרטי הלוחם</CardTitle>
           </CardHeader>
@@ -67,7 +67,7 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
           </CardContent>
         </Card>
 
-        <div className="flex flex-col gap-4 lg:col-span-2">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

@@ -27,7 +27,7 @@ export function AlertsPanel({ data }: { data: DashboardData }) {
       detail: `${formatNumber(a.quantity)} במלאי · סף מינימום ${formatNumber(a.minThreshold ?? 0)}${
         a.ammoCategory ? ` · ${AMMO_CATEGORY_LABELS[a.ammoCategory]}` : ""
       }`,
-      href: "/ammo",
+      href: "/ammo?filter=low",
     });
   }
 

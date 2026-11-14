@@ -11,5 +11,7 @@ export default defineConfig({
   },
   datasource: {
     url: process.env.DIRECT_URL ?? process.env.DATABASE_URL,
+    // Optional: only needed when the server cannot create a temporary shadow DB (e.g. `prisma dev`).
+    shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL,
   },
 });

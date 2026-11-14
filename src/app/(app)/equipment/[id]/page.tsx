@@ -65,7 +65,7 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
       </div>
 
       <div className="grid gap-4 lg:grid-cols-5">
-        <div className="flex flex-col gap-4 lg:col-span-3">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-3">
           <Card>
             <CardHeader>
               <CardTitle>שיוך וסטטוס</CardTitle>
@@ -105,7 +105,7 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
           </Card>
         </div>
 
-        <div className="flex flex-col gap-4 lg:col-span-2">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
           <HistoryCard logs={item.logs} />
           {user.role === "ADMIN" && (
             <Card className="py-4">

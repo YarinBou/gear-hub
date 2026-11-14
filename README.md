@@ -19,7 +19,7 @@ npm run db:seed               # admin user, catalog, kits 1–98 (SEED_DEMO=1 fo
 npm run dev
 ```
 
-No local Postgres? `npx prisma dev -d -n gearhub` starts a local Prisma Postgres. Put its `TCP` URL (`postgres://...`) in both `DATABASE_URL` and `DIRECT_URL`.
+No local Postgres? `npx prisma dev -d -n gearhub` starts a local Prisma Postgres. Put its `TCP` URL (`postgres://...`) in both `DATABASE_URL` and `DIRECT_URL`, and its shadow-database URL in `SHADOW_DATABASE_URL`. Without that, `prisma migrate dev` fails with "type ... already exists".
 
 If `SEED_ADMIN_PASSWORD` is empty, the seed generates a password and prints it once.
 
@@ -73,6 +73,8 @@ src/
 - **Soldier picker.** Anywhere a soldier is chosen, use `<SoldierSelect options={await getSoldierOptions()} />` (`src/components/soldier-select.tsx`). The options are cached under the `soldiers` tag; any server action that changes the roster must call `updateTag(SOLDIERS_TAG)`.
 - **Equipment moves go through one function.** Any change to an item's holder, status or platoon must use `applyAssignment()` (`src/lib/equipment-service.ts`). It fills in the platoon from the soldier, applies the status rules in `src/lib/equipment-rules.ts`, and writes the `EquipmentLog` history entry. "Not verified in 7 days" is `staleWhere()` in the same rules file, shared by the dashboard and the equipment list.
 - **Catalog types.** Dropdowns read active types with `getActiveCategories(domain)` (`src/lib/queries/catalog.ts`), cached under the `catalog` tag. Catalog actions call `updateTag(CATALOG_TAG)`. A type that's in use can only be deactivated, not deleted. Creating a STORAGE type also opens its empty תקן/מצאי row.
+- **Ammunition movements.** Every quantity change (ספירה / קליטה / ניפוק) goes through `recordMovement` (`src/app/(app)/ammo/actions.ts`). It locks the stock row, applies `applyMovement()` from `src/lib/ammo-rules.ts` (an issue can never take stock below zero), and writes an `AmmoLog` entry. Low stock uses `isLowStock()`, shared with the dashboard.
+- **Mobile grids.** Give grid and flex children that contain wide content (tables, `min-w-*`) `min-w-0`. Otherwise they can't shrink, and the whole page scrolls sideways on phones.
 - **Soft delete.** Soldiers are never hard-deleted (history logs reference them). Removing one from the roster sets `isActive = false` and is blocked while they still hold equipment or a kit.
 - **Kit checklist.** To add an item to the sign-out form, add a boolean column to `PersonalKit` and an entry to `KIT_ITEMS` in `src/lib/kit.ts`. Readiness percentages update automatically.
 - **Mobile first.** Default tap targets are 44px (`h-11`). The bottom nav is visible below `lg`.

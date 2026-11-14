@@ -10,6 +10,7 @@ import {
 } from "@/lib/constants";
 import { daysFromNow } from "@/lib/utils";
 import { staleWhere } from "@/lib/equipment-rules";
+import { isLowStock } from "@/lib/ammo-rules";
 import type { AmmoCategory, EquipmentStatus, Platoon } from "@/generated/prisma/enums";
 
 export type KitCell = {
@@ -104,7 +105,7 @@ export async function getDashboardData() {
     quantity: totalsById.get(c.id) ?? 0,
     minThreshold: c.minThreshold,
   }));
-  const lowAmmo = ammo.filter((a) => a.minThreshold != null && a.quantity < a.minThreshold);
+  const lowAmmo = ammo.filter((a) => isLowStock(a.quantity, a.minThreshold));
 
   // ── Kits (always show all 98 slots) ──
   const kitMap = new Map(kits.map((k) => [k.kitNumber, k]));

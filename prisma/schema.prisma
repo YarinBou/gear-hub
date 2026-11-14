@@ -68,6 +68,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   equipmentLogs  EquipmentLog[]
+  ammoLogs       AmmoLog[]
   kitInspections KitInspection[]
   signedKits     PersonalKit[]  @relation("KitSignedBy")
 }
@@ -182,7 +183,33 @@ model AmmoStock {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
+  logs AmmoLog[]
+
   @@unique([categoryId, location])
+}
+
+enum AmmoLogType {
+  COUNT // ספירה — quantity set to the counted amount
+  RECEIVE // קליטה — added
+  ISSUE // ניפוק — subtracted
+}
+
+/// Accountability trail for every ammunition quantity change.
+model AmmoLog {
+  id               String      @id @default(cuid())
+  stockId          String
+  stock            AmmoStock   @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  type             AmmoLogType
+  /// The amount entered (counted quantity for COUNT, delta for RECEIVE / ISSUE).
+  amount           Int
+  previousQuantity Int
+  newQuantity      Int
+  note             String?
+  performedById    String?
+  performedBy      User?       @relation(fields: [performedById], references: [id], onDelete: SetNull)
+  createdAt        DateTime    @default(now())
+
+  @@index([stockId, createdAt])
 }
 
 // ───────────────────────────── Module D: ציוד אישי והחתמות ─────────────────────────────

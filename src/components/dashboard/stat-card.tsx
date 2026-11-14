@@ -38,7 +38,7 @@ export function StatCard({
             <p className="text-2xl font-bold tabular-nums">{value}</p>
             {hint && <p className="text-muted-foreground truncate text-xs">{hint}</p>}
           </div>
-          <ChevronLeft className="text-muted-foreground size-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+          <ChevronLeft className="text-muted-foreground hidden size-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 sm:block" />
         </CardContent>
       </Card>
     </Link>

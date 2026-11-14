@@ -59,11 +59,11 @@ export default async function DashboardPage() {
       </section>
 
       <div className="grid gap-4 lg:grid-cols-3 lg:gap-6">
-        <div className="flex flex-col gap-4 lg:col-span-2 lg:gap-6">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 lg:gap-6">
           <KitReadinessGrid kits={data.kits} />
           <PlatoonBreakdown data={data} />
         </div>
-        <div className="flex flex-col gap-4 lg:gap-6">
+        <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
           <AlertsPanel data={data} />
           <EquipmentStatusCard equipment={data.equipment} />
         </div>
