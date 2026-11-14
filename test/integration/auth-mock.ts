@@ -1,4 +1,4 @@
-import { ACTIVE_COMPANY_COOKIE, encryptSession, SESSION_COOKIE } from "@/lib/session";
+import { ACTIVE_COMPANY_COOKIE, DEPLOYMENT_COOKIE, encryptSession, SESSION_COOKIE } from "@/lib/session";
 import type { Role } from "@/generated/prisma/enums";
 
 // Integration tests run the REAL auth layer (src/lib/auth.ts). Only Next's request APIs are faked:
@@ -36,6 +36,12 @@ export async function signInAs(user: TestUser) {
 export function chooseCompany(companyId: string | null) {
   if (companyId) jar.set(ACTIVE_COMPANY_COOKIE, companyId);
   else jar.delete(ACTIVE_COMPANY_COOKIE);
+}
+
+/** Look at a specific deployment (what the header picker does). null = the active one. */
+export function viewDeploymentCookie(deploymentId: string | null) {
+  if (deploymentId) jar.set(DEPLOYMENT_COOKIE, deploymentId);
+  else jar.delete(DEPLOYMENT_COOKIE);
 }
 
 export function signOut() {

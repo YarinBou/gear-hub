@@ -1,9 +1,9 @@
 import type { Prisma } from "../generated/prisma/client";
 import type { AmmoCategory } from "../generated/prisma/enums";
-import { TOTAL_KITS } from "./constants";
 
-// What a brand-new company starts with: a default catalog (editable afterwards on /catalog),
-// its storage lines (תקן / מצאי), and kit rows 1–98. Idempotent — safe to run again.
+// What a brand-new company starts with: a default catalog (editable afterwards on /catalog) and
+// its storage lines (תקן / מצאי). No deployment — kits 1–98 are created when the company starts
+// its first deployment. Idempotent — safe to run again.
 // Shared by the super-admin "create company" action and prisma/seed.ts, so it uses relative
 // imports only (the seed runs outside Next.js).
 
@@ -42,7 +42,7 @@ export const DEFAULT_STORAGE_TYPES: { name: string; requiresExpiry?: boolean; ta
 
 type Tx = Prisma.TransactionClient;
 
-/** Give a company its default catalog, storage lines and kits 1–98. Skips anything that exists. */
+/** Give a company its default catalog and storage lines. Skips anything that exists. */
 export async function provisionCompany(tx: Tx, companyId: string) {
   await tx.equipmentCategory.createMany({
     data: [
@@ -69,9 +69,4 @@ export async function provisionCompany(tx: Tx, companyId: string) {
       data: storageTypes.map((c) => ({ companyId, categoryId: c.id, targetQuantity: targets.get(c.name) ?? 0 })),
     });
   }
-
-  await tx.personalKit.createMany({
-    data: Array.from({ length: TOTAL_KITS }, (_, i) => ({ companyId, kitNumber: i + 1 })),
-    skipDuplicates: true,
-  });
 }

@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { assignEquipment, attachComponentAction, bulkSetStatus } from "@/app/(app)/equipment/actions";
-import { form, loginAs, makeCategory, makeItem, makeSoldier } from "./factories";
+import { form, loginAs, makeCategory, makeItem, makeSoldier, stateOf } from "./factories";
 
 // Current behaviour of equipment moves (צל"ם). These must stay green through the multi-company
 // and deployment refactor — only the setup in factories.ts should need to change.
 
-async function item(id: string) {
-  return prisma.equipmentItem.findUniqueOrThrow({ where: { id } });
-}
+/** The item's state in the active deployment. */
+const item = (id: string) => stateOf(id);
 
 describe("assigning equipment", () => {
   it("handing an armory item to a soldier sets holder, status, platoon and logs it", async () => {

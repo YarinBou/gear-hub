@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AlertTriangle, Plus } from "lucide-react";
-import { requireUser } from "@/lib/auth";
+import { companyContext } from "@/lib/context";
+import { NoDeploymentCard, ReadOnlyWhenClosed } from "@/components/deployment-gate";
 import { AMMO_LEVEL_LABELS, isLowStock, type AmmoLevel } from "@/lib/ammo-rules";
 import { AMMO_CATEGORY_LABELS } from "@/lib/constants";
 import { getActiveCategories } from "@/lib/queries/catalog";
@@ -41,7 +42,8 @@ function first(v: string | string[] | undefined) {
 }
 
 export default async function AmmoPage({ searchParams }: PageProps<"/ammo">) {
-  const user = await requireUser();
+  const { user, deployment } = await companyContext();
+  if (!deployment) return <NoDeploymentCard what="מלאי ותנועות תחמושת" />;
   const sp = await searchParams;
   const catRaw = first(sp.cat);
   const cat = CATEGORY_ORDER.includes(catRaw as AmmoCategory) ? (catRaw as AmmoCategory) : undefined;
@@ -83,56 +85,58 @@ export default async function AmmoPage({ searchParams }: PageProps<"/ammo">) {
   );
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-bold">ניהול תחמושת</h1>
-        <p className="text-muted-foreground text-sm">
-          {overview.length} סוגים · {low.length ? `${low.length} מתחת לסף המינימום` : "כל הסוגים מעל הסף"}
-        </p>
+    <ReadOnlyWhenClosed>
+      <div className="mx-auto flex max-w-5xl flex-col gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">ניהול תחמושת</h1>
+          <p className="text-muted-foreground text-sm">
+            {overview.length} סוגים · {low.length ? `${low.length} מתחת לסף המינימום` : "כל הסוגים מעל הסף"}
+          </p>
+        </div>
+
+        <nav aria-label="סינון" className="no-scrollbar -mx-4 overflow-x-auto px-4">
+          <ul className="flex w-max gap-2">
+            {chip("הכל", "/ammo", !cat && !lowOnly, overview.length)}
+            {chip("מתחת לסף", "/ammo?filter=low", lowOnly, low.length, low.length ? "warning" : undefined)}
+            {CATEGORY_ORDER.map((c) =>
+              chip(AMMO_CATEGORY_LABELS[c], `/ammo?cat=${c}`, cat === c, overview.filter((t) => t.ammoCategory === c).length),
+            )}
+          </ul>
+        </nav>
+
+        {categories.length === 0 ? (
+          <Card className="items-center py-10 text-center">
+            <p className="text-muted-foreground">אין סוגי תחמושת בקטלוג.</p>
+            {isCompanyAdmin(user.role) && (
+              <Link href="/catalog?domain=AMMUNITION" className="text-primary underline-offset-4 hover:underline">
+                הוספת סוגים בקטלוג
+              </Link>
+            )}
+          </Card>
+        ) : (
+          <AddStockForm key={addFor ?? "add"} categories={categories} locations={locations} defaultCategoryId={addFor} />
+        )}
+
+        {[...groups, ...(uncategorized.length ? [{ category: null, types: uncategorized }] : [])].map((g) => (
+          <section key={g.category ?? "none"} className="flex flex-col gap-3">
+            <h2 className="text-muted-foreground text-sm font-semibold">
+              {g.category ? `תחמושת ${AMMO_CATEGORY_LABELS[g.category]}` : "ללא קטגוריה"}
+            </h2>
+            <div className="grid gap-3 lg:grid-cols-2">
+              {g.types.map((t) => (
+                <AmmoTypeCard key={t.id} type={t} isAdmin={isCompanyAdmin(user.role)} />
+              ))}
+            </div>
+          </section>
+        ))}
+
+        {shown.length === 0 && overview.length > 0 && (
+          <Card className="items-center py-10 text-center">
+            <p className="text-muted-foreground">אין סוגים התואמים לסינון</p>
+          </Card>
+        )}
       </div>
-
-      <nav aria-label="סינון" className="no-scrollbar -mx-4 overflow-x-auto px-4">
-        <ul className="flex w-max gap-2">
-          {chip("הכל", "/ammo", !cat && !lowOnly, overview.length)}
-          {chip("מתחת לסף", "/ammo?filter=low", lowOnly, low.length, low.length ? "warning" : undefined)}
-          {CATEGORY_ORDER.map((c) =>
-            chip(AMMO_CATEGORY_LABELS[c], `/ammo?cat=${c}`, cat === c, overview.filter((t) => t.ammoCategory === c).length),
-          )}
-        </ul>
-      </nav>
-
-      {categories.length === 0 ? (
-        <Card className="items-center py-10 text-center">
-          <p className="text-muted-foreground">אין סוגי תחמושת בקטלוג.</p>
-          {isCompanyAdmin(user.role) && (
-            <Link href="/catalog?domain=AMMUNITION" className="text-primary underline-offset-4 hover:underline">
-              הוספת סוגים בקטלוג
-            </Link>
-          )}
-        </Card>
-      ) : (
-        <AddStockForm key={addFor ?? "add"} categories={categories} locations={locations} defaultCategoryId={addFor} />
-      )}
-
-      {[...groups, ...(uncategorized.length ? [{ category: null, types: uncategorized }] : [])].map((g) => (
-        <section key={g.category ?? "none"} className="flex flex-col gap-3">
-          <h2 className="text-muted-foreground text-sm font-semibold">
-            {g.category ? `תחמושת ${AMMO_CATEGORY_LABELS[g.category]}` : "ללא קטגוריה"}
-          </h2>
-          <div className="grid gap-3 lg:grid-cols-2">
-            {g.types.map((t) => (
-              <AmmoTypeCard key={t.id} type={t} isAdmin={isCompanyAdmin(user.role)} />
-            ))}
-          </div>
-        </section>
-      ))}
-
-      {shown.length === 0 && overview.length > 0 && (
-        <Card className="items-center py-10 text-center">
-          <p className="text-muted-foreground">אין סוגים התואמים לסינון</p>
-        </Card>
-      )}
-    </div>
+    </ReadOnlyWhenClosed>
   );
 }
 

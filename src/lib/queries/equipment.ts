@@ -4,8 +4,12 @@ import { getActiveCategories } from "@/lib/queries/catalog";
 import { companyContext } from "@/lib/context";
 import { EQUIPMENT_STATUSES } from "@/lib/constants";
 import { staleWhere } from "@/lib/equipment-rules";
+import { flattenState, inState, NO_ITEMS, stateSelect } from "@/lib/equipment-state";
 import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
+
+// Items are company-level; their holder / status / platoon come from the deployment being viewed.
+// Without a deployment every item is "in the armory" and state filters match accordingly.
 
 export const PAGE_SIZE = 100;
 
@@ -26,21 +30,28 @@ export type EquipmentFilters = {
   page?: number;
 };
 
-function buildWhere(f: EquipmentFilters, now: Date): Prisma.EquipmentItemWhereInput {
+function buildWhere(f: EquipmentFilters, now: Date, deploymentId: string | null): Prisma.EquipmentItemWhereInput {
   const and: Prisma.EquipmentItemWhereInput[] = [];
-  if (f.status) and.push({ status: f.status });
+  const state = (where: Prisma.EquipmentAssignmentWhereInput, matchesDefault: boolean) =>
+    deploymentId ? inState(deploymentId, where) : matchesDefault ? {} : NO_ITEMS;
+
+  if (f.status) and.push(state({ status: f.status }, f.status === "IN_ARMORY"));
   if (f.categoryId) and.push({ categoryId: f.categoryId });
-  if (f.platoon === "NONE") and.push({ platoon: null });
-  else if (f.platoon) and.push({ platoon: f.platoon });
-  if (f.stale) and.push(staleWhere(now));
+  if (f.platoon === "NONE") and.push(state({ platoon: null }, true));
+  else if (f.platoon) and.push(state({ platoon: f.platoon }, false));
+  if (f.stale) and.push(state(staleWhere(now), false));
   if (f.noSerial) and.push({ serialNumber: null });
   if (f.q) {
     and.push({
       OR: [
         { serialNumber: { contains: f.q, mode: "insensitive" } },
-        { assignedSoldier: { name: { contains: f.q, mode: "insensitive" } } },
-        { assignedSoldier: { personalNumber: { contains: f.q } } },
         { notes: { contains: f.q, mode: "insensitive" } },
+        ...(deploymentId
+          ? [
+              inState(deploymentId, { soldier: { name: { contains: f.q, mode: "insensitive" } } }),
+              inState(deploymentId, { soldier: { personalNumber: { contains: f.q } } }),
+            ]
+          : []),
       ],
     });
   }
@@ -49,9 +60,10 @@ function buildWhere(f: EquipmentFilters, now: Date): Prisma.EquipmentItemWhereIn
 
 export async function listEquipment(f: EquipmentFilters) {
   await connection();
-  const { db } = await companyContext();
+  const { db, deployment } = await companyContext();
+  const deploymentId = deployment?.id ?? null;
   const now = new Date();
-  const where = buildWhere(f, now);
+  const where = buildWhere(f, now, deploymentId);
   const page = Math.max(1, f.page ?? 1);
   const [items, total] = await Promise.all([
     db.equipmentItem.findMany({
@@ -62,50 +74,65 @@ export async function listEquipment(f: EquipmentFilters) {
       select: {
         id: true,
         serialNumber: true,
-        status: true,
-        platoon: true,
-        lastVerifiedAt: true,
         category: { select: { name: true } },
-        assignedSoldier: { select: { id: true, name: true } },
         parent: { select: { id: true, serialNumber: true, category: { select: { name: true } } } },
         _count: { select: { components: true } },
+        ...stateSelect(deploymentId, { id: true, name: true }),
       },
     }),
     db.equipmentItem.count({ where }),
   ]);
-  return { items, total, page, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
+  return { items: items.map(flattenState), total, page, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
 }
 
 export type EquipmentListItem = Awaited<ReturnType<typeof listEquipment>>["items"][number];
 
-/** Counts for the status chips + stale chip (unfiltered, company-wide). */
+/** Counts for the status chips + stale chip (unfiltered, company-wide, in the viewed deployment). */
 export async function getEquipmentCounts() {
   await connection();
-  const { db } = await companyContext();
-  const [byStatus, stale, total, noSerial] = await Promise.all([
-    db.equipmentItem.groupBy({ by: ["status"], _count: { _all: true } }),
-    db.equipmentItem.count({ where: staleWhere() }),
+  const { db, deployment } = await companyContext();
+  const [total, noSerial] = await Promise.all([
     db.equipmentItem.count(),
     db.equipmentItem.count({ where: { serialNumber: null } }),
   ]);
   const status = Object.fromEntries(EQUIPMENT_STATUSES.map((s) => [s, 0])) as Record<EquipmentStatus, number>;
+  if (!deployment) {
+    status.IN_ARMORY = total;
+    return { status, stale: 0, total, noSerial };
+  }
+  // `db` is scoped to the viewed deployment, so these count that deployment's state rows.
+  const [byStatus, stale] = await Promise.all([
+    db.equipmentAssignment.groupBy({ by: ["status"], _count: { _all: true } }),
+    db.equipmentAssignment.count({ where: staleWhere() }),
+  ]);
   for (const r of byStatus) status[r.status] = r._count._all;
   return { status, stale, total, noSerial };
 }
 
 export async function getEquipmentItem(id: string) {
-  const { db } = await companyContext();
-  return db.equipmentItem.findUnique({
+  const { db, deployment } = await companyContext();
+  const deploymentId = deployment?.id ?? null;
+  const item = await db.equipmentItem.findUnique({
     where: { id },
-    include: {
+    select: {
+      id: true,
+      serialNumber: true,
+      notes: true,
+      createdAt: true,
+      categoryId: true,
       category: { select: { id: true, name: true } },
-      assignedSoldier: { select: { id: true, name: true, platoon: true } },
-      personalKit: { select: { kitNumber: true } },
       parent: { select: { id: true, serialNumber: true, category: { select: { name: true } } } },
       components: {
         orderBy: [{ category: { name: "asc" } }, { serialNumber: { sort: "asc", nulls: "last" } }],
-        select: { id: true, serialNumber: true, status: true, category: { select: { name: true } } },
+        select: {
+          id: true,
+          serialNumber: true,
+          category: { select: { name: true } },
+          ...stateSelect(deploymentId, { id: true }),
+        },
       },
+      personalKits: { where: { deploymentId: deploymentId ?? "" }, take: 1, select: { kitNumber: true } },
+      // History across all deployments, labelled with the deployment it happened in.
       logs: {
         orderBy: { createdAt: "desc" },
         take: 100,
@@ -113,42 +140,61 @@ export async function getEquipmentItem(id: string) {
           fromSoldier: { select: { id: true, name: true } },
           toSoldier: { select: { id: true, name: true } },
           performedBy: { select: { name: true } },
+          deployment: { select: { name: true } },
         },
       },
+      ...stateSelect(deploymentId, { id: true, name: true, platoon: true }),
     },
   });
+  if (!item) return null;
+  const { personalKits, components, ...rest } = item;
+  return {
+    ...flattenState(rest),
+    personalKit: personalKits[0] ?? null,
+    components: components.map(flattenState),
+  };
 }
 
 export type EquipmentDetail = NonNullable<Awaited<ReturnType<typeof getEquipmentItem>>>;
 
 /**
- * Items that can be attached as components of `parentId`: not a component already, not a set
- * themselves, and either unassigned or held by the same soldier as the parent.
+ * Items that can be attached as components of `parent`: not a component already, not a set
+ * themselves, and either unassigned or held by the same soldier as the parent (in the viewed deployment).
  */
 export async function getComponentCandidates(parent: { id: string; assignedSoldierId: string | null }) {
-  const { db } = await companyContext();
-  return db.equipmentItem.findMany({
+  const { db, deployment } = await companyContext();
+  const deploymentId = deployment?.id ?? null;
+  const items = await db.equipmentItem.findMany({
     where: {
       id: { not: parent.id },
       parentId: null,
       components: { none: {} },
-      OR: [{ assignedSoldierId: null }, ...(parent.assignedSoldierId ? [{ assignedSoldierId: parent.assignedSoldierId }] : [])],
+      ...(deploymentId
+        ? {
+            OR: [
+              inState(deploymentId, { soldierId: null }),
+              ...(parent.assignedSoldierId ? [inState(deploymentId, { soldierId: parent.assignedSoldierId })] : []),
+            ],
+          }
+        : {}),
     },
     orderBy: [{ category: { name: "asc" } }, { serialNumber: { sort: "asc", nulls: "last" } }],
     take: 300,
-    select: { id: true, serialNumber: true, category: { select: { name: true } }, assignedSoldierId: true },
+    select: { id: true, serialNumber: true, category: { select: { name: true } }, ...stateSelect(deploymentId, { id: true }) },
   });
+  return items.map(flattenState);
 }
 
 export type ComponentCandidate = Awaited<ReturnType<typeof getComponentCandidates>>[number];
 
 /**
- * The company equipment report (דוח צל"ם פלוגתי): every type with its items, holders and
- * held-vs-תקן totals. "Held" excludes items marked missing.
+ * The company equipment report (דוח צל"ם פלוגתי) for the viewed deployment: every type with its
+ * items, holders and held-vs-תקן totals. "Held" excludes items marked missing.
  */
 export async function getEquipmentReport(platoon?: Platoon) {
   await connection();
-  const { db } = await companyContext();
+  const { db, deployment } = await companyContext();
+  const deploymentId = deployment?.id ?? null;
   const categories = await db.equipmentCategory.findMany({
     where: { domain: "EQUIPMENT", OR: [{ isActive: true }, { equipmentItems: { some: {} } }] },
     orderBy: { name: "asc" },
@@ -157,29 +203,32 @@ export async function getEquipmentReport(platoon?: Platoon) {
       name: true,
       targetQuantity: true,
       equipmentItems: {
-        where: platoon ? { platoon } : {},
-        orderBy: [{ platoon: { sort: "asc", nulls: "last" } }, { serialNumber: { sort: "asc", nulls: "last" } }],
+        where: platoon ? (deploymentId ? inState(deploymentId, { platoon }) : NO_ITEMS) : {},
+        orderBy: [{ serialNumber: { sort: "asc", nulls: "last" } }],
         select: {
           id: true,
           serialNumber: true,
-          status: true,
-          platoon: true,
           notes: true,
-          assignedSoldier: { select: { name: true, personalNumber: true } },
           parent: { select: { serialNumber: true, category: { select: { name: true } } } },
           components: { select: { serialNumber: true, category: { select: { name: true } } } },
+          ...stateSelect(deploymentId, { name: true, personalNumber: true }),
         },
       },
     },
   });
+  const platoonOrder = (p: Platoon | null) => (p ? ["PLATOON_1", "PLATOON_2", "PLATOON_3", "HQ"].indexOf(p) : 99);
   return categories.map((c) => {
-    const missing = c.equipmentItems.filter((i) => i.status === "MISSING").length;
-    const held = c.equipmentItems.length - missing;
+    const equipmentItems = c.equipmentItems
+      .map(flattenState)
+      .sort((a, b) => platoonOrder(a.platoon) - platoonOrder(b.platoon));
+    const missing = equipmentItems.filter((i) => i.status === "MISSING").length;
+    const held = equipmentItems.length - missing;
     return {
       ...c,
+      equipmentItems,
       held,
       missing,
-      noSerial: c.equipmentItems.filter((i) => !i.serialNumber).length,
+      noSerial: equipmentItems.filter((i) => !i.serialNumber).length,
       // Gap vs תקן only makes sense company-wide, not when filtered to one platoon.
       gap: !platoon && c.targetQuantity != null ? c.targetQuantity - held : null,
     };

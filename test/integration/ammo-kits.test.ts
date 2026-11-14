@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { recordMovement } from "@/app/(app)/ammo/actions";
 import { assignKit, completeInspection, setKitItem, signKit, updateWeapon } from "@/app/(app)/kits/actions";
-import { form, loginAs, makeAmmoStock, makeItem, makeSoldier } from "./factories";
+import { activeDeployment, form, loginAs, makeAmmoStock, makeItem, makeSoldier, stateOf } from "./factories";
 
 const SIGNATURE = "data:image/png;base64,AAAA";
 
@@ -32,6 +32,11 @@ describe("ammo movements", () => {
 });
 
 describe("personal kits", () => {
+  // Kits belong to a deployment.
+  beforeEach(async () => {
+    await activeDeployment();
+  });
+
   it("assign → link weapon → sign → reassign clears signature and weapon", async () => {
     await loginAs();
     const a = await makeSoldier();
@@ -43,7 +48,7 @@ describe("personal kits", () => {
     const w = await updateWeapon(7, undefined, form({ personalWeaponId: rifle.id, magazineCount: 7, ammoCount: 210 }));
     expect(w).toMatchObject({ ok: true });
     // Linking a rifle from the armory hands it to the soldier through the equipment service.
-    expect(await prisma.equipmentItem.findUniqueOrThrow({ where: { id: rifle.id } })).toMatchObject({
+    expect(await stateOf(rifle.id)).toMatchObject({
       assignedSoldierId: a.id,
       status: "WITH_SOLDIER",
     });

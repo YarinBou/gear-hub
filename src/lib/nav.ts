@@ -2,6 +2,7 @@ import {
   Backpack,
   Boxes,
   Crosshair,
+  Flag,
   LayoutDashboard,
   Tags,
   UserCog,
@@ -27,6 +28,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/kits", label: "ציוד אישי והחתמות", shortLabel: "ערכות", icon: Backpack, mobile: true },
   { href: "/ammo", label: "תחמושת", icon: Boxes },
   { href: "/storage", label: 'ציוד פלוגתי בימ"ח', shortLabel: 'בימ"ח', icon: Warehouse },
+  { href: "/deployments", label: "הפעלות", icon: Flag },
   { href: "/catalog", label: "קטלוג ציוד", icon: Tags, adminOnly: true },
   { href: "/users", label: "ניהול משתמשים", icon: UserCog, adminOnly: true },
 ];

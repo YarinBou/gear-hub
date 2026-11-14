@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PenLine } from "lucide-react";
-import { requireUser } from "@/lib/auth";
+import { companyContext } from "@/lib/context";
+import { NoDeploymentCard } from "@/components/deployment-gate";
 import { PLATOONS, PLATOON_LABELS, TOTAL_KITS } from "@/lib/constants";
 import { listKits, type KitTile } from "@/lib/queries/kits";
 import { cn } from "@/lib/utils";
@@ -31,7 +32,8 @@ function tone(k: KitTile) {
 }
 
 export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
-  await requireUser();
+  const { deployment } = await companyContext();
+  if (!deployment) return <NoDeploymentCard what="ערכות אישיות והחתמות" />;
   const sp = await searchParams;
   const platoonRaw = first(sp.platoon);
   const platoon = PLATOONS.includes(platoonRaw as Platoon) ? (platoonRaw as Platoon) : undefined;

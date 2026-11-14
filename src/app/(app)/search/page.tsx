@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Backpack, Crosshair, User } from "lucide-react";
 import { companyContext } from "@/lib/context";
+import { flattenState, stateSelect } from "@/lib/equipment-state";
 import { EQUIPMENT_STATUS_LABELS, TOTAL_KITS } from "@/lib/constants";
 import { Serial } from "@/components/equipment/serial";
 import { PlatoonBadge } from "@/components/platoon-badge";
@@ -12,7 +13,7 @@ import { GlobalSearch } from "@/components/layout/global-search";
 export const metadata: Metadata = { title: "חיפוש" };
 
 export default async function SearchPage({ searchParams }: PageProps<"/search">) {
-  const { db } = await companyContext();
+  const { db, deployment } = await companyContext();
   const raw = (await searchParams).q;
   const q = (Array.isArray(raw) ? raw[0] : raw)?.trim() ?? "";
 
@@ -28,18 +29,20 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
           orderBy: { name: "asc" },
           select: { id: true, name: true, personalNumber: true, platoon: true },
         }),
-        db.equipmentItem.findMany({
-          where: { serialNumber: { contains: q, mode: "insensitive" } },
-          take: 20,
-          orderBy: { serialNumber: "asc" },
-          select: {
-            id: true,
-            serialNumber: true,
-            status: true,
-            category: { select: { name: true } },
-            assignedSoldier: { select: { name: true } },
-          },
-        }),
+        db.equipmentItem
+          .findMany({
+            where: { serialNumber: { contains: q, mode: "insensitive" } },
+            take: 20,
+            orderBy: { serialNumber: "asc" },
+            select: {
+              id: true,
+              serialNumber: true,
+              category: { select: { name: true } },
+              // Holder / status in the viewed deployment.
+              ...stateSelect(deployment?.id ?? null, { name: true }),
+            },
+          })
+          .then((rows) => rows.map(flattenState)),
         kitNumber && kitNumber >= 1 && kitNumber <= TOTAL_KITS
           ? db.personalKit.findFirst({
               where: { kitNumber },

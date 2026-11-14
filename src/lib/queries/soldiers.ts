@@ -7,6 +7,9 @@ import { PLATOONS } from "@/lib/constants";
 import type { Platoon } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
+/** Matches no row: nested relation filters when no deployment is being viewed. */
+const NO_DEPLOYMENT = "__no_deployment__";
+
 /** Cache tag for one company's roster. Roster mutations call updateTag(soldiersTag(companyId)). */
 export const soldiersTag = (companyId: string) => `soldiers:${companyId}`;
 
@@ -36,7 +39,8 @@ async function cachedSoldierOptions(companyId: string): Promise<SoldierOption[]>
 export type RosterFilters = { platoon?: Platoon; q?: string; includeInactive?: boolean };
 
 export async function listSoldiers({ platoon, q, includeInactive }: RosterFilters) {
-  const { db } = await companyContext();
+  const { db, deployment } = await companyContext();
+  const deploymentId = deployment?.id ?? NO_DEPLOYMENT;
   const where: Prisma.SoldierWhereInput = {
     ...(includeInactive ? {} : { isActive: true }),
     ...(platoon ? { platoon } : {}),
@@ -51,7 +55,7 @@ export async function listSoldiers({ platoon, q, includeInactive }: RosterFilter
         }
       : {}),
   };
-  return db.soldier.findMany({
+  const rows = await db.soldier.findMany({
     where,
     orderBy: [{ isActive: "desc" }, { platoon: "asc" }, { name: "asc" }],
     select: {
@@ -62,10 +66,12 @@ export async function listSoldiers({ platoon, q, includeInactive }: RosterFilter
       platoon: true,
       position: true,
       isActive: true,
-      kit: { select: { kitNumber: true } },
-      _count: { select: { equipment: true } },
+      // Kit and equipment held in the viewed deployment.
+      kits: { where: { deploymentId }, take: 1, select: { kitNumber: true } },
+      _count: { select: { assignments: { where: { deploymentId } } } },
     },
   });
+  return rows.map(({ kits, _count, ...s }) => ({ ...s, kit: kits[0] ?? null, _count: { equipment: _count.assignments } }));
 }
 
 export async function getRosterCounts() {
@@ -77,23 +83,31 @@ export async function getRosterCounts() {
 }
 
 export async function getSoldier(id: string) {
-  const { db } = await companyContext();
-  return db.soldier.findUnique({
+  const { db, deployment } = await companyContext();
+  const deploymentId = deployment?.id ?? NO_DEPLOYMENT;
+  const soldier = await db.soldier.findUnique({
     where: { id },
     include: {
-      kit: { select: { id: true, kitNumber: true, signedAt: true } },
-      equipment: {
-        orderBy: { serialNumber: "asc" },
+      // What the soldier holds in the viewed deployment.
+      kits: { where: { deploymentId }, take: 1, select: { id: true, kitNumber: true, signedAt: true } },
+      assignments: {
+        where: { deploymentId },
+        orderBy: { item: { serialNumber: "asc" } },
         select: {
-          id: true,
-          serialNumber: true,
           status: true,
           lastVerifiedAt: true,
-          category: { select: { name: true } },
+          item: { select: { id: true, serialNumber: true, category: { select: { name: true } } } },
         },
       },
     },
   });
+  if (!soldier) return null;
+  const { kits, assignments, ...rest } = soldier;
+  return {
+    ...rest,
+    kit: kits[0] ?? null,
+    equipment: assignments.map((a) => ({ ...a.item, status: a.status, lastVerifiedAt: a.lastVerifiedAt })),
+  };
 }
 
 export type SoldierDetail = NonNullable<Awaited<ReturnType<typeof getSoldier>>>;

@@ -3,7 +3,8 @@ import type { CatalogDomain, EquipmentStatus, Platoon, Role } from "@/generated/
 import { chooseCompany, signInAs } from "./auth-mock";
 
 // Minimal builders for integration tests. Everything belongs to a company: by default the test's
-// "home" company (created on first use), or the one passed as `companyId`.
+// "home" company (created on first use), or the one passed as `companyId`. Deployment-level rows
+// (item state, kits, ammo) go into the company's ACTIVE deployment, which is created on first use.
 
 let seq = 0;
 const next = () => ++seq;
@@ -26,6 +27,41 @@ export async function homeCompany() {
 }
 
 const companyOf = async (companyId?: string) => companyId ?? (await homeCompany());
+
+export async function makeDeployment(opts: { companyId?: string; name?: string; status?: "ACTIVE" | "CLOSED" } = {}) {
+  const companyId = await companyOf(opts.companyId);
+  const status = opts.status ?? "ACTIVE";
+  return prisma.deployment.create({
+    data: {
+      companyId,
+      name: opts.name ?? `הפעלה ${next()}`,
+      status,
+      activeCompanyId: status === "ACTIVE" ? companyId : null,
+      endedAt: status === "CLOSED" ? new Date() : null,
+    },
+  });
+}
+
+/** The company's active deployment (created if it has none). */
+export async function activeDeployment(companyId?: string) {
+  const id = await companyOf(companyId);
+  const existing = await prisma.deployment.findFirst({ where: { companyId: id, status: "ACTIVE" } });
+  return existing ?? makeDeployment({ companyId: id });
+}
+
+/** An item's state in a deployment (default: its company's active one), shaped like items used to be. */
+export async function stateOf(itemId: string, deploymentId?: string) {
+  const item = await prisma.equipmentItem.findUniqueOrThrow({ where: { id: itemId }, select: { companyId: true, parentId: true } });
+  const depId = deploymentId ?? (await activeDeployment(item.companyId)).id;
+  const row = await prisma.equipmentAssignment.findUnique({ where: { deploymentId_itemId: { deploymentId: depId, itemId } } });
+  return {
+    parentId: item.parentId,
+    assignedSoldierId: row?.soldierId ?? null,
+    status: row?.status ?? "IN_ARMORY",
+    platoon: row?.platoon ?? null,
+    lastVerifiedAt: row?.lastVerifiedAt ?? null,
+  };
+}
 
 export async function makeUser(opts: { role?: Role; platoon?: Platoon | null; name?: string; companyId?: string } = {}) {
   const n = next();
@@ -101,15 +137,22 @@ export async function makeItem(
 ) {
   const companyId = await companyOf(opts.companyId);
   const categoryId = opts.categoryId ?? (await makeCategory({ companyId })).id;
+  const deployment = await activeDeployment(companyId);
   return prisma.equipmentItem.create({
     data: {
       companyId,
       categoryId,
       serialNumber: opts.serialNumber === undefined ? `SN${next()}` : opts.serialNumber,
-      status: opts.status ?? "IN_ARMORY",
-      assignedSoldierId: opts.assignedSoldierId ?? null,
-      platoon: opts.platoon ?? null,
       parentId: opts.parentId ?? null,
+      assignments: {
+        create: {
+          companyId,
+          deploymentId: deployment.id,
+          status: opts.status ?? "IN_ARMORY",
+          soldierId: opts.assignedSoldierId ?? null,
+          platoon: opts.platoon ?? null,
+        },
+      },
     },
   });
 }
@@ -117,14 +160,23 @@ export async function makeItem(
 export async function makeAmmoStock(opts: { categoryId?: string; location?: string; quantity?: number; companyId?: string } = {}) {
   const companyId = await companyOf(opts.companyId);
   const categoryId = opts.categoryId ?? (await makeCategory({ domain: "AMMUNITION", companyId })).id;
+  const deployment = await activeDeployment(companyId);
   return prisma.ammoStock.create({
-    data: { companyId, categoryId, location: opts.location ?? `מיקום ${next()}`, quantity: opts.quantity ?? 0 },
+    data: {
+      companyId,
+      deploymentId: deployment.id,
+      categoryId,
+      location: opts.location ?? `מיקום ${next()}`,
+      quantity: opts.quantity ?? 0,
+    },
   });
 }
 
 export async function makeKit(opts: { kitNumber: number; soldierId?: string | null; companyId?: string }) {
+  const companyId = await companyOf(opts.companyId);
+  const deployment = await activeDeployment(companyId);
   return prisma.personalKit.create({
-    data: { companyId: await companyOf(opts.companyId), kitNumber: opts.kitNumber, soldierId: opts.soldierId ?? null },
+    data: { companyId, deploymentId: deployment.id, kitNumber: opts.kitNumber, soldierId: opts.soldierId ?? null },
   });
 }
 

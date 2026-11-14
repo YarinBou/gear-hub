@@ -1,6 +1,7 @@
 import "server-only";
 import { connection } from "next/server";
 import { companyContext } from "@/lib/context";
+import { flattenState, inState, stateSelect } from "@/lib/equipment-state";
 import { TOTAL_KITS } from "@/lib/constants";
 import { KIT_ITEM_KEYS, kitChecklistSelect, kitReadiness, type KitBooleanKey } from "@/lib/kit";
 import type { Platoon } from "@/generated/prisma/enums";
@@ -42,14 +43,20 @@ export async function listKits(): Promise<KitTile[]> {
 }
 
 export async function getKit(kitNumber: number) {
-  const { db } = await companyContext();
-  // Kit numbers repeat across companies; the scoped client limits this to the user's company.
-  return db.personalKit.findFirst({
+  const { db, deployment } = await companyContext();
+  // Kit numbers repeat across companies and deployments; the scoped client limits this to the
+  // user's company and the viewed deployment.
+  const kit = await db.personalKit.findFirst({
     where: { kitNumber },
     include: {
       soldier: { select: { id: true, name: true, platoon: true, personalNumber: true, phone: true } },
       personalWeapon: {
-        select: { id: true, serialNumber: true, status: true, category: { select: { name: true } } },
+        select: {
+          id: true,
+          serialNumber: true,
+          category: { select: { name: true } },
+          ...stateSelect(deployment?.id ?? null, { id: true }),
+        },
       },
       signedBy: { select: { name: true } },
       inspections: {
@@ -59,6 +66,8 @@ export async function getKit(kitNumber: number) {
       },
     },
   });
+  if (!kit) return null;
+  return { ...kit, personalWeapon: kit.personalWeapon ? flattenState(kit.personalWeapon) : null };
 }
 
 export type KitDetail = NonNullable<Awaited<ReturnType<typeof getKit>>>;
@@ -98,25 +107,33 @@ export async function getSoldiersWithKit(exceptKit?: number) {
  * Items linked to another kit are excluded.
  */
 export async function getWeaponOptions(soldierId: string | null, currentWeaponId: string | null) {
-  const { db } = await companyContext();
+  const { db, deployment } = await companyContext();
+  if (!deployment) return [];
+  const deploymentId = deployment.id;
   const items = await db.equipmentItem.findMany({
     where: {
       OR: [
-        ...(soldierId ? [{ assignedSoldierId: soldierId }] : []),
-        { assignedSoldierId: null, status: "IN_ARMORY" as const },
+        ...(soldierId ? [inState(deploymentId, { soldierId })] : []),
+        inState(deploymentId, { soldierId: null, status: "IN_ARMORY" }),
         ...(currentWeaponId ? [{ id: currentWeaponId }] : []),
       ],
       AND: [
-        { OR: [{ personalKit: { is: null } }, ...(currentWeaponId ? [{ id: currentWeaponId }] : [])] },
+        // Not already another kit's weapon in this deployment.
+        {
+          OR: [
+            { personalKits: { none: { deploymentId } } },
+            ...(currentWeaponId ? [{ id: currentWeaponId }] : []),
+          ],
+        },
         // Components of a set (e.g. a sight attached to a Negev) can't be a kit's personal weapon.
         { parentId: null },
       ],
     },
     orderBy: [{ category: { name: "asc" } }, { serialNumber: "asc" }],
     take: 300,
-    select: { id: true, serialNumber: true, assignedSoldierId: true, category: { select: { name: true } } },
+    select: { id: true, serialNumber: true, category: { select: { name: true } }, ...stateSelect(deploymentId, { id: true }) },
   });
-  return items.map((i) => ({
+  return items.map(flattenState).map((i) => ({
     id: i.id,
     serialNumber: i.serialNumber,
     category: i.category.name,

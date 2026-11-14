@@ -4,10 +4,17 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
-import { companyContext, adminContext } from "@/lib/context";
+import { adminContext, companyContext, readOnlyMessage, writableContext } from "@/lib/context";
+import { scopedDb } from "@/lib/db";
 import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS, PLATOONS, PLATOON_LABELS } from "@/lib/constants";
 import { resolveStatus } from "@/lib/equipment-rules";
-import { AssignmentError, applyAssignment, attachComponent, detachComponent } from "@/lib/equipment-service";
+import {
+  AssignmentError,
+  applyAssignment,
+  attachComponent,
+  detachComponent,
+  type DeploymentCtx,
+} from "@/lib/equipment-service";
 import {
   AssignSchema,
   CreateEquipmentSchema,
@@ -17,6 +24,10 @@ import {
   UpdateDetailsSchema,
   type FieldErrors,
 } from "@/lib/validation/equipment";
+
+// Items are company-level (create / edit details / delete work with or without a deployment).
+// Who holds them, their status and platoon belong to a deployment: those actions need the viewed
+// deployment to be the active one (writableContext()).
 
 export type FormState =
   | {
@@ -41,11 +52,18 @@ function isUniqueViolation(e: unknown) {
 // ───────────── Create (single, batch, or "ללא צ") ─────────────
 
 export async function createEquipment(_prev: FormState, fd: FormData): Promise<FormState> {
-  const { user, db } = await companyContext();
+  const { user, db, deployment } = await companyContext();
   const values = formValues(fd, ["categoryId", "serials", "quantity", "noSerial", "status", "soldierId", "platoon", "notes"]);
   const parsed = CreateEquipmentSchema.safeParse(values);
   if (!parsed.success) return { errors: toFieldErrors(parsed.error), values };
   const { categoryId, notes, noSerial } = parsed.data;
+
+  // A holder / status / platoon is deployment state — only in the active deployment.
+  const wantsState = !!(parsed.data.soldierId || parsed.data.status || parsed.data.platoon);
+  if (wantsState && deployment?.readOnly) return { error: readOnlyMessage(deployment.name), values };
+  if (wantsState && !deployment) {
+    return { error: "אין הפעלה פעילה — ניתן לקלוט פריטים לנשקייה בלבד (בלי לוחם / סטטוס / מחלקה).", values };
+  }
 
   // Either a list of serials, or a quantity of items whose serials aren't known yet.
   let serials: (string | null)[];
@@ -92,26 +110,37 @@ export async function createEquipment(_prev: FormState, fd: FormData): Promise<F
   });
   if ("error" in resolved) return { errors: { status: resolved.error }, values };
 
+  // Every item has a state row in the company's active deployment (if there is one) — even when
+  // the user is looking at a past deployment while adding it.
+  const companyDb = scopedDb(user.companyId);
+  const active = await companyDb.deployment.findFirst({ where: { status: "ACTIVE" }, select: { id: true } });
+
   let created: { id: string }[];
   try {
-    created = await db.$transaction(async (tx) => {
+    created = await companyDb.$transaction(async (tx) => {
       const items = await tx.equipmentItem.createManyAndReturn({
-        data: serials.map((serialNumber) => ({
-          companyId: user.companyId,
-          serialNumber,
-          categoryId,
-          status: resolved.status,
-          assignedSoldierId: parsed.data.soldierId ?? null,
-          platoon,
-          notes,
-        })),
+        data: serials.map((serialNumber) => ({ companyId: user.companyId, serialNumber, categoryId, notes })),
         select: { id: true },
       });
+      const soldierId = parsed.data.soldierId ?? null;
+      if (active) {
+        await tx.equipmentAssignment.createMany({
+          data: items.map((i) => ({
+            companyId: user.companyId,
+            deploymentId: active.id,
+            itemId: i.id,
+            soldierId,
+            status: resolved.status,
+            platoon,
+          })),
+        });
+      }
       await tx.equipmentLog.createMany({
         data: items.map((i) => ({
           companyId: user.companyId,
+          deploymentId: active?.id ?? null,
           itemId: i.id,
-          toSoldierId: parsed.data.soldierId ?? null,
+          toSoldierId: soldierId,
           toStatus: resolved.status,
           platoon,
           note: noSerial ? "נקלט במערכת (ללא צ)" : "נקלט במערכת",
@@ -158,26 +187,26 @@ export async function updateDetails(id: string, _prev: FormState, fd: FormData):
   return { ok: true, message: "הפרטים נשמרו" };
 }
 
+function deploymentCtx(w: { user: { id: string; companyId: string }; deployment: { id: string } }): DeploymentCtx {
+  return { companyId: w.user.companyId, deploymentId: w.deployment.id, userId: w.user.id };
+}
+
 export async function assignEquipment(id: string, _prev: FormState, fd: FormData): Promise<FormState> {
-  const { user, db } = await companyContext();
+  const w = await writableContext();
   const values = formValues(fd, ["soldierId", "status", "platoon", "note", "verify"]);
+  if (!w.ok) return { error: w.message, values };
   const parsed = AssignSchema.safeParse(values);
   if (!parsed.success) return { errors: toFieldErrors(parsed.error), values };
   const d = parsed.data;
   try {
-    await db.$transaction((tx) =>
-      applyAssignment(
-        tx,
-        id,
-        {
-          soldierId: d.soldierId ?? null,
-          status: d.status as EquipmentStatus | undefined,
-          platoon: (d.platoon as Platoon | undefined) ?? null,
-          note: d.note,
-          verify: d.verify,
-        },
-        user.id,
-      ),
+    await w.db.$transaction((tx) =>
+      applyAssignment(tx, deploymentCtx(w), id, {
+        soldierId: d.soldierId ?? null,
+        status: d.status as EquipmentStatus | undefined,
+        platoon: (d.platoon as Platoon | undefined) ?? null,
+        note: d.note,
+        verify: d.verify,
+      }),
     );
   } catch (e) {
     if (e instanceof AssignmentError) return { error: e.message, values };
@@ -187,12 +216,24 @@ export async function assignEquipment(id: string, _prev: FormState, fd: FormData
   return { ok: true, message: "השיוך עודכן", at: Date.now() };
 }
 
+/**
+ * Admin only, for items entered by mistake. Refused once the item is part of a deployment's
+ * record (a kit's personal weapon, or any history beyond its intake), so history stays intact.
+ */
 export async function deleteEquipment(id: string, _prev: FormState, _fd: FormData): Promise<FormState> {
-  const { db } = await adminContext();
-  const kit = await db.personalKit.findFirst({ where: { personalWeaponId: id }, select: { kitNumber: true } });
-  if (kit) return { error: `הפריט רשום כנשק אישי בערכה ${kit.kitNumber}. יש לנתק אותו מהערכה תחילה.` };
-  // Components are detached automatically (parentId → null) and stay with their current holder.
-  await db.equipmentItem.delete({ where: { id } });
+  const { user } = await adminContext();
+  const companyDb = scopedDb(user.companyId); // across all deployments
+  const kit = await companyDb.personalKit.findFirst({
+    where: { personalWeaponId: id },
+    select: { kitNumber: true, deployment: { select: { name: true } } },
+  });
+  if (kit) {
+    return { error: `הפריט רשום כנשק אישי בערכה ${kit.kitNumber} (${kit.deployment.name}). יש לנתק אותו מהערכה תחילה.` };
+  }
+  const moves = await companyDb.equipmentLog.count({ where: { itemId: id, fromStatus: { not: null } } });
+  if (moves) return { error: "לפריט יש היסטוריית שיוכים בהפעלות, ולכן לא ניתן למחוק אותו." };
+  // Components are detached automatically (parentId → null).
+  await companyDb.equipmentItem.delete({ where: { id } });
   redirect("/equipment");
 }
 
@@ -200,11 +241,20 @@ export async function deleteEquipment(id: string, _prev: FormState, _fd: FormDat
 
 export type SimpleResult = { ok: boolean; message?: string };
 
+/** Linking is physical (company-level); in an active deployment the component also takes the parent's state. */
+async function linkContext() {
+  const { user, db, deployment } = await companyContext();
+  if (deployment?.readOnly) return { error: readOnlyMessage(deployment.name) } as const;
+  const ctx = deployment ? { companyId: user.companyId, deploymentId: deployment.id, userId: user.id } : null;
+  return { db, ctx } as const;
+}
+
 export async function attachComponentAction(parentId: string, childId: string): Promise<SimpleResult> {
-  const { user, db } = await companyContext();
   if (typeof childId !== "string" || !childId) return { ok: false, message: "יש לבחור פריט" };
+  const l = await linkContext();
+  if ("error" in l) return { ok: false, message: l.error };
   try {
-    await db.$transaction((tx) => attachComponent(tx, parentId, childId, user.id));
+    await l.db.$transaction((tx) => attachComponent(tx, l.ctx, parentId, childId));
   } catch (e) {
     if (e instanceof AssignmentError) return { ok: false, message: e.message };
     throw e;
@@ -214,9 +264,10 @@ export async function attachComponentAction(parentId: string, childId: string): 
 }
 
 export async function detachComponentAction(childId: string): Promise<SimpleResult> {
-  const { user, db } = await companyContext();
+  const l = await linkContext();
+  if ("error" in l) return { ok: false, message: l.error };
   try {
-    await db.$transaction((tx) => detachComponent(tx, childId, user.id));
+    await l.db.$transaction((tx) => detachComponent(tx, l.ctx, childId));
   } catch (e) {
     if (e instanceof AssignmentError) return { ok: false, message: e.message };
     throw e;
@@ -235,25 +286,38 @@ function cleanIds(ids: unknown): string[] {
   return Array.isArray(ids) ? [...new Set(ids.filter((x): x is string => typeof x === "string"))].slice(0, MAX_BULK) : [];
 }
 
-/** Components of the given parents (they always follow their parent). */
-async function componentsOf(db: PrismaClient, parentIds: string[]) {
-  if (!parentIds.length) return [];
-  return db.equipmentItem.findMany({
-    where: { parentId: { in: parentIds } },
-    select: { id: true, status: true, platoon: true, assignedSoldierId: true },
-  });
+const rowSelect = {
+  id: true,
+  itemId: true,
+  status: true,
+  platoon: true,
+  soldierId: true,
+  soldier: { select: { platoon: true } },
+  item: { select: { parentId: true } },
+} as const;
+
+/** State rows (in the deployment `db` is scoped to) of the given items. */
+async function rowsOf(db: PrismaClient, itemIds: string[]) {
+  return db.equipmentAssignment.findMany({ where: { itemId: { in: itemIds } }, select: rowSelect });
+}
+
+/** State rows of the components of the given parents (they always follow their parent). */
+async function componentRowsOf(db: PrismaClient, parentItemIds: string[]) {
+  if (!parentItemIds.length) return [];
+  return db.equipmentAssignment.findMany({ where: { item: { parentId: { in: parentItemIds } } }, select: rowSelect });
 }
 
 const COMPONENT_SKIP_NOTE = "רכיבים מתעדכנים רק דרך הפריט הראשי";
 
 /** "אומת" — physical check done now. Verifying a set verifies its components too. */
 export async function verifyEquipment(ids: string[]): Promise<BulkResult> {
-  const { db } = await companyContext();
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
   const list = cleanIds(ids);
   if (!list.length) return { ok: false, message: "לא נבחרו פריטים" };
-  const comps = await componentsOf(db, list);
-  const { count } = await db.equipmentItem.updateMany({
-    where: { id: { in: [...list, ...comps.map((c) => c.id)] } },
+  const comps = await componentRowsOf(w.db, list);
+  const { count } = await w.db.equipmentAssignment.updateMany({
+    where: { OR: [{ itemId: { in: list } }, { id: { in: comps.map((c) => c.id) } }] },
     data: { lastVerifiedAt: new Date() },
   });
   refresh();
@@ -262,38 +326,31 @@ export async function verifyEquipment(ids: string[]): Promise<BulkResult> {
 
 /** Bulk-assign to a platoon. Items held by a soldier from another platoon are skipped. */
 export async function bulkSetPlatoon(ids: string[], platoonRaw: string): Promise<BulkResult> {
-  const { user, db } = await companyContext();
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  const { user, db, deployment } = w;
   const list = cleanIds(ids);
   const platoon = platoonRaw === "NONE" ? null : (PLATOONS as string[]).includes(platoonRaw) ? (platoonRaw as Platoon) : undefined;
   if (!list.length || platoon === undefined) return { ok: false, message: "בחירה לא תקינה" };
 
-  const items = await db.equipmentItem.findMany({
-    where: { id: { in: list } },
-    select: {
-      id: true,
-      parentId: true,
-      platoon: true,
-      status: true,
-      assignedSoldierId: true,
-      assignedSoldier: { select: { platoon: true } },
-    },
-  });
-  const components = items.filter((i) => i.parentId);
-  const heldElsewhere = items.filter((i) => !i.parentId && i.assignedSoldier && i.assignedSoldier.platoon !== platoon);
-  const eligible = items.filter((i) => !i.parentId && (!i.assignedSoldier || i.assignedSoldier.platoon === platoon));
-  const followers = await componentsOf(db, eligible.map((i) => i.id));
-  const toChange = [...eligible, ...followers].filter((i) => i.platoon !== platoon);
+  const rows = await rowsOf(db, list);
+  const components = rows.filter((r) => r.item.parentId);
+  const heldElsewhere = rows.filter((r) => !r.item.parentId && r.soldier && r.soldier.platoon !== platoon);
+  const eligible = rows.filter((r) => !r.item.parentId && (!r.soldier || r.soldier.platoon === platoon));
+  const followers = await componentRowsOf(db, eligible.map((r) => r.itemId));
+  const toChange = [...eligible, ...followers].filter((r) => r.platoon !== platoon);
 
   await db.$transaction([
-    db.equipmentItem.updateMany({ where: { id: { in: toChange.map((i) => i.id) } }, data: { platoon } }),
+    db.equipmentAssignment.updateMany({ where: { id: { in: toChange.map((r) => r.id) } }, data: { platoon } }),
     db.equipmentLog.createMany({
-      data: toChange.map((i) => ({
+      data: toChange.map((r) => ({
         companyId: user.companyId,
-        itemId: i.id,
-        fromSoldierId: i.assignedSoldierId,
-        toSoldierId: i.assignedSoldierId,
-        fromStatus: i.status,
-        toStatus: i.status,
+        deploymentId: deployment.id,
+        itemId: r.itemId,
+        fromSoldierId: r.soldierId,
+        toSoldierId: r.soldierId,
+        fromStatus: r.status,
+        toStatus: r.status,
         platoon,
         note: "שיוך מרוכז למחלקה",
         performedById: user.id,
@@ -311,34 +368,34 @@ export async function bulkSetPlatoon(ids: string[], platoonRaw: string): Promise
 
 /** Bulk status change. "אצל לוחם" is only applied to items that have a holder. */
 export async function bulkSetStatus(ids: string[], statusRaw: string): Promise<BulkResult> {
-  const { user, db } = await companyContext();
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  const { user, db, deployment } = w;
   const list = cleanIds(ids);
   if (!list.length || !(EQUIPMENT_STATUSES as string[]).includes(statusRaw)) {
     return { ok: false, message: "בחירה לא תקינה" };
   }
   const status = statusRaw as EquipmentStatus;
 
-  const items = await db.equipmentItem.findMany({
-    where: { id: { in: list } },
-    select: { id: true, parentId: true, status: true, platoon: true, assignedSoldierId: true },
-  });
-  const components = items.filter((i) => i.parentId);
-  const noHolder = items.filter((i) => !i.parentId && status === "WITH_SOLDIER" && !i.assignedSoldierId);
-  const eligible = items.filter((i) => !i.parentId && (status !== "WITH_SOLDIER" || i.assignedSoldierId));
-  const followers = await componentsOf(db, eligible.map((i) => i.id));
-  const toChange = [...eligible, ...followers].filter((i) => i.status !== status);
+  const rows = await rowsOf(db, list);
+  const components = rows.filter((r) => r.item.parentId);
+  const noHolder = rows.filter((r) => !r.item.parentId && status === "WITH_SOLDIER" && !r.soldierId);
+  const eligible = rows.filter((r) => !r.item.parentId && (status !== "WITH_SOLDIER" || r.soldierId));
+  const followers = await componentRowsOf(db, eligible.map((r) => r.itemId));
+  const toChange = [...eligible, ...followers].filter((r) => r.status !== status);
 
   await db.$transaction([
-    db.equipmentItem.updateMany({ where: { id: { in: toChange.map((i) => i.id) } }, data: { status } }),
+    db.equipmentAssignment.updateMany({ where: { id: { in: toChange.map((r) => r.id) } }, data: { status } }),
     db.equipmentLog.createMany({
-      data: toChange.map((i) => ({
+      data: toChange.map((r) => ({
         companyId: user.companyId,
-        itemId: i.id,
-        fromSoldierId: i.assignedSoldierId,
-        toSoldierId: i.assignedSoldierId,
-        fromStatus: i.status,
+        deploymentId: deployment.id,
+        itemId: r.itemId,
+        fromSoldierId: r.soldierId,
+        toSoldierId: r.soldierId,
+        fromStatus: r.status,
         toStatus: status,
-        platoon: i.platoon,
+        platoon: r.platoon,
         note: "עדכון סטטוס מרוכז",
         performedById: user.id,
       })),

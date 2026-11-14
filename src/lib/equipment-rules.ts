@@ -6,7 +6,7 @@ import { daysAgo } from "@/lib/utils";
 // Business rules for numbered equipment (צל"ם). Pure — safe for client and server.
 
 /** "Not verified in 7 days" — missing items are excluded (they're already flagged). */
-export function staleWhere(now = new Date()): Prisma.EquipmentItemWhereInput {
+export function staleWhere(now = new Date()): Prisma.EquipmentAssignmentWhereInput {
   const before = new Date(now.getTime() - VERIFICATION_STALE_DAYS * 86_400_000);
   return {
     status: { not: "MISSING" },

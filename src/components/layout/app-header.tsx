@@ -2,7 +2,9 @@ import Link from "next/link";
 import { Building2, LogOut, ShieldHalf } from "lucide-react";
 import { leaveCompany } from "@/app/admin/companies/actions";
 import { logout } from "@/app/login/actions";
-import { requireUser } from "@/lib/auth";
+import { companyContext } from "@/lib/context";
+import { scopedDb } from "@/lib/db";
+import { DeploymentPicker } from "@/components/layout/deployment-picker";
 import { Button } from "@/components/ui/button";
 import { GlobalSearch } from "@/components/layout/global-search";
 import { ROLE_LABELS } from "@/lib/constants";
@@ -29,9 +31,18 @@ export function AppHeaderFallback() {
 }
 
 export async function AppHeader() {
-  const user = await requireUser();
+  const { user, deployment } = await companyContext();
+  const deployments = await scopedDb(user.companyId).deployment.findMany({
+    orderBy: [{ status: "asc" }, { startedAt: "desc" }],
+    take: 30,
+    select: { id: true, name: true, status: true },
+  });
   return (
     <HeaderFrame>
+      <DeploymentPicker
+        options={deployments.map((d) => ({ id: d.id, name: d.name, active: d.status === "ACTIVE" }))}
+        viewedId={deployment?.id ?? null}
+      />
       {user.role === "SUPER_ADMIN" ? (
         // Super-admin working inside a company: show which one, and a way back to the company list.
         <form action={leaveCompany}>

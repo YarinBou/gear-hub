@@ -8,13 +8,20 @@ const RECENT_LOGS = 5;
 
 /**
  * Every active ammo type (plus inactive ones that still hold stock), with its locations,
- * company-wide total, level against the threshold, and the latest log entries per location.
+ * company-wide total, level against the threshold, and the latest log entries per location —
+ * all in the viewed deployment.
  */
 export async function getAmmoOverview() {
   await connection();
-  const { db } = await companyContext();
+  const { db, deployment } = await companyContext();
+  // Categories are company-level, so the stock under them is filtered by deployment explicitly
+  // (scopedDb does not rewrite nested relations).
+  const deploymentId = deployment?.id ?? "__no_deployment__";
   const categories = await db.equipmentCategory.findMany({
-    where: { domain: "AMMUNITION", OR: [{ isActive: true }, { ammoStocks: { some: { quantity: { gt: 0 } } } }] },
+    where: {
+      domain: "AMMUNITION",
+      OR: [{ isActive: true }, { ammoStocks: { some: { deploymentId, quantity: { gt: 0 } } } }],
+    },
     orderBy: { name: "asc" },
     select: {
       id: true,
@@ -23,6 +30,7 @@ export async function getAmmoOverview() {
       ammoCategory: true,
       minThreshold: true,
       ammoStocks: {
+        where: { deploymentId },
         orderBy: { location: "asc" },
         select: {
           id: true,

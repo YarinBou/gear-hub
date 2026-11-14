@@ -5,6 +5,12 @@
 // Multi-company: every company-owned model carries `companyId`. Companies share nothing.
 // App code reaches the database through scopedDb(companyId) (src/lib/db.ts), which adds the
 // company to every query and rejects writes for another company. Keep SCOPED_MODELS there in sync.
+//
+// Deployments (הפעלות): the roster, catalog, physical items and storage belong to the company;
+// who holds what (EquipmentAssignment), the personal kits and the ammo stock belong to one
+// Deployment. A company has at most one ACTIVE deployment (partial unique index in the
+// migration), possibly none. Closed deployments are kept as a read-only history.
+// scopedDb(companyId, deploymentId) also filters DEPLOYMENT_MODELS by deployment.
 
 generator client {
   provider = "prisma-client"
@@ -29,6 +35,11 @@ enum Platoon {
   PLATOON_2 // מחלקה 2
   PLATOON_3 // מחלקה 3
   HQ // חפ"ק ומפל"ג
+}
+
+enum DeploymentStatus {
+  ACTIVE // פעילה
+  CLOSED // הסתיימה — read-only history
 }
 
 /// Which module a catalog category belongs to.
@@ -70,16 +81,44 @@ model Company {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users          User[]
-  soldiers       Soldier[]
-  categories     EquipmentCategory[]
-  equipmentItems EquipmentItem[]
-  equipmentLogs  EquipmentLog[]
-  ammoStocks     AmmoStock[]
-  ammoLogs       AmmoLog[]
-  personalKits   PersonalKit[]
-  kitInspections KitInspection[]
-  storageItems   StorageItem[]
+  users                User[]
+  deployments          Deployment[]
+  equipmentAssignments EquipmentAssignment[]
+  soldiers             Soldier[]
+  categories           EquipmentCategory[]
+  equipmentItems       EquipmentItem[]
+  equipmentLogs        EquipmentLog[]
+  ammoStocks           AmmoStock[]
+  ammoLogs             AmmoLog[]
+  personalKits         PersonalKit[]
+  kitInspections       KitInspection[]
+  storageItems         StorageItem[]
+}
+
+/// An operational deployment / mission (הפעלה), e.g. "עזה 2023". Holds who signed for what.
+model Deployment {
+  id              String           @id @default(cuid())
+  companyId       String
+  company         Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  name            String
+  status          DeploymentStatus @default(ACTIVE)
+  /// = companyId while ACTIVE, null once CLOSED. Its unique index allows at most one active
+  /// deployment per company (kept consistent with status by a CHECK in the migration).
+  activeCompanyId String?          @unique
+  startedAt       DateTime         @default(now())
+  endedAt         DateTime?
+  createdById     String?
+  createdBy       User?            @relation("DeploymentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  assignments   EquipmentAssignment[]
+  personalKits  PersonalKit[]
+  ammoStocks    AmmoStock[]
+  equipmentLogs EquipmentLog[]
+
+  @@unique([companyId, name])
+  @@index([companyId, status])
 }
 
 // ───────────────────────────── Users & roster ─────────────────────────────
@@ -100,10 +139,11 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  equipmentLogs  EquipmentLog[]
-  ammoLogs       AmmoLog[]
-  kitInspections KitInspection[]
-  signedKits     PersonalKit[]  @relation("KitSignedBy")
+  equipmentLogs      EquipmentLog[]
+  ammoLogs           AmmoLog[]
+  kitInspections     KitInspection[]
+  signedKits         PersonalKit[]   @relation("KitSignedBy")
+  deploymentsCreated Deployment[]    @relation("DeploymentCreatedBy")
 
   @@index([companyId])
 }
@@ -140,10 +180,11 @@ model Soldier {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  equipment EquipmentItem[]
-  kit       PersonalKit?
-  logsFrom  EquipmentLog[]  @relation("LogFromSoldier")
-  logsTo    EquipmentLog[]  @relation("LogToSoldier")
+  assignments EquipmentAssignment[]
+  /// One kit per deployment at most.
+  kits        PersonalKit[]
+  logsFrom    EquipmentLog[]        @relation("LogFromSoldier")
+  logsTo      EquipmentLog[]        @relation("LogToSoldier")
 
   @@unique([companyId, personalNumber])
   @@index([companyId, platoon])
@@ -182,39 +223,59 @@ model EquipmentCategory {
 // ───────────────────────────── Module B: צל"ם ─────────────────────────────
 
 model EquipmentItem {
-  id                String            @id @default(cuid())
-  companyId         String
-  company           Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  id           String            @id @default(cuid())
+  companyId    String
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
   /// צ / מס"ט. Null = not recorded yet ("ללא צ"); unique within the company when present.
-  serialNumber      String?
-  categoryId        String
-  category          EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  status            EquipmentStatus   @default(IN_ARMORY)
-  assignedSoldierId String?
-  assignedSoldier   Soldier?          @relation(fields: [assignedSoldierId], references: [id], onDelete: SetNull)
-  /// Auto-filled from the assigned soldier; can also be set directly for platoon-level bulk assignment.
-  platoon           Platoon?
-  lastVerifiedAt    DateTime?
-  notes             String?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  serialNumber String?
+  categoryId   String
+  category     EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  notes        String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
   /// Linked set: this item is a component of `parent` (e.g. a ציין or קנס"פ of a נגב).
-  /// Components always follow their parent's holder / status / platoon. One level only.
+  /// Components always follow their parent's holder / status / platoon (in every deployment). One level only.
   parentId   String?
   parent     EquipmentItem?  @relation("ItemComponents", fields: [parentId], references: [id], onDelete: SetNull)
   components EquipmentItem[] @relation("ItemComponents")
 
-  logs        EquipmentLog[]
-  /// When this item is someone's personal weapon in a kit sign-out.
-  personalKit PersonalKit?
+  logs         EquipmentLog[]
+  /// Holder / status / platoon of this item in each deployment.
+  assignments  EquipmentAssignment[]
+  /// Kits (one per deployment at most) where this item is the personal weapon.
+  personalKits PersonalKit[]
 
   @@unique([companyId, serialNumber])
-  @@index([companyId, status])
   @@index([parentId])
-  @@index([platoon])
-  @@index([assignedSoldierId])
-  @@index([lastVerifiedAt])
+}
+
+/// Where an item is in one deployment. Every item has a row in every deployment it existed in
+/// (created when the deployment starts, or when the item is added during it).
+/// All changes go through applyAssignment() in src/lib/equipment-service.ts.
+model EquipmentAssignment {
+  id             String          @id @default(cuid())
+  companyId      String
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  deploymentId   String
+  deployment     Deployment      @relation(fields: [deploymentId], references: [id], onDelete: Restrict)
+  itemId         String
+  item           EquipmentItem   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  status         EquipmentStatus @default(IN_ARMORY)
+  soldierId      String?
+  soldier        Soldier?        @relation(fields: [soldierId], references: [id], onDelete: SetNull)
+  /// Auto-filled from the soldier; can also be set directly for platoon-level bulk assignment.
+  platoon        Platoon?
+  lastVerifiedAt DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([deploymentId, itemId])
+  @@index([deploymentId, status])
+  @@index([deploymentId, soldierId])
+  @@index([deploymentId, platoon])
+  @@index([deploymentId, lastVerifiedAt])
+  @@index([itemId])
 }
 
 /// Digital history of assignments / status changes (יומן העברות).
@@ -222,6 +283,9 @@ model EquipmentLog {
   id            String           @id @default(cuid())
   companyId     String
   company       Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  /// The deployment the change happened in (null: outside any deployment, e.g. intake).
+  deploymentId  String?
+  deployment    Deployment?      @relation(fields: [deploymentId], references: [id], onDelete: Restrict)
   itemId        String
   item          EquipmentItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
   fromSoldierId String?
@@ -238,6 +302,7 @@ model EquipmentLog {
 
   @@index([itemId, createdAt])
   @@index([companyId])
+  @@index([deploymentId])
 }
 
 // ───────────────────────────── Module C: תחמושת ─────────────────────────────
@@ -246,6 +311,8 @@ model AmmoStock {
   id            String            @id @default(cuid())
   companyId     String
   company       Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  deploymentId  String
+  deployment    Deployment        @relation(fields: [deploymentId], references: [id], onDelete: Restrict)
   categoryId    String
   category      EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   /// מיקום (e.g. בונקר פלוגתי, מחלקה 2, רכב מבצעי)
@@ -258,7 +325,7 @@ model AmmoStock {
 
   logs AmmoLog[]
 
-  @@unique([categoryId, location])
+  @@unique([deploymentId, categoryId, location])
   @@index([companyId])
 }
 
@@ -291,19 +358,21 @@ model AmmoLog {
 
 // ───────────────────────────── Module D: ציוד אישי והחתמות ─────────────────────────────
 
-/// One of the company's 98 personal combat kits — the digital sign-out form.
+/// One of the 98 personal combat kits of a deployment — the digital sign-out form.
 /// Boolean fields are "present / signed for". Keep KIT_ITEMS in src/lib/kit.ts in sync.
 model PersonalKit {
-  id        String   @id @default(cuid())
-  companyId String
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  /// 1–98 (range enforced in the app layer), unique within the company
-  kitNumber Int
-  soldierId String?  @unique
-  soldier   Soldier? @relation(fields: [soldierId], references: [id], onDelete: SetNull)
+  id           String     @id @default(cuid())
+  companyId    String
+  company      Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  deploymentId String
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Restrict)
+  /// 1–98 (range enforced in the app layer), unique within the deployment
+  kitNumber    Int
+  soldierId    String?
+  soldier      Soldier?   @relation(fields: [soldierId], references: [id], onDelete: SetNull)
 
   // נשק אישי
-  personalWeaponId String?        @unique
+  personalWeaponId String?
   personalWeapon   EquipmentItem? @relation(fields: [personalWeaponId], references: [id], onDelete: SetNull)
   /// e.g. M16 / M4 (free text, kept even without a linked serial item)
   rifleType        String?
@@ -343,7 +412,10 @@ model PersonalKit {
 
   inspections KitInspection[]
 
-  @@unique([companyId, kitNumber])
+  @@unique([deploymentId, kitNumber])
+  @@unique([deploymentId, soldierId])
+  @@unique([deploymentId, personalWeaponId])
+  @@index([companyId])
 }
 
 /// A physical inspection (מסדר) snapshot.

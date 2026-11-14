@@ -69,6 +69,18 @@ async function seedDemo(companyId: string) {
     "helmet", "catTourniquet", "headlamp",
   ] as const;
 
+  // Demo data lives in an active deployment (kits, holders and ammo belong to one).
+  const deployment =
+    (await prisma.deployment.findFirst({ where: { companyId, status: "ACTIVE" } })) ??
+    (await prisma.deployment.create({
+      data: { companyId, name: "הפעלת הדגמה", status: "ACTIVE", activeCompanyId: companyId },
+    }));
+  const deploymentId = deployment.id;
+  await prisma.personalKit.createMany({
+    data: Array.from({ length: 98 }, (_, i) => ({ companyId, deploymentId, kitNumber: i + 1 })),
+    skipDuplicates: true,
+  });
+
   for (let i = 0; i < 40; i++) {
     const platoon = platoons[i % 4];
     const soldier = await prisma.soldier.create({
@@ -84,15 +96,21 @@ async function seedDemo(companyId: string) {
         companyId,
         serialNumber: `M16-${100200 + i}`,
         categoryId: m16.id,
-        status: "WITH_SOLDIER",
-        assignedSoldierId: soldier.id,
-        platoon,
-        lastVerifiedAt: new Date(Date.now() - (i % 12) * 86_400_000),
+        assignments: {
+          create: {
+            companyId,
+            deploymentId,
+            status: "WITH_SOLDIER",
+            soldierId: soldier.id,
+            platoon,
+            lastVerifiedAt: new Date(Date.now() - (i % 12) * 86_400_000),
+          },
+        },
       },
     });
     const flags = Object.fromEntries(kitKeys.map((k, j) => [k, (i + j) % 9 !== 0]));
     await prisma.personalKit.update({
-      where: { companyId_kitNumber: { companyId, kitNumber: i + 1 } },
+      where: { deploymentId_kitNumber: { deploymentId, kitNumber: i + 1 } },
       data: { soldierId: soldier.id, personalWeaponId: weapon.id, rifleType: "M16", magazineCount: 7, ammoCount: 210, ...flags },
     });
   }
@@ -102,6 +120,7 @@ async function seedDemo(companyId: string) {
     await prisma.ammoStock.create({
       data: {
         companyId,
+        deploymentId,
         categoryId: a.id,
         location: "בונקר פלוגתי",
         quantity: Math.round((a.minThreshold ?? 100) * (i % 3 === 0 ? 0.6 : 1.4)),
@@ -120,7 +139,7 @@ async function seedDemo(companyId: string) {
       },
     });
   }
-  console.log("• demo data seeded (40 soldiers, M16s, kits, ammo, storage)");
+  console.log(`• demo data seeded in deployment "${deployment.name}" (40 soldiers, M16s, kits, ammo, storage)`);
 }
 
 async function main() {

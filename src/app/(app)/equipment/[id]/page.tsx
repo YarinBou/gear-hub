@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeftRight, Backpack, Boxes, History, Link2, PackagePlus } from "lucide-react";
-import { requireUser } from "@/lib/auth";
+import { companyContext } from "@/lib/context";
+import { ReadOnlyWhenClosed } from "@/components/deployment-gate";
 import { EQUIPMENT_STATUS_LABELS, PLATOON_LABELS } from "@/lib/constants";
 import { isStale, itemLabel } from "@/lib/equipment-rules";
 import {
@@ -25,7 +26,7 @@ import { isCompanyAdmin } from "@/lib/roles";
 export const metadata: Metadata = { title: 'פריט צל"ם' };
 
 export default async function EquipmentItemPage({ params }: PageProps<"/equipment/[id]">) {
-  const user = await requireUser();
+  const { user, deployment } = await companyContext();
   const { id } = await params;
   const [item, soldiers, categories] = await Promise.all([
     getEquipmentItem(id),
@@ -71,7 +72,11 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
             {item.lastVerifiedAt && ` (${formatDateTime(item.lastVerifiedAt)})`}
           </p>
         </div>
-        <VerifyNowButton itemId={item.id} />
+        {deployment && (
+          <ReadOnlyWhenClosed>
+            <VerifyNowButton itemId={item.id} />
+          </ReadOnlyWhenClosed>
+        )}
       </div>
 
       {item.parent && (
@@ -108,17 +113,23 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
                   </Link>
                   , או לנתק את הרכיב.
                 </p>
+              ) : !deployment ? (
+                <p className="text-muted-foreground text-sm">
+                  אין הפעלה פעילה — הפריט בנשקייה. שיוך ללוחם אפשרי רק בתוך הפעלה.
+                </p>
               ) : (
-                <AssignForm
-                  itemId={item.id}
-                  soldiers={soldiers}
-                  current={{
-                    soldierId: item.assignedSoldierId,
-                    status: item.status,
-                    platoon: item.platoon,
-                    holder: item.assignedSoldier ? { ...item.assignedSoldier, personalNumber: null } : undefined,
-                  }}
-                />
+                <ReadOnlyWhenClosed>
+                  <AssignForm
+                    itemId={item.id}
+                    soldiers={soldiers}
+                    current={{
+                      soldierId: item.assignedSoldierId,
+                      status: item.status,
+                      platoon: item.platoon,
+                      holder: item.assignedSoldier ? { ...item.assignedSoldier, personalNumber: null } : undefined,
+                    }}
+                  />
+                </ReadOnlyWhenClosed>
               )}
             </CardContent>
           </Card>
@@ -131,7 +142,9 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
                 <CardDescription>פריטים שעוברים יחד עם הפריט הזה (למשל ציין או קנס&quot;פ של נגב)</CardDescription>
               </CardHeader>
               <CardContent>
-                <ComponentsEditor itemId={item.id} components={item.components} candidates={candidates} />
+                <ReadOnlyWhenClosed>
+                  <ComponentsEditor itemId={item.id} components={item.components} candidates={candidates} />
+                </ReadOnlyWhenClosed>
               </CardContent>
             </Card>
           )}
@@ -193,6 +206,7 @@ function HistoryCard({ logs }: { logs: EquipmentDetail["logs"] }) {
                 <p className="text-muted-foreground text-xs">
                   {formatDateTime(log.createdAt)}
                   {log.performedBy && ` · ${log.performedBy.name}`}
+                  {log.deployment && ` · ${log.deployment.name}`}
                 </p>
                 <div className="mt-1 flex flex-col gap-0.5 text-sm">
                   {created ? (

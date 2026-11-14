@@ -33,6 +33,7 @@ import {
   makeKit,
   makeSoldier,
   makeUser,
+  stateOf,
 } from "./factories";
 
 // Companies share nothing. Every test sets up two companies with deliberately colliding data
@@ -78,7 +79,7 @@ describe("scopedDb", () => {
     expect(await db.equipmentItem.findFirst({ where: { serialNumber: "555" } })).toMatchObject({ id: w.a.item.id });
     expect((await db.soldier.findMany()).map((s) => s.id)).toEqual([w.a.soldier.id]);
     expect(await db.personalKit.count()).toBe(1);
-    const grouped = await db.equipmentItem.groupBy({ by: ["status"], _count: { _all: true } });
+    const grouped = await db.equipmentAssignment.groupBy({ by: ["status"], _count: { _all: true } });
     expect(grouped).toEqual([{ status: "IN_ARMORY", _count: { _all: 1 } }]);
   });
 
@@ -137,16 +138,15 @@ describe("actions refuse another company's records", () => {
     await loginAs("ADMIN", { companyId: w.a.id });
   });
 
-  async function bItem() {
-    return prisma.equipmentItem.findUniqueOrThrow({ where: { id: w.b.item.id } });
-  }
+  /** B's item: its link and its state in B's active deployment. */
+  const bItem = () => stateOf(w.b.item.id);
 
   it("equipment: can't assign B's item, or hand A's item to B's soldier", async () => {
     expect(await assignEquipment(w.b.item.id, undefined, form({ soldierId: w.a.soldier.id }))).toHaveProperty("error");
     expect((await bItem()).assignedSoldierId).toBeNull();
 
     expect(await assignEquipment(w.a.item.id, undefined, form({ soldierId: w.b.soldier.id }))).toHaveProperty("error");
-    expect((await prisma.equipmentItem.findUniqueOrThrow({ where: { id: w.a.item.id } })).assignedSoldierId).toBeNull();
+    expect((await stateOf(w.a.item.id)).assignedSoldierId).toBeNull();
   });
 
   it("equipment: can't move A's item to B's category, or attach B's item", async () => {

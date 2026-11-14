@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ShieldHalf } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { AppHeader, AppHeaderFallback } from "@/components/layout/app-header";
+import { DeploymentBanner } from "@/components/layout/deployment-banner";
 import { BottomNav, BottomNavView } from "@/components/layout/bottom-nav";
 import { SidebarNav, SidebarNavView } from "@/components/layout/sidebar-nav";
 import { isCompanyAdmin } from "@/lib/roles";
@@ -38,6 +39,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <Suspense fallback={<AppHeaderFallback />}>
           <AppHeader />
+        </Suspense>
+        <Suspense fallback={null}>
+          <DeploymentBanner />
         </Suspense>
         {/* Bottom padding leaves room for the mobile tab bar */}
         <main className="flex-1 px-4 pt-4 pb-24 lg:px-6 lg:pt-6 lg:pb-8 print:p-0">{children}</main>

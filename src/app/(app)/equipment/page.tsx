@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
 import { EquipmentList } from "./equipment-list";
+import { ReadOnlyWhenClosed } from "@/components/deployment-gate";
 import { FilterBar } from "./filter-bar";
 
 export const metadata: Metadata = { title: 'ניהול צל"ם' };
@@ -136,7 +137,9 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
               ? `מציג ${formatNumber((page - 1) * 100 + 1)}–${formatNumber((page - 1) * 100 + items.length)} מתוך ${formatNumber(total)}`
               : `${formatNumber(total)} פריטים`}
           </p>
-          <EquipmentList items={items} />
+          <ReadOnlyWhenClosed orNone>
+            <EquipmentList items={items} />
+          </ReadOnlyWhenClosed>
           {pageCount > 1 && (
             <nav aria-label="עימוד" className="flex items-center justify-center gap-2">
               {page > 1 && (

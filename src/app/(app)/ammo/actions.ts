@@ -4,7 +4,7 @@ import { refresh } from "next/cache";
 import { Prisma } from "@/generated/prisma/client";
 import type { AmmoLogType } from "@/generated/prisma/enums";
 import { applyMovement } from "@/lib/ammo-rules";
-import { companyContext, adminContext } from "@/lib/context";
+import { writableContext } from "@/lib/context";
 import { formatNumber } from "@/lib/utils";
 import { AddStockSchema, MovementSchema } from "@/lib/validation/ammo";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
@@ -17,7 +17,9 @@ class MovementError extends Error {}
 
 /** Open a new (type, location) stock row with an initial count. */
 export async function addStock(_prev: AmmoFormState, fd: FormData): Promise<AmmoFormState> {
-  const { user, db } = await companyContext();
+  const w = await writableContext();
+  if (!w.ok) return { error: w.message };
+  const { user, db, deployment } = w;
   const parsed = AddStockSchema.safeParse({
     categoryId: fd.get("categoryId") ?? "",
     location: fd.get("location") ?? "",
@@ -36,7 +38,7 @@ export async function addStock(_prev: AmmoFormState, fd: FormData): Promise<Ammo
   try {
     await db.$transaction(async (tx) => {
       const stock = await tx.ammoStock.create({
-        data: { companyId: user.companyId, categoryId, location, quantity, lastCountedAt: new Date() },
+        data: { companyId: user.companyId, deploymentId: deployment.id, categoryId, location, quantity, lastCountedAt: new Date() },
       });
       await tx.ammoLog.create({
         data: {
@@ -63,7 +65,9 @@ export async function addStock(_prev: AmmoFormState, fd: FormData): Promise<Ammo
 
 /** Count / receive / issue at one location. Row-locked so concurrent updates can't lose a movement. */
 export async function recordMovement(stockId: string, _prev: AmmoFormState, fd: FormData): Promise<AmmoFormState> {
-  const { user, db } = await companyContext();
+  const w = await writableContext();
+  if (!w.ok) return { error: w.message };
+  const { user, db, deployment } = w;
   const parsed = MovementSchema.safeParse({
     type: fd.get("type") ?? "",
     amount: fd.get("amount") ?? "",
@@ -77,9 +81,11 @@ export async function recordMovement(stockId: string, _prev: AmmoFormState, fd: 
   try {
     result = await db.$transaction(async (tx) => {
       // Lock the row for the duration of the transaction. Raw SQL isn't scoped by scopedDb,
-      // so the company condition is written out here.
+      // so the company and deployment conditions are written out here.
       const rows = await tx.$queryRaw<{ quantity: number }[]>`
-        SELECT quantity FROM "AmmoStock" WHERE id = ${stockId} AND "companyId" = ${user.companyId} FOR UPDATE`;
+        SELECT quantity FROM "AmmoStock"
+        WHERE id = ${stockId} AND "companyId" = ${user.companyId} AND "deploymentId" = ${deployment.id}
+        FOR UPDATE`;
       if (!rows.length) throw new MovementError("המיקום לא נמצא");
       const previous = rows[0].quantity;
       const moved = applyMovement(previous, type, amount);
@@ -121,7 +127,9 @@ export async function recordMovement(stockId: string, _prev: AmmoFormState, fd: 
 
 /** Remove an empty location. Admin only — it also removes that location's log. */
 export async function deleteStock(stockId: string): Promise<{ ok: boolean; message?: string }> {
-  const { db } = await adminContext();
+  const w = await writableContext({ admin: true });
+  if (!w.ok) return { ok: false, message: w.message };
+  const { db } = w;
   const { count } = await db.ammoStock.deleteMany({ where: { id: stockId, quantity: 0 } });
   if (!count) return { ok: false, message: "ניתן להסיר רק מיקום ריק (כמות 0)" };
   refresh();

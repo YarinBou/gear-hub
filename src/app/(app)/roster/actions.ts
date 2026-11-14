@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Prisma } from "@/generated/prisma/client";
 import type { Platoon } from "@/generated/prisma/enums";
 import { companyContext } from "@/lib/context";
+import { scopedDb } from "@/lib/db";
 import { PLATOONS } from "@/lib/constants";
 import { soldiersTag } from "@/lib/queries/soldiers";
 import { MAX_IMPORT_ROWS, parseRosterText } from "@/lib/roster-import";
@@ -65,14 +66,15 @@ export async function updateSoldier(
   _prev: SoldierFormState,
   formData: FormData,
 ): Promise<SoldierFormState> {
-  const { user, db } = await companyContext();
+  const { user } = await companyContext();
   const values = readForm(formData);
   const parsed = SoldierSchema.safeParse(values);
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values };
   const platoon = parsed.data.platoon as Platoon;
 
   try {
-    await db.$transaction(async (tx) => {
+    // Company-level client: the platoon sync below targets the ACTIVE deployment, whichever one is viewed.
+    await scopedDb(user.companyId).$transaction(async (tx) => {
       const before = await tx.soldier.findUniqueOrThrow({ where: { id }, select: { platoon: true } });
       await tx.soldier.update({
         where: { id },
@@ -84,9 +86,13 @@ export async function updateSoldier(
           position: parsed.data.position ?? null,
         },
       });
-      // Equipment platoon is auto-filled from the holder — keep it in sync on transfer.
+      // Equipment platoon is auto-filled from the holder — keep it in sync on transfer
+      // (in the active deployment; closed deployments are history).
       if (before.platoon !== platoon) {
-        await tx.equipmentItem.updateMany({ where: { assignedSoldierId: id }, data: { platoon } });
+        await tx.equipmentAssignment.updateMany({
+          where: { soldierId: id, deployment: { status: "ACTIVE" } },
+          data: { platoon },
+        });
       }
     });
   } catch (e) {
@@ -99,7 +105,7 @@ export async function updateSoldier(
 
 export type ActiveState = { error?: string } | undefined;
 
-/** Soft delete / restore. A soldier holding equipment or a kit cannot be removed. */
+/** Soft delete / restore. A soldier holding equipment or a kit in the active deployment cannot be removed. */
 export async function setSoldierActive(
   id: string,
   active: boolean,
@@ -108,14 +114,17 @@ export async function setSoldierActive(
 ): Promise<ActiveState> {
   const { user, db } = await companyContext();
   if (!active) {
-    const s = await db.soldier.findUnique({
-      where: { id },
-      select: { _count: { select: { equipment: true } }, kit: { select: { kitNumber: true } } },
-    });
+    const s = await db.soldier.findUnique({ where: { id }, select: { id: true } });
     if (!s) return { error: "הלוחם לא נמצא" };
+    const companyDb = scopedDb(user.companyId);
+    const inActive = { soldierId: id, deployment: { status: "ACTIVE" as const } };
+    const [items, kit] = await Promise.all([
+      companyDb.equipmentAssignment.count({ where: inActive }),
+      companyDb.personalKit.findFirst({ where: inActive, select: { kitNumber: true } }),
+    ]);
     const blockers: string[] = [];
-    if (s._count.equipment) blockers.push(`${s._count.equipment} פריטי צל"ם`);
-    if (s.kit) blockers.push(`ערכה ${s.kit.kitNumber}`);
+    if (items) blockers.push(`${items} פריטי צל"ם`);
+    if (kit) blockers.push(`ערכה ${kit.kitNumber}`);
     if (blockers.length) {
       return { error: `לא ניתן להוציא מהסד"כ לפני זיכוי: ${blockers.join(", ")}` };
     }

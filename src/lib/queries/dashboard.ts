@@ -7,6 +7,7 @@ import { staleWhere } from "@/lib/equipment-rules";
 import { isLowStock } from "@/lib/ammo-rules";
 import { storageFlags } from "@/lib/storage-rules";
 import type { AmmoCategory, EquipmentStatus, Platoon } from "@/generated/prisma/enums";
+import type { PrismaClient } from "@/generated/prisma/client";
 
 export type KitCell = {
   kitNumber: number;
@@ -16,7 +17,8 @@ export type KitCell = {
 };
 
 export async function getDashboardData() {
-  const { db } = await companyContext();
+  // Equipment state, kits and ammo come from the viewed deployment (empty when there is none).
+  const { db, deployment } = await companyContext();
   // Live operational data: always render at request time (before reading the clock).
   await connection();
   const stale = staleWhere();
@@ -33,21 +35,19 @@ export async function getDashboardData() {
     storageItems,
   ] = await Promise.all([
     db.soldier.groupBy({ by: ["platoon"], where: { isActive: true }, _count: { _all: true } }),
-    db.equipmentItem.groupBy({ by: ["status"], _count: { _all: true } }),
-    db.equipmentItem.groupBy({ by: ["platoon"], _count: { _all: true } }),
-    db.equipmentItem.findMany({
+    countItemsByState(db, deployment?.id ?? null, "status"),
+    countItemsByState(db, deployment?.id ?? null, "platoon"),
+    db.equipmentAssignment.findMany({
       where: stale,
       orderBy: [{ lastVerifiedAt: { sort: "asc", nulls: "first" } }],
       take: 5,
       select: {
-        id: true,
-        serialNumber: true,
         lastVerifiedAt: true,
-        category: { select: { name: true } },
-        assignedSoldier: { select: { name: true } },
+        soldier: { select: { name: true } },
+        item: { select: { id: true, serialNumber: true, category: { select: { name: true } } } },
       },
     }),
-    db.equipmentItem.count({
+    db.equipmentAssignment.count({
       where: stale,
     }),
     db.equipmentCategory.findMany({
@@ -132,6 +132,7 @@ export async function getDashboardData() {
   const storageCurrent = storageItems.reduce((a, s) => a + Math.min(s.currentQuantity, s.targetQuantity), 0);
 
   return {
+    deployment,
     roster: { byPlatoon: roster, total: rosterTotal },
     equipment: {
       total: equipmentTotal,
@@ -139,7 +140,8 @@ export async function getDashboardData() {
       byPlatoon: equipmentPlatoon,
       unassigned: equipmentUnassigned,
       staleCount,
-      staleItems,
+      // Same shape as before the per-deployment state: the item with its holder.
+      staleItems: staleItems.map((r) => ({ ...r.item, lastVerifiedAt: r.lastVerifiedAt, assignedSoldier: r.soldier })),
     },
     ammo: { types: ammo, low: lowAmmo },
     kits: { cells: kitCells, issued: issuedKits.length, avgReadiness, fullKits },
@@ -153,3 +155,18 @@ export async function getDashboardData() {
 }
 
 export type DashboardData = Awaited<ReturnType<typeof getDashboardData>>;
+
+/**
+ * Item counts by status or platoon in one deployment. Without a deployment every item is in the
+ * armory with no platoon. Same row shape as groupBy so the caller doesn't care which.
+ */
+async function countItemsByState<K extends "status" | "platoon">(db: PrismaClient, deploymentId: string | null, by: K) {
+  if (deploymentId) {
+    const rows = await db.equipmentAssignment.groupBy({ by: [by], _count: { _all: true } });
+    return rows as unknown as ({ _count: { _all: number } } & Record<K, K extends "status" ? EquipmentStatus : Platoon | null>)[];
+  }
+  const total = await db.equipmentItem.count();
+  const value = by === "status" ? "IN_ARMORY" : null;
+  return (total ? [{ [by]: value, _count: { _all: total } }] : []) as unknown as ({ _count: { _all: number } } &
+    Record<K, K extends "status" ? EquipmentStatus : Platoon | null>)[];
+}
