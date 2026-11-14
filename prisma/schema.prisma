@@ -1,0 +1,275 @@
+// Gear-Hub — Prisma schema
+// Prisma 7: the connection URL lives in prisma.config.ts (migrations) and in
+// src/lib/prisma.ts (runtime, via the pg driver adapter). Not in this file.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum Role {
+  ADMIN // סמ"פ / מ"פ
+  REGULAR // רס"פ / מ"מ
+}
+
+enum Platoon {
+  PLATOON_1 // מחלקה 1
+  PLATOON_2 // מחלקה 2
+  PLATOON_3 // מחלקה 3
+  HQ // חפ"ק ומפל"ג
+}
+
+/// Which module a catalog category belongs to.
+enum CatalogDomain {
+  EQUIPMENT // צל"ם — numbered items
+  AMMUNITION // תחמושת
+  STORAGE // ציוד פלוגתי בימ"ח
+}
+
+enum EquipmentStatus {
+  IN_ARMORY // בנשקייה
+  WITH_SOLDIER // אצל לוחם
+  IN_REPAIR // בתיקון
+  STORED // מאופסן
+  MISSING // חסר
+}
+
+enum AmmoCategory {
+  EXPLOSIVE // נפיצה
+  NON_LETHAL // אלפ"ה
+  STANDARD // רגילה
+}
+
+enum StorageStatus {
+  OK // תקין
+  SHORTAGE // חוסר
+  DAMAGED // בלאי
+  EXPIRED // פג תוקף
+}
+
+// ───────────────────────────── Users & roster ─────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(REGULAR)
+  /// Optional home platoon (e.g. a מ"מ). Null = company-wide.
+  platoon      Platoon?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  equipmentLogs  EquipmentLog[]
+  kitInspections KitInspection[]
+  signedKits     PersonalKit[]  @relation("KitSignedBy")
+}
+
+/// The company roster (סד"כ). Single source of truth for every assignment.
+model Soldier {
+  id             String   @id @default(cuid())
+  name           String
+  /// מספר אישי
+  personalNumber String?  @unique
+  phone          String?
+  platoon        Platoon
+  /// תפקיד (e.g. מטול, קשר, חובש)
+  position       String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  equipment     EquipmentItem[]
+  kit           PersonalKit?
+  logsFrom      EquipmentLog[]  @relation("LogFromSoldier")
+  logsTo        EquipmentLog[]  @relation("LogToSoldier")
+
+  @@index([platoon])
+  @@index([name])
+}
+
+// ───────────────────────────── Global catalog ─────────────────────────────
+
+/// Dynamic, admin-managed types (weapon models, optics, ammo types, storage items…).
+model EquipmentCategory {
+  id             String        @id @default(cuid())
+  name           String
+  domain         CatalogDomain
+  description    String?
+  /// Only for AMMUNITION.
+  ammoCategory   AmmoCategory?
+  /// Low-stock threshold (company-wide total). AMMUNITION only.
+  minThreshold   Int?
+  /// STORAGE items that require expiry tracking (e.g. tourniquets, medical).
+  requiresExpiry Boolean       @default(false)
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  equipmentItems EquipmentItem[]
+  ammoStocks     AmmoStock[]
+  storageItems   StorageItem[]
+
+  @@unique([domain, name])
+}
+
+// ───────────────────────────── Module B: צל"ם ─────────────────────────────
+
+model EquipmentItem {
+  id                String          @id @default(cuid())
+  /// צ / מס"ט
+  serialNumber      String          @unique
+  categoryId        String
+  category          EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  status            EquipmentStatus @default(IN_ARMORY)
+  assignedSoldierId String?
+  assignedSoldier   Soldier?        @relation(fields: [assignedSoldierId], references: [id], onDelete: SetNull)
+  /// Auto-filled from the assigned soldier; can also be set directly for platoon-level bulk assignment.
+  platoon           Platoon?
+  lastVerifiedAt    DateTime?
+  notes             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  logs        EquipmentLog[]
+  /// When this item is someone's personal weapon in a kit sign-out.
+  personalKit PersonalKit?
+
+  @@index([status])
+  @@index([platoon])
+  @@index([assignedSoldierId])
+  @@index([lastVerifiedAt])
+}
+
+/// Digital history of assignments / status changes (יומן העברות).
+model EquipmentLog {
+  id            String           @id @default(cuid())
+  itemId        String
+  item          EquipmentItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  fromSoldierId String?
+  fromSoldier   Soldier?         @relation("LogFromSoldier", fields: [fromSoldierId], references: [id], onDelete: SetNull)
+  toSoldierId   String?
+  toSoldier     Soldier?         @relation("LogToSoldier", fields: [toSoldierId], references: [id], onDelete: SetNull)
+  fromStatus    EquipmentStatus?
+  toStatus      EquipmentStatus?
+  platoon       Platoon?
+  note          String?
+  performedById String?
+  performedBy   User?            @relation(fields: [performedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime         @default(now())
+
+  @@index([itemId, createdAt])
+}
+
+// ───────────────────────────── Module C: תחמושת ─────────────────────────────
+
+model AmmoStock {
+  id            String            @id @default(cuid())
+  categoryId    String
+  category      EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  /// מיקום (e.g. בונקר פלוגתי, מחלקה 2, רכב מבצעי)
+  location      String
+  quantity      Int               @default(0)
+  lastCountedAt DateTime?
+  notes         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([categoryId, location])
+}
+
+// ───────────────────────────── Module D: ציוד אישי והחתמות ─────────────────────────────
+
+/// One of the company's 98 personal combat kits — the digital sign-out form.
+/// Boolean fields are "present / signed for". Keep KIT_ITEMS in src/lib/kit.ts in sync.
+model PersonalKit {
+  id        String   @id @default(cuid())
+  /// 1–98 (range enforced in the app layer)
+  kitNumber Int      @unique
+  soldierId String?  @unique
+  soldier   Soldier? @relation(fields: [soldierId], references: [id], onDelete: SetNull)
+
+  // נשק אישי
+  personalWeaponId String?        @unique
+  personalWeapon   EquipmentItem? @relation(fields: [personalWeaponId], references: [id], onDelete: SetNull)
+  /// e.g. M16 / M4 (free text, kept even without a linked serial item)
+  rifleType        String?
+  weaponIssued     Boolean        @default(false)
+  magazineCount    Int            @default(0)
+  ammoCount        Int            @default(0)
+
+  // כלי ניקוי ונשק
+  cleaningKit Boolean @default(false)
+  weaponSling Boolean @default(false)
+  weaponOil   Boolean @default(false)
+
+  // ציוד אישי ללוחם (כולל חורף)
+  uniform1        Boolean @default(false)
+  uniform2        Boolean @default(false)
+  workBelt        Boolean @default(false)
+  sleepingBag     Boolean @default(false)
+  tacticalEyewear Boolean @default(false)
+  kneePads        Boolean @default(false)
+  gearBag90L      Boolean @default(false)
+  tacticalVest    Boolean @default(false)
+  ceramicPlates   Boolean @default(false)
+  helmet          Boolean @default(false)
+  catTourniquet   Boolean @default(false)
+  headlamp        Boolean @default(false)
+
+  // החתמה
+  signedAt        DateTime?
+  signedById      String?
+  signedBy        User?     @relation("KitSignedBy", fields: [signedById], references: [id], onDelete: SetNull)
+  /// Data-URL / blob URL of the soldier's drawn signature.
+  signatureData   String?
+  lastInspectedAt DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  inspections KitInspection[]
+}
+
+/// A physical inspection (מסדר) snapshot.
+model KitInspection {
+  id            String      @id @default(cuid())
+  kitId         String
+  kit           PersonalKit @relation(fields: [kitId], references: [id], onDelete: Cascade)
+  /// Keys of KIT_ITEMS found missing during this inspection.
+  missingItems  String[]
+  performedById String?
+  performedBy   User?       @relation(fields: [performedById], references: [id], onDelete: SetNull)
+  note          String?
+  createdAt     DateTime    @default(now())
+
+  @@index([kitId, createdAt])
+}
+
+// ───────────────────────────── Module E: ציוד פלוגתי בימ"ח ─────────────────────────────
+
+model StorageItem {
+  id              String            @id @default(cuid())
+  categoryId      String
+  category        EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  /// תקן
+  targetQuantity  Int               @default(0)
+  /// מצאי
+  currentQuantity Int               @default(0)
+  status          StorageStatus     @default(OK)
+  /// For items that expire (tourniquets / medical). Nearest expiry in the batch.
+  expiryDate      DateTime?
+  location        String?
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([expiryDate])
+}
