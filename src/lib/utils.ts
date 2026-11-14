@@ -23,3 +23,26 @@ export function daysAgo(days: number): Date {
 export function daysFromNow(days: number): Date {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }
+
+const DAY = 86_400_000;
+
+/** "היום" / "אתמול" / "לפני 5 ימים" — for verification dates in the field. */
+export function formatDaysAgo(d: Date | null | undefined): string {
+  if (!d) return "מעולם לא";
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const days = Math.ceil((startOfToday.getTime() - d.getTime()) / DAY);
+  if (days <= 0) return "היום";
+  if (days === 1) return "אתמול";
+  return `לפני ${days} ימים`;
+}
+
+const dateTimeFmt = new Intl.DateTimeFormat("he-IL", {
+  dateStyle: "short",
+  timeStyle: "short",
+  timeZone: "Asia/Jerusalem",
+});
+
+export function formatDateTime(d: Date | null | undefined): string {
+  return d ? dateTimeFmt.format(d) : "—";
+}

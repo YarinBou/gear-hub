@@ -6,9 +6,10 @@ import {
   EXPIRY_WARNING_DAYS,
   PLATOONS,
   TOTAL_KITS,
-  VERIFICATION_STALE_DAYS,
+
 } from "@/lib/constants";
-import { daysAgo, daysFromNow } from "@/lib/utils";
+import { daysFromNow } from "@/lib/utils";
+import { staleWhere } from "@/lib/equipment-rules";
 import type { AmmoCategory, EquipmentStatus, Platoon } from "@/generated/prisma/enums";
 
 export type KitCell = {
@@ -21,7 +22,7 @@ export type KitCell = {
 export async function getDashboardData() {
   // Live operational data: always render at request time (before reading the clock).
   await connection();
-  const staleBefore = daysAgo(VERIFICATION_STALE_DAYS);
+  const stale = staleWhere();
   const expiryBefore = daysFromNow(EXPIRY_WARNING_DAYS);
 
   const [
@@ -39,7 +40,7 @@ export async function getDashboardData() {
     prisma.equipmentItem.groupBy({ by: ["status"], _count: { _all: true } }),
     prisma.equipmentItem.groupBy({ by: ["platoon"], _count: { _all: true } }),
     prisma.equipmentItem.findMany({
-      where: { OR: [{ lastVerifiedAt: null }, { lastVerifiedAt: { lt: staleBefore } }], status: { not: "MISSING" } },
+      where: stale,
       orderBy: [{ lastVerifiedAt: { sort: "asc", nulls: "first" } }],
       take: 5,
       select: {
@@ -51,7 +52,7 @@ export async function getDashboardData() {
       },
     }),
     prisma.equipmentItem.count({
-      where: { OR: [{ lastVerifiedAt: null }, { lastVerifiedAt: { lt: staleBefore } }], status: { not: "MISSING" } },
+      where: stale,
     }),
     prisma.equipmentCategory.findMany({
       where: { domain: "AMMUNITION", isActive: true },
