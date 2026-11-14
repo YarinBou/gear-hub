@@ -7,7 +7,8 @@ import { KIT_GROUP_LABELS, KIT_ITEMS, type KitGroup } from "@/lib/kit";
 import { getKit } from "@/lib/queries/kits";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
-import { PrintButton } from "./print-button";
+import { Serial } from "@/components/equipment/serial";
+import { PrintButton } from "@/components/print-button";
 
 export const metadata: Metadata = { title: "טופס החתמת ציוד" };
 
@@ -65,7 +66,7 @@ export default async function KitSheetPage({ params }: PageProps<"/kits/[kitNumb
               <SheetRow label="סוג נשק" value={kit.rifleType ?? "—"} />
               <SheetRow
                 label='צ / מס"ט'
-                value={kit.personalWeapon ? <span className="ltr-text font-mono">{kit.personalWeapon.serialNumber}</span> : "—"}
+                value={kit.personalWeapon ? <Serial value={kit.personalWeapon.serialNumber} /> : "—"}
               />
               <SheetRow label="מחסניות" value={String(kit.magazineCount)} />
               <SheetRow label="כדורים" value={String(kit.ammoCount)} />

@@ -3,6 +3,7 @@
 import { startTransition, useActionState, useState, useTransition } from "react";
 import { Check, ChevronDown, Copy, KeyRound, Plus, Power, UserPlus } from "lucide-react";
 import { Field } from "@/components/form-field";
+import { PlatoonBadge } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -170,10 +171,9 @@ export function UserRow({
             <Badge variant={user.role === "ADMIN" ? "default" : "secondary"}>{user.role === "ADMIN" ? "מנהל" : "משתמש"}</Badge>
             {!user.isActive && <Badge variant="outline">מושבת</Badge>}
           </p>
-          <p className="text-muted-foreground text-xs">
+          <p className="text-muted-foreground mt-0.5 flex items-center gap-2 text-xs">
             <span className="ltr-text">{user.username}</span>
-            {" · "}
-            {user.platoon ? PLATOON_LABELS[user.platoon] : "כל הפלוגה"}
+            {user.platoon ? <PlatoonBadge platoon={user.platoon} /> : <span>· כל הפלוגה</span>}
           </p>
         </div>
         <ChevronDown className={cn("text-muted-foreground size-4 shrink-0 transition-transform", open && "rotate-180")} />

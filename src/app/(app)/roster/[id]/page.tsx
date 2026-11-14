@@ -3,10 +3,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Backpack, Crosshair, Phone } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { EQUIPMENT_STATUS_LABELS, PLATOON_LABELS, VERIFICATION_STALE_DAYS } from "@/lib/constants";
+import { EQUIPMENT_STATUS_LABELS, VERIFICATION_STALE_DAYS } from "@/lib/constants";
 import { getSoldier } from "@/lib/queries/soldiers";
 import { daysAgo, formatDate } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
+import { Serial } from "@/components/equipment/serial";
+import { PlatoonBadge } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { updateSoldier } from "../actions";
@@ -32,8 +34,9 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
             {soldier.name}
             {!soldier.isActive && <Badge variant="secondary">הוצא מהסד&quot;כ</Badge>}
           </h1>
-          <p className="text-muted-foreground text-sm">
-            {[PLATOON_LABELS[soldier.platoon], soldier.position].filter(Boolean).join(" · ")}
+          <p className="text-muted-foreground mt-1 flex items-center gap-2 text-sm">
+            <PlatoonBadge platoon={soldier.platoon} />
+            {soldier.position}
           </p>
         </div>
         {soldier.phone && (
@@ -106,7 +109,7 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
                       <li key={e.id} className="flex items-center gap-2 py-2 text-sm">
                         <div className="min-w-0 flex-1">
                           <p className="font-medium">{e.category.name}</p>
-                          <p className="text-muted-foreground ltr-text font-mono text-xs">{e.serialNumber}</p>
+                          <p className="text-muted-foreground text-xs"><Serial value={e.serialNumber} /></p>
                         </div>
                         {stale && <Badge variant="warning">לא אומת</Badge>}
                         <Badge variant={e.status === "MISSING" ? "danger" : "secondary"}>{EQUIPMENT_STATUS_LABELS[e.status]}</Badge>

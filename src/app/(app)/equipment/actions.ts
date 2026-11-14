@@ -7,11 +7,13 @@ import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
 import { requireAdmin, requireUser } from "@/lib/auth";
 import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS, PLATOONS, PLATOON_LABELS } from "@/lib/constants";
 import { resolveStatus } from "@/lib/equipment-rules";
-import { AssignmentError, applyAssignment } from "@/lib/equipment-service";
+import { AssignmentError, applyAssignment, attachComponent, detachComponent } from "@/lib/equipment-service";
 import { prisma } from "@/lib/prisma";
 import {
   AssignSchema,
   CreateEquipmentSchema,
+  NoSerialQuantitySchema,
+  SerialListSchema,
   toFieldErrors,
   UpdateDetailsSchema,
   type FieldErrors,
@@ -37,25 +39,36 @@ function isUniqueViolation(e: unknown) {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
 }
 
-// ───────────── Create (single or batch) ─────────────
+// ───────────── Create (single, batch, or "ללא צ") ─────────────
 
 export async function createEquipment(_prev: FormState, fd: FormData): Promise<FormState> {
   const user = await requireUser();
-  const values = formValues(fd, ["categoryId", "serials", "status", "soldierId", "platoon", "notes"]);
+  const values = formValues(fd, ["categoryId", "serials", "quantity", "noSerial", "status", "soldierId", "platoon", "notes"]);
   const parsed = CreateEquipmentSchema.safeParse(values);
   if (!parsed.success) return { errors: toFieldErrors(parsed.error), values };
-  const { categoryId, serials, notes } = parsed.data;
+  const { categoryId, notes, noSerial } = parsed.data;
 
-  const dupInBatch = serials.filter((s, i) => serials.indexOf(s) !== i);
-  if (dupInBatch.length) {
-    return { errors: { serials: `מספרים כפולים ברשימה: ${[...new Set(dupInBatch)].join(", ")}` }, values };
-  }
-  const existing = await prisma.equipmentItem.findMany({
-    where: { serialNumber: { in: serials } },
-    select: { serialNumber: true },
-  });
-  if (existing.length) {
-    return { errors: { serials: `כבר קיימים במערכת: ${existing.map((e) => e.serialNumber).join(", ")}` }, values };
+  // Either a list of serials, or a quantity of items whose serials aren't known yet.
+  let serials: (string | null)[];
+  if (noSerial) {
+    const qty = NoSerialQuantitySchema.safeParse(values.quantity);
+    if (!qty.success) return { errors: { quantity: qty.error.issues[0]?.message ?? "כמות לא תקינה" }, values };
+    serials = Array.from({ length: qty.data }, () => null);
+  } else {
+    const list = SerialListSchema.safeParse(values.serials);
+    if (!list.success) return { errors: { serials: list.error.issues[0]?.message ?? "רשימה לא תקינה" }, values };
+    const dupInBatch = list.data.filter((s, i) => list.data.indexOf(s) !== i);
+    if (dupInBatch.length) {
+      return { errors: { serials: `מספרים כפולים ברשימה: ${[...new Set(dupInBatch)].join(", ")}` }, values };
+    }
+    const existing = await prisma.equipmentItem.findMany({
+      where: { serialNumber: { in: list.data } },
+      select: { serialNumber: true },
+    });
+    if (existing.length) {
+      return { errors: { serials: `כבר קיימים במערכת: ${existing.map((e) => e.serialNumber).join(", ")}` }, values };
+    }
+    serials = list.data;
   }
 
   const category = await prisma.equipmentCategory.findFirst({
@@ -100,14 +113,14 @@ export async function createEquipment(_prev: FormState, fd: FormData): Promise<F
           toSoldierId: parsed.data.soldierId ?? null,
           toStatus: resolved.status,
           platoon,
-          note: "נקלט במערכת",
+          note: noSerial ? "נקלט במערכת (ללא צ)" : "נקלט במערכת",
           performedById: user.id,
         })),
       });
       return items;
     });
   } catch (e) {
-    if (isUniqueViolation(e)) return { errors: { serials: 'אחד המספרים כבר קיים במערכת' }, values };
+    if (isUniqueViolation(e)) return { errors: { serials: "אחד המספרים כבר קיים במערכת" }, values };
     throw e;
   }
 
@@ -124,7 +137,11 @@ export async function updateDetails(id: string, _prev: FormState, fd: FormData):
   try {
     await prisma.equipmentItem.update({
       where: { id },
-      data: { categoryId: parsed.data.categoryId, serialNumber: parsed.data.serialNumber, notes: parsed.data.notes ?? null },
+      data: {
+        categoryId: parsed.data.categoryId,
+        serialNumber: parsed.data.serialNumber ?? null,
+        notes: parsed.data.notes ?? null,
+      },
     });
   } catch (e) {
     if (isUniqueViolation(e)) return { errors: { serialNumber: 'מספר צ / מס"ט זה כבר קיים במערכת' }, values };
@@ -167,8 +184,38 @@ export async function deleteEquipment(id: string, _prev: FormState, _fd: FormDat
   await requireAdmin();
   const kit = await prisma.personalKit.findFirst({ where: { personalWeaponId: id }, select: { kitNumber: true } });
   if (kit) return { error: `הפריט רשום כנשק אישי בערכה ${kit.kitNumber}. יש לנתק אותו מהערכה תחילה.` };
+  // Components are detached automatically (parentId → null) and stay with their current holder.
   await prisma.equipmentItem.delete({ where: { id } });
   redirect("/equipment");
+}
+
+// ───────────── Linked sets ─────────────
+
+export type SimpleResult = { ok: boolean; message?: string };
+
+export async function attachComponentAction(parentId: string, childId: string): Promise<SimpleResult> {
+  const user = await requireUser();
+  if (typeof childId !== "string" || !childId) return { ok: false, message: "יש לבחור פריט" };
+  try {
+    await prisma.$transaction((tx) => attachComponent(tx, parentId, childId, user.id));
+  } catch (e) {
+    if (e instanceof AssignmentError) return { ok: false, message: e.message };
+    throw e;
+  }
+  refresh();
+  return { ok: true, message: "הרכיב צורף" };
+}
+
+export async function detachComponentAction(childId: string): Promise<SimpleResult> {
+  const user = await requireUser();
+  try {
+    await prisma.$transaction((tx) => detachComponent(tx, childId, user.id));
+  } catch (e) {
+    if (e instanceof AssignmentError) return { ok: false, message: e.message };
+    throw e;
+  }
+  refresh();
+  return { ok: true, message: "הרכיב נותק" };
 }
 
 // ───────────── Quick + bulk actions (list page) ─────────────
@@ -181,13 +228,25 @@ function cleanIds(ids: unknown): string[] {
   return Array.isArray(ids) ? [...new Set(ids.filter((x): x is string => typeof x === "string"))].slice(0, MAX_BULK) : [];
 }
 
-/** "אומת" — physical check done now. */
+/** Components of the given parents (they always follow their parent). */
+async function componentsOf(parentIds: string[]) {
+  if (!parentIds.length) return [];
+  return prisma.equipmentItem.findMany({
+    where: { parentId: { in: parentIds } },
+    select: { id: true, status: true, platoon: true, assignedSoldierId: true },
+  });
+}
+
+const COMPONENT_SKIP_NOTE = "רכיבים מתעדכנים רק דרך הפריט הראשי";
+
+/** "אומת" — physical check done now. Verifying a set verifies its components too. */
 export async function verifyEquipment(ids: string[]): Promise<BulkResult> {
   await requireUser();
   const list = cleanIds(ids);
   if (!list.length) return { ok: false, message: "לא נבחרו פריטים" };
+  const comps = await componentsOf(list);
   const { count } = await prisma.equipmentItem.updateMany({
-    where: { id: { in: list } },
+    where: { id: { in: [...list, ...comps.map((c) => c.id)] } },
     data: { lastVerifiedAt: new Date() },
   });
   refresh();
@@ -203,11 +262,20 @@ export async function bulkSetPlatoon(ids: string[], platoonRaw: string): Promise
 
   const items = await prisma.equipmentItem.findMany({
     where: { id: { in: list } },
-    select: { id: true, platoon: true, status: true, assignedSoldierId: true, assignedSoldier: { select: { platoon: true } } },
+    select: {
+      id: true,
+      parentId: true,
+      platoon: true,
+      status: true,
+      assignedSoldierId: true,
+      assignedSoldier: { select: { platoon: true } },
+    },
   });
-  const eligible = items.filter((i) => !i.assignedSoldier || i.assignedSoldier.platoon === platoon);
-  const toChange = eligible.filter((i) => i.platoon !== platoon);
-  const skipped = items.length - eligible.length;
+  const components = items.filter((i) => i.parentId);
+  const heldElsewhere = items.filter((i) => !i.parentId && i.assignedSoldier && i.assignedSoldier.platoon !== platoon);
+  const eligible = items.filter((i) => !i.parentId && (!i.assignedSoldier || i.assignedSoldier.platoon === platoon));
+  const followers = await componentsOf(eligible.map((i) => i.id));
+  const toChange = [...eligible, ...followers].filter((i) => i.platoon !== platoon);
 
   await prisma.$transaction([
     prisma.equipmentItem.updateMany({ where: { id: { in: toChange.map((i) => i.id) } }, data: { platoon } }),
@@ -226,12 +294,11 @@ export async function bulkSetPlatoon(ids: string[], platoonRaw: string): Promise
   ]);
   refresh();
   const target = platoon ? PLATOON_LABELS[platoon] : "ללא מחלקה";
-  return {
-    ok: true,
-    message:
-      `${toChange.length} פריטים שויכו ל${target}` +
-      (skipped ? ` · ${skipped} דולגו (מוחזקים ע"י לוחם ממחלקה אחרת)` : ""),
-  };
+  const skips = [
+    heldElsewhere.length ? `${heldElsewhere.length} דולגו (מוחזקים ע"י לוחם ממחלקה אחרת)` : "",
+    components.length ? `${components.length} רכיבים דולגו (${COMPONENT_SKIP_NOTE})` : "",
+  ].filter(Boolean);
+  return { ok: true, message: [`${toChange.length} פריטים שויכו ל${target}`, ...skips].join(" · ") };
 }
 
 /** Bulk status change. "אצל לוחם" is only applied to items that have a holder. */
@@ -245,11 +312,13 @@ export async function bulkSetStatus(ids: string[], statusRaw: string): Promise<B
 
   const items = await prisma.equipmentItem.findMany({
     where: { id: { in: list } },
-    select: { id: true, status: true, platoon: true, assignedSoldierId: true },
+    select: { id: true, parentId: true, status: true, platoon: true, assignedSoldierId: true },
   });
-  const eligible = items.filter((i) => status !== "WITH_SOLDIER" || i.assignedSoldierId);
-  const toChange = eligible.filter((i) => i.status !== status);
-  const skipped = items.length - eligible.length;
+  const components = items.filter((i) => i.parentId);
+  const noHolder = items.filter((i) => !i.parentId && status === "WITH_SOLDIER" && !i.assignedSoldierId);
+  const eligible = items.filter((i) => !i.parentId && (status !== "WITH_SOLDIER" || i.assignedSoldierId));
+  const followers = await componentsOf(eligible.map((i) => i.id));
+  const toChange = [...eligible, ...followers].filter((i) => i.status !== status);
 
   await prisma.$transaction([
     prisma.equipmentItem.updateMany({ where: { id: { in: toChange.map((i) => i.id) } }, data: { status } }),
@@ -267,10 +336,12 @@ export async function bulkSetStatus(ids: string[], statusRaw: string): Promise<B
     }),
   ]);
   refresh();
+  const skips = [
+    noHolder.length ? `${noHolder.length} דולגו (ללא לוחם משויך)` : "",
+    components.length ? `${components.length} רכיבים דולגו (${COMPONENT_SKIP_NOTE})` : "",
+  ].filter(Boolean);
   return {
     ok: true,
-    message:
-      `${toChange.length} פריטים עודכנו ל"${EQUIPMENT_STATUS_LABELS[status]}"` +
-      (skipped ? ` · ${skipped} דולגו (ללא לוחם משויך)` : ""),
+    message: [`${toChange.length} פריטים עודכנו ל"${EQUIPMENT_STATUS_LABELS[status]}"`, ...skips].join(" · "),
   };
 }

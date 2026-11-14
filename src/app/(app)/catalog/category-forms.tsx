@@ -22,6 +22,7 @@ type CategoryValues = {
   description: string | null;
   ammoCategory: AmmoCategory | null;
   minThreshold: number | null;
+  targetQuantity: number | null;
   requiresExpiry: boolean;
 };
 
@@ -78,6 +79,24 @@ function CategoryFields({
             />
           </Field>
         </>
+      )}
+      {domain === "EQUIPMENT" && (
+        <Field
+          id={id("targetQuantity")}
+          label="תקן (כמות נדרשת בפלוגה)"
+          error={errors.targetQuantity}
+          hint='משמש בדוח הצל"ם להשוואת מצאי מול תקן. ריק = ללא תקן.'
+        >
+          <Input
+            id={id("targetQuantity")}
+            name="targetQuantity"
+            inputMode="numeric"
+            defaultValue={values?.targetQuantity ?? ""}
+            dir="ltr"
+            className="text-start"
+            aria-invalid={!!errors.targetQuantity}
+          />
+        </Field>
       )}
       {domain === "STORAGE" && (
         <label className="flex min-h-11 items-center gap-3 text-sm sm:col-span-2">
@@ -215,7 +234,11 @@ export function CategoryRow({
             {[
               category.description,
               domain === "AMMUNITION" && category.minThreshold != null ? `סף מינימום ${formatNumber(category.minThreshold)}` : null,
-              category.usage ? `${formatNumber(category.usage)} ${usageLabel}` : "לא בשימוש",
+              domain === "EQUIPMENT"
+                ? `${formatNumber(category.usage)} ${usageLabel}${category.targetQuantity != null ? ` מתוך תקן ${formatNumber(category.targetQuantity)}` : ""}`
+                : category.usage
+                  ? `${formatNumber(category.usage)} ${usageLabel}`
+                  : "לא בשימוש",
             ]
               .filter(Boolean)
               .join(" · ")}

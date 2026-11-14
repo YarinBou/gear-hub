@@ -3,12 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, ClipboardList, Crosshair, History, PenLine, Printer, UserRound } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { PLATOONS, PLATOON_LABELS, TOTAL_KITS } from "@/lib/constants";
+import { PLATOONS, TOTAL_KITS } from "@/lib/constants";
 import { KIT_ITEMS, KIT_ITEM_KEYS, kitReadiness, type KitBooleanKey } from "@/lib/kit";
 import { getKit, getKitNeighbours, getSoldiersWithKit, getWeaponOptions } from "@/lib/queries/kits";
 import { getSoldierOptions } from "@/lib/queries/soldiers";
 import { formatDateTime, formatDaysAgo } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
+import { PlatoonBadge } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -91,13 +92,13 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
               <Badge variant="secondary">לא הונפקה</Badge>
             )}
           </h1>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
             {kit?.soldier ? (
               <>
                 <Link href={`/roster/${kit.soldier.id}`} className="text-foreground font-medium hover:underline">
                   {kit.soldier.name}
                 </Link>
-                {` · ${PLATOON_LABELS[kit.soldier.platoon]}`}
+                <PlatoonBadge platoon={kit.soldier.platoon} />
               </>
             ) : (
               "הערכה במלאי הפלוגה"

@@ -13,7 +13,7 @@ export type CategoryFormState =
   | { ok?: boolean; message?: string; error?: string; errors?: FieldErrors; at?: number }
   | undefined;
 
-const FIELDS = ["name", "description", "ammoCategory", "minThreshold", "requiresExpiry"];
+const FIELDS = ["name", "description", "ammoCategory", "minThreshold", "targetQuantity", "requiresExpiry"];
 
 function read(fd: FormData) {
   return Object.fromEntries(FIELDS.map((k) => [k, fd.get(k) ?? ""]));

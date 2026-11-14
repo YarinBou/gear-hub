@@ -100,7 +100,11 @@ export async function getWeaponOptions(soldierId: string | null, currentWeaponId
         { assignedSoldierId: null, status: "IN_ARMORY" as const },
         ...(currentWeaponId ? [{ id: currentWeaponId }] : []),
       ],
-      AND: [{ OR: [{ personalKit: { is: null } }, ...(currentWeaponId ? [{ id: currentWeaponId }] : [])] }],
+      AND: [
+        { OR: [{ personalKit: { is: null } }, ...(currentWeaponId ? [{ id: currentWeaponId }] : [])] },
+        // Components of a set (e.g. a sight attached to a Negev) can't be a kit's personal weapon.
+        { parentId: null },
+      ],
     },
     orderBy: [{ category: { name: "asc" } }, { serialNumber: "asc" }],
     take: 300,

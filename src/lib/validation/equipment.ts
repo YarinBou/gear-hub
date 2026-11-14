@@ -19,22 +19,33 @@ export const SerialSchema = z
 
 export const MAX_BATCH_SERIALS = 200;
 
+/** One serial per line (or comma-separated), for batch creation. */
+export const SerialListSchema = z
+  .string()
+  .transform((s) =>
+    s
+      .split(/[\r\n,]+/)
+      .map((x) => x.trim())
+      .filter(Boolean),
+  )
+  .pipe(
+    z
+      .array(SerialSchema)
+      .min(1, 'יש להזין לפחות מספר צ / מס"ט אחד')
+      .max(MAX_BATCH_SERIALS, `ניתן להוסיף עד ${MAX_BATCH_SERIALS} פריטים בכל פעם`),
+  );
+
+/** How many "ללא צ" items to create when serials aren't known yet. */
+export const NoSerialQuantitySchema = z.coerce
+  .number({ error: "יש להזין כמות" })
+  .int("יש להזין מספר שלם")
+  .min(1, "הכמות חייבת להיות לפחות 1")
+  .max(MAX_BATCH_SERIALS, `ניתן להוסיף עד ${MAX_BATCH_SERIALS} פריטים בכל פעם`);
+
+/** Everything except the serials / quantity, which depend on the "ללא צ" switch. */
 export const CreateEquipmentSchema = z.object({
   categoryId: z.string().min(1, "יש לבחור סוג פריט"),
-  serials: z
-    .string()
-    .transform((s) =>
-      s
-        .split(/[\r\n,]+/)
-        .map((x) => x.trim())
-        .filter(Boolean),
-    )
-    .pipe(
-      z
-        .array(SerialSchema)
-        .min(1, 'יש להזין לפחות מספר צ / מס"ט אחד')
-        .max(MAX_BATCH_SERIALS, `ניתן להוסיף עד ${MAX_BATCH_SERIALS} פריטים בכל פעם`),
-    ),
+  noSerial: z.preprocess((v) => v === "on" || v === "true", z.boolean()),
   status: z.preprocess(emptyToUndef, status.optional()),
   soldierId: z.preprocess(emptyToUndef, z.string().optional()),
   platoon: z.preprocess(emptyToUndef, platoon.optional()),
@@ -43,7 +54,8 @@ export const CreateEquipmentSchema = z.object({
 
 export const UpdateDetailsSchema = z.object({
   categoryId: z.string().min(1, "יש לבחור סוג פריט"),
-  serialNumber: SerialSchema,
+  /** Empty = "ללא צ" (not recorded yet). */
+  serialNumber: z.preprocess(emptyToUndef, SerialSchema.optional()),
   notes: z.preprocess(emptyToUndef, z.string().trim().max(500, "ההערה ארוכה מדי").optional()),
 });
 

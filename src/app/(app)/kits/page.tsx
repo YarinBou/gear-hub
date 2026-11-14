@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/auth";
 import { PLATOONS, PLATOON_LABELS, TOTAL_KITS } from "@/lib/constants";
 import { listKits, type KitTile } from "@/lib/queries/kits";
 import { cn } from "@/lib/utils";
+import { PlatoonDot } from "@/components/platoon-badge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import type { Platoon } from "@/generated/prisma/enums";
@@ -56,7 +57,7 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
     const s = p.toString();
     return s ? `/kits?${s}` : "/kits";
   };
-  const chip = (label: string, to: string, active: boolean, count?: number) => (
+  const chip = (label: string, to: string, active: boolean, count?: number, dot?: Platoon) => (
     <li key={label}>
       <Link
         href={to}
@@ -66,6 +67,7 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
           active ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent",
         )}
       >
+        {dot && <PlatoonDot platoon={dot} />}
         {label}
         {count !== undefined && <span className={cn("tabular-nums", active ? "opacity-80" : "text-muted-foreground")}>{count}</span>}
       </Link>
@@ -95,7 +97,13 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
         <ul className="flex w-max gap-2">
           {chip("כל הפלוגה", href({ platoon: null }), !platoon)}
           {PLATOONS.map((p) =>
-            chip(PLATOON_LABELS[p], href({ platoon: p }), platoon === p, issued.filter((k) => k.soldier?.platoon === p).length),
+            chip(
+              PLATOON_LABELS[p],
+              href({ platoon: p }),
+              platoon === p,
+              issued.filter((k) => k.soldier?.platoon === p).length,
+              p,
+            ),
           )}
         </ul>
       </nav>
@@ -131,8 +139,9 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
                       <span className={cn("text-xs font-semibold tabular-nums", t.text)}>{k.readiness}%</span>
                     )}
                   </div>
-                  <p className={cn("truncate text-xs", k.soldier ? "font-medium" : "text-muted-foreground")}>
-                    {k.soldier?.name ?? "לא הונפקה"}
+                  <p className={cn("flex items-center gap-1.5 truncate text-xs", k.soldier ? "font-medium" : "text-muted-foreground")}>
+                    {k.soldier && <PlatoonDot platoon={k.soldier.platoon} />}
+                    <span className="truncate">{k.soldier?.name ?? "לא הונפקה"}</span>
                   </p>
                   <div className="bg-muted h-1.5 overflow-hidden rounded-full">
                     <div className={cn("h-full rounded-full", t.bar)} style={{ width: `${k.soldier ? k.readiness : 0}%` }} />

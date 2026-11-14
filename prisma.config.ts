@@ -10,7 +10,8 @@ export default defineConfig({
     seed: "tsx prisma/seed.ts",
   },
   datasource: {
-    url: process.env.DIRECT_URL ?? process.env.DATABASE_URL,
+    // DATABASE_URL_UNPOOLED is what the Neon ↔ Vercel integration provides at build time.
+    url: process.env.DIRECT_URL ?? process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL,
     // Optional: only needed when the server cannot create a temporary shadow DB (e.g. `prisma dev`).
     shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL,
   },

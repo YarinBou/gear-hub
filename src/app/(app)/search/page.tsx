@@ -3,7 +3,9 @@ import Link from "next/link";
 import { Backpack, Crosshair, User } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { EQUIPMENT_STATUS_LABELS, PLATOON_LABELS, TOTAL_KITS } from "@/lib/constants";
+import { EQUIPMENT_STATUS_LABELS, TOTAL_KITS } from "@/lib/constants";
+import { Serial } from "@/components/equipment/serial";
+import { PlatoonBadge } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { GlobalSearch } from "@/components/layout/global-search";
@@ -81,10 +83,10 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
             <ul className="divide-y">
               {items.map((i) => (
                 <li key={i.id}>
-                  <Link href={`/equipment?q=${encodeURIComponent(i.serialNumber)}`} className="hover:bg-accent -mx-2 flex items-center gap-3 rounded-md px-2 py-3">
+                  <Link href={`/equipment/${i.id}`} className="hover:bg-accent -mx-2 flex items-center gap-3 rounded-md px-2 py-3">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium">
-                        {i.category.name} · <span className="ltr-text font-mono">{i.serialNumber}</span>
+                        {i.category.name} · <Serial value={i.serialNumber} />
                       </p>
                       <p className="text-muted-foreground text-xs">{i.assignedSoldier?.name ?? "לא משויך"}</p>
                     </div>
@@ -108,12 +110,12 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
             <ul className="divide-y">
               {soldiers.map((s) => (
                 <li key={s.id}>
-                  <Link href={`/roster?q=${encodeURIComponent(s.name)}`} className="hover:bg-accent -mx-2 flex items-center gap-3 rounded-md px-2 py-3">
+                  <Link href={`/roster/${s.id}`} className="hover:bg-accent -mx-2 flex items-center gap-3 rounded-md px-2 py-3">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium">{s.name}</p>
                       {s.personalNumber && <p className="text-muted-foreground ltr-text text-xs">{s.personalNumber}</p>}
                     </div>
-                    <Badge variant="outline">{PLATOON_LABELS[s.platoon]}</Badge>
+                    <PlatoonBadge platoon={s.platoon} />
                   </Link>
                 </li>
               ))}

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AMMO_CATEGORY_LABELS, VERIFICATION_STALE_DAYS } from "@/lib/constants";
 import { formatDate, formatNumber } from "@/lib/utils";
+import { itemLabel } from "@/lib/equipment-rules";
 import type { DashboardData } from "@/lib/queries/dashboard";
 
 type Alert = {
@@ -39,7 +40,7 @@ export function AlertsPanel({ data }: { data: DashboardData }) {
       title: `${formatNumber(data.equipment.staleCount)} פריטי צל"ם לא אומתו מעל ${VERIFICATION_STALE_DAYS} ימים`,
       detail: data.equipment.staleItems
         .slice(0, 3)
-        .map((i) => `${i.category.name} ${i.serialNumber}`)
+        .map((i) => itemLabel(i))
         .join(" · "),
       href: "/equipment?filter=stale",
     });

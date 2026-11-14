@@ -26,7 +26,10 @@ export function NewEquipmentForm({
   const err = state?.errors ?? {};
   const [serials, setSerials] = useState(v.serials ?? "");
   const [soldierId, setSoldierId] = useState(v.soldierId ?? "");
-  const count = serials.split(/[\r\n,]+/).filter((s) => s.trim()).length;
+  const [noSerial, setNoSerial] = useState(v.noSerial === "on");
+  const [quantity, setQuantity] = useState(v.quantity ?? "1");
+  const serialCount = serials.split(/[\r\n,]+/).filter((s) => s.trim()).length;
+  const count = noSerial ? Math.max(0, Math.floor(Number(quantity) || 0)) : serialCount;
   const soldier = soldiers.find((s) => s.id === soldierId);
 
   return (
@@ -53,28 +56,57 @@ export function NewEquipmentForm({
         </Select>
       </Field>
 
-      <Field
-        id="serials"
-        label='מספר צ / מס"ט'
-        error={err.serials}
-        required
-        hint={`פריט אחד, או כמה פריטים מאותו סוג — מספר אחד בכל שורה (עד ${MAX_BATCH_SERIALS}).`}
-      >
-        <Textarea
-          id="serials"
-          name="serials"
-          value={serials}
-          onChange={(e) => setSerials(e.target.value)}
-          rows={count > 1 ? 6 : 2}
-          dir="ltr"
-          className="text-start font-mono"
-          placeholder={"1234567\n1234568"}
-          spellCheck={false}
-          autoCapitalize="characters"
-          aria-invalid={!!err.serials}
+      <label className="flex min-h-11 items-center gap-3 text-sm">
+        <input
+          type="checkbox"
+          name="noSerial"
+          checked={noSerial}
+          onChange={(e) => setNoSerial(e.target.checked)}
+          className="accent-primary size-5"
         />
-        {count > 1 && <p className="text-muted-foreground text-xs">{count} פריטים יתווספו</p>}
-      </Field>
+        <span>
+          <span className="font-medium">ללא צ</span>
+          <span className="text-muted-foreground"> — מספר הצ / מס״ט עוד לא ידוע (יעודכן בהמשך בדף הפריט)</span>
+        </span>
+      </label>
+
+      {noSerial ? (
+        <Field id="quantity" label="כמות" error={err.quantity} required hint={`כמה פריטים מסוג זה להוסיף (עד ${MAX_BATCH_SERIALS}).`}>
+          <Input
+            id="quantity"
+            name="quantity"
+            inputMode="numeric"
+            dir="ltr"
+            className="text-start sm:w-40"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            aria-invalid={!!err.quantity}
+          />
+        </Field>
+      ) : (
+        <Field
+          id="serials"
+          label='מספר צ / מס"ט'
+          error={err.serials}
+          required
+          hint={`פריט אחד, או כמה פריטים מאותו סוג — מספר אחד בכל שורה (עד ${MAX_BATCH_SERIALS}).`}
+        >
+          <Textarea
+            id="serials"
+            name="serials"
+            value={serials}
+            onChange={(e) => setSerials(e.target.value)}
+            rows={serialCount > 1 ? 6 : 2}
+            dir="ltr"
+            className="text-start font-mono"
+            placeholder={"1234567\n1234568"}
+            spellCheck={false}
+            autoCapitalize="characters"
+            aria-invalid={!!err.serials}
+          />
+          {serialCount > 1 && <p className="text-muted-foreground text-xs">{serialCount} פריטים יתווספו</p>}
+        </Field>
+      )}
 
       <div className="grid gap-5 sm:grid-cols-2">
         <Field id="soldierId" label="שיוך ללוחם" error={err.soldierId}>

@@ -123,6 +123,8 @@ model EquipmentCategory {
   ammoCategory   AmmoCategory?
   /// Low-stock threshold (company-wide total). AMMUNITION only.
   minThreshold   Int?
+  /// תקן — how many items of this type the company should hold. EQUIPMENT only.
+  targetQuantity Int?
   /// STORAGE items that require expiry tracking (e.g. tourniquets, medical).
   requiresExpiry Boolean       @default(false)
   isActive       Boolean       @default(true)
@@ -140,8 +142,8 @@ model EquipmentCategory {
 
 model EquipmentItem {
   id                String          @id @default(cuid())
-  /// צ / מס"ט
-  serialNumber      String          @unique
+  /// צ / מס"ט. Null = not recorded yet ("ללא צ"); unique when present.
+  serialNumber      String?         @unique
   categoryId        String
   category          EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   status            EquipmentStatus @default(IN_ARMORY)
@@ -154,11 +156,18 @@ model EquipmentItem {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
+  /// Linked set: this item is a component of `parent` (e.g. a ציין or קנס"פ of a נגב).
+  /// Components always follow their parent's holder / status / platoon. One level only.
+  parentId    String?
+  parent      EquipmentItem?  @relation("ItemComponents", fields: [parentId], references: [id], onDelete: SetNull)
+  components  EquipmentItem[] @relation("ItemComponents")
+
   logs        EquipmentLog[]
   /// When this item is someone's personal weapon in a kit sign-out.
   personalKit PersonalKit?
 
   @@index([status])
+  @@index([parentId])
   @@index([platoon])
   @@index([assignedSoldierId])
   @@index([lastVerifiedAt])

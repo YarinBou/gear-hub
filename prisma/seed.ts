@@ -6,7 +6,7 @@ import { PrismaClient } from "../src/generated/prisma/client";
 import type { AmmoCategory, Platoon } from "../src/generated/prisma/enums";
 
 const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: process.env.DIRECT_URL ?? process.env.DATABASE_URL! }),
+  adapter: new PrismaPg({ connectionString: (process.env.DIRECT_URL ?? process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL)! }),
 });
 
 const TOTAL_KITS = 98;

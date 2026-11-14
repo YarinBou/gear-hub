@@ -1,16 +1,29 @@
 "use client";
 
 import { startTransition, useActionState, useState, useTransition } from "react";
-import { CheckCircle2, ShieldCheck, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, Link2, ShieldCheck, Trash2, Unlink } from "lucide-react";
 import { Field } from "@/components/form-field";
+import { Serial } from "@/components/equipment/serial";
+import { EquipmentStatusBadge } from "@/components/equipment/status-badge";
 import { SoldierSelect } from "@/components/soldier-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS, PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import { itemLabel } from "@/lib/equipment-rules";
+import { cn } from "@/lib/utils";
 import type { SoldierOption } from "@/lib/queries/soldiers";
 import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
-import { assignEquipment, deleteEquipment, updateDetails, verifyEquipment, type FormState } from "../actions";
+import {
+  assignEquipment,
+  attachComponentAction,
+  deleteEquipment,
+  detachComponentAction,
+  updateDetails,
+  verifyEquipment,
+  type FormState,
+} from "../actions";
 
 function submitWith(action: (fd: FormData) => void) {
   return (e: React.FormEvent<HTMLFormElement>) => {
@@ -120,7 +133,7 @@ export function DetailsForm({
 }: {
   itemId: string;
   categories: { id: string; name: string }[];
-  current: { categoryId: string; categoryName: string; serialNumber: string; notes: string | null };
+  current: { categoryId: string; categoryName: string; serialNumber: string | null; notes: string | null };
 }) {
   const [state, action, pending] = useActionState(updateDetails.bind(null, itemId), undefined);
   const err = state?.errors ?? {};
@@ -142,11 +155,17 @@ export function DetailsForm({
             ))}
           </Select>
         </Field>
-        <Field id="serialNumber" label='צ / מס"ט' error={err.serialNumber} required>
+        <Field
+          id="serialNumber"
+          label='צ / מס"ט'
+          error={err.serialNumber}
+          hint={current.serialNumber ? undefined : 'הפריט נרשם "ללא צ" — הזינו את המספר כשהוא ידוע'}
+        >
           <Input
             id="serialNumber"
             name="serialNumber"
-            defaultValue={current.serialNumber}
+            defaultValue={current.serialNumber ?? ""}
+            placeholder="ללא צ"
             dir="ltr"
             className="text-start font-mono"
             autoCapitalize="characters"
@@ -187,7 +206,7 @@ export function VerifyNowButton({ itemId }: { itemId: string }) {
   );
 }
 
-export function DeleteItem({ itemId, serial }: { itemId: string; serial: string }) {
+export function DeleteItem({ itemId, label, hasComponents }: { itemId: string; label: string; hasComponents: boolean }) {
   const [state, action, pending] = useActionState(deleteEquipment.bind(null, itemId), undefined);
   const [confirming, setConfirming] = useState(false);
   if (!confirming)
@@ -200,8 +219,8 @@ export function DeleteItem({ itemId, serial }: { itemId: string; serial: string 
   return (
     <form onSubmit={submitWith(action)} className="flex flex-col gap-2">
       <p className="text-sm">
-        למחוק לצמיתות את <span className="ltr-text font-mono">{serial}</span> וכל היסטוריית השיוך שלו? לא ניתן לבטל.
-        לפריט שאבד עדיף לסמן סטטוס &quot;חסר&quot;.
+        למחוק לצמיתות את <span className="font-semibold">{label}</span> וכל היסטוריית השיוך שלו? לא ניתן לבטל.
+        {hasComponents && " הרכיבים המצורפים ינותקו ויישארו במערכת."} לפריט שאבד עדיף לסמן סטטוס &quot;חסר&quot;.
       </p>
       <div className="flex gap-2">
         <Button type="submit" variant="destructive" disabled={pending}>
@@ -213,5 +232,119 @@ export function DeleteItem({ itemId, serial }: { itemId: string; serial: string 
       </div>
       {state?.error && <p className="text-danger text-sm">{state.error}</p>}
     </form>
+  );
+}
+
+// ───────────── Linked sets ─────────────
+
+type ComponentRow = {
+  id: string;
+  serialNumber: string | null;
+  status: EquipmentStatus;
+  category: { name: string };
+};
+
+/** Lists an item's components; attach more from unassigned / same-holder items, or detach. */
+export function ComponentsEditor({
+  itemId,
+  components,
+  candidates,
+}: {
+  itemId: string;
+  components: ComponentRow[];
+  candidates: { id: string; serialNumber: string | null; category: { name: string } }[];
+}) {
+  const [childId, setChildId] = useState("");
+  const [pending, start] = useTransition();
+  const [result, setResult] = useState<{ ok: boolean; message?: string } | null>(null);
+
+  // Group candidates by type so a long armory list stays scannable.
+  const groups = new Map<string, typeof candidates>();
+  for (const c of candidates) groups.set(c.category.name, [...(groups.get(c.category.name) ?? []), c]);
+
+  return (
+    <div className="flex flex-col gap-4">
+      {components.length === 0 ? (
+        <p className="text-muted-foreground text-sm">אין רכיבים מצורפים</p>
+      ) : (
+        <ul className="divide-y rounded-lg border">
+          {components.map((c) => (
+            <li key={c.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+              <Link href={`/equipment/${c.id}`} className="flex min-w-0 flex-1 items-center gap-2 hover:underline">
+                <span className="font-medium">{c.category.name}</span>
+                <Serial value={c.serialNumber} />
+              </Link>
+              <EquipmentStatusBadge status={c.status} />
+              <DetachButton itemId={c.id} compact />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {candidates.length > 0 ? (
+        <form
+          className="flex flex-col gap-2 sm:flex-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            start(async () => {
+              const r = await attachComponentAction(itemId, childId);
+              setResult(r);
+              if (r.ok) setChildId("");
+            });
+          }}
+        >
+          <Select
+            aria-label="פריט לצירוף"
+            value={childId}
+            onChange={(e) => setChildId(e.target.value)}
+            className="sm:min-w-64"
+          >
+            <option value="">בחירת פריט לצירוף…</option>
+            {[...groups].map(([type, items]) => (
+              <optgroup key={type} label={type}>
+                {items.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {itemLabel(c)}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </Select>
+          <Button type="submit" variant="outline" disabled={!childId || pending}>
+            <Link2 />
+            {pending ? "מצרף…" : "צירוף רכיב"}
+          </Button>
+        </form>
+      ) : (
+        <p className="text-muted-foreground text-xs">אין פריטים פנויים לצירוף (פריטים ללא שיוך, או של אותו לוחם).</p>
+      )}
+      {result && <p className={result.ok ? "text-success text-sm" : "text-danger text-sm"}>{result.message}</p>}
+    </div>
+  );
+}
+
+export function DetachButton({ itemId, compact, className }: { itemId: string; compact?: boolean; className?: string }) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className={cn("inline-flex items-center gap-2", className)}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={pending}
+        title="ניתוק הרכיב מהפריט הראשי"
+        onClick={() =>
+          start(async () => {
+            const r = await detachComponentAction(itemId);
+            setError(r.ok ? null : (r.message ?? "שגיאה"));
+          })
+        }
+      >
+        <Unlink />
+        {!compact && (pending ? "מנתק…" : "ניתוק")}
+      </Button>
+      {error && <span className="text-danger text-xs">{error}</span>}
+    </span>
   );
 }

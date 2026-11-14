@@ -99,7 +99,7 @@ export function WeaponForm({
             <optgroup label="משויכים ללוחם">
               {held.map((o) => (
                 <option key={o.id} value={o.id}>
-                  {o.category} · {o.serialNumber}
+                  {o.category} · {o.serialNumber ?? "ללא צ"}
                 </option>
               ))}
             </optgroup>
@@ -108,7 +108,7 @@ export function WeaponForm({
             <optgroup label="בנשקייה">
               {armory.map((o) => (
                 <option key={o.id} value={o.id}>
-                  {o.category} · {o.serialNumber}
+                  {o.category} · {o.serialNumber ?? "ללא צ"}
                 </option>
               ))}
             </optgroup>

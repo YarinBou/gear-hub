@@ -26,6 +26,15 @@ export function parseCategory(domain: CatalogDomain, input: Record<string, unkno
           .max(10_000_000, "המספר גדול מדי")
           .optional(),
       ),
+      targetQuantity: z.preprocess(
+        emptyToUndef,
+        z.coerce
+          .number({ error: "יש להזין מספר" })
+          .int("יש להזין מספר שלם")
+          .min(0, "התקן לא יכול להיות שלילי")
+          .max(100_000, "המספר גדול מדי")
+          .optional(),
+      ),
       requiresExpiry: z.preprocess((v) => v === "on" || v === "true", z.boolean()),
     })
     .transform((d) => ({
@@ -33,6 +42,7 @@ export function parseCategory(domain: CatalogDomain, input: Record<string, unkno
       description: d.description ?? null,
       ammoCategory: ammo ? ((d.ammoCategory as AmmoCategory | undefined) ?? null) : null,
       minThreshold: ammo ? (d.minThreshold ?? null) : null,
+      targetQuantity: domain === "EQUIPMENT" ? (d.targetQuantity ?? null) : null,
       requiresExpiry: domain === "STORAGE" ? d.requiresExpiry : false,
     }));
   return schema.safeParse(input);

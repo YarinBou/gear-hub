@@ -1,18 +1,25 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeftRight, Backpack, History, PackagePlus } from "lucide-react";
+import { ArrowLeftRight, Backpack, Boxes, History, Link2, PackagePlus } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { EQUIPMENT_STATUS_LABELS, PLATOON_LABELS } from "@/lib/constants";
-import { isStale } from "@/lib/equipment-rules";
-import { getEquipmentCategories, getEquipmentItem, type EquipmentDetail } from "@/lib/queries/equipment";
+import { isStale, itemLabel } from "@/lib/equipment-rules";
+import {
+  getComponentCandidates,
+  getEquipmentCategories,
+  getEquipmentItem,
+  type EquipmentDetail,
+} from "@/lib/queries/equipment";
 import { getSoldierOptions } from "@/lib/queries/soldiers";
 import { formatDateTime, formatDaysAgo } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
+import { Serial } from "@/components/equipment/serial";
 import { EquipmentStatusBadge } from "@/components/equipment/status-badge";
+import { PlatoonBadge } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AssignForm, DeleteItem, DetailsForm, VerifyNowButton } from "./item-forms";
+import { AssignForm, ComponentsEditor, DeleteItem, DetachButton, DetailsForm, VerifyNowButton } from "./item-forms";
 
 export const metadata: Metadata = { title: 'פריט צל"ם' };
 
@@ -26,6 +33,8 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
   ]);
   if (!item) notFound();
   const stale = isStale(item);
+  // A component can't take components of its own (one level only).
+  const candidates = item.parent ? [] : await getComponentCandidates(item);
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-4">
@@ -35,7 +44,7 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
         <div className="flex flex-col gap-1">
           <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold">
             {item.category.name}
-            <span className="ltr-text font-mono">{item.serialNumber}</span>
+            <Serial value={item.serialNumber} className={item.serialNumber ? undefined : "text-sm"} />
           </h1>
           <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
             <EquipmentStatusBadge status={item.status} />
@@ -46,7 +55,7 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
             ) : (
               <span>לא משויך ללוחם</span>
             )}
-            {item.platoon && <span>· {PLATOON_LABELS[item.platoon]}</span>}
+            <PlatoonBadge platoon={item.platoon} />
             {item.personalKit && (
               <Link href={`/kits/${item.personalKit.kitNumber}`} className="hover:underline">
                 <Badge variant="outline">
@@ -64,28 +73,67 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
         <VerifyNowButton itemId={item.id} />
       </div>
 
+      {item.parent && (
+        <div className="bg-accent/60 flex flex-wrap items-center gap-2 rounded-lg border px-4 py-3 text-sm">
+          <Link2 className="size-4 shrink-0" />
+          <span>
+            רכיב של{" "}
+            <Link href={`/equipment/${item.parent.id}`} className="font-semibold hover:underline">
+              {itemLabel(item.parent)}
+            </Link>
+            . השיוך והסטטוס מתעדכנים יחד עם הפריט הראשי.
+          </span>
+          <DetachButton itemId={item.id} className="ms-auto" />
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-5">
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-3">
           <Card>
             <CardHeader>
               <CardTitle>שיוך וסטטוס</CardTitle>
-              <CardDescription>המחלקה מתעדכנת אוטומטית לפי הלוחם. כל שינוי נרשם ביומן.</CardDescription>
+              <CardDescription>
+                {item.components.length
+                  ? `השינוי יחול גם על ${item.components.length} הרכיבים המצורפים. כל שינוי נרשם ביומן.`
+                  : "המחלקה מתעדכנת אוטומטית לפי הלוחם. כל שינוי נרשם ביומן."}
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <AssignForm
-                itemId={item.id}
-                soldiers={soldiers}
-                current={{
-                  soldierId: item.assignedSoldierId,
-                  status: item.status,
-                  platoon: item.platoon,
-                  holder: item.assignedSoldier
-                    ? { ...item.assignedSoldier, personalNumber: null }
-                    : undefined,
-                }}
-              />
+              {item.parent ? (
+                <p className="text-muted-foreground text-sm">
+                  לשינוי שיוך יש לעבור ל
+                  <Link href={`/equipment/${item.parent.id}`} className="text-primary font-medium hover:underline">
+                    פריט הראשי
+                  </Link>
+                  , או לנתק את הרכיב.
+                </p>
+              ) : (
+                <AssignForm
+                  itemId={item.id}
+                  soldiers={soldiers}
+                  current={{
+                    soldierId: item.assignedSoldierId,
+                    status: item.status,
+                    platoon: item.platoon,
+                    holder: item.assignedSoldier ? { ...item.assignedSoldier, personalNumber: null } : undefined,
+                  }}
+                />
+              )}
             </CardContent>
           </Card>
+          {!item.parent && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Boxes className="size-4" /> רכיבים מצורפים
+                </CardTitle>
+                <CardDescription>פריטים שעוברים יחד עם הפריט הזה (למשל ציין או קנס&quot;פ של נגב)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ComponentsEditor itemId={item.id} components={item.components} candidates={candidates} />
+              </CardContent>
+            </Card>
+          )}
           <Card>
             <CardHeader>
               <CardTitle>פרטי פריט</CardTitle>
@@ -110,7 +158,7 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
           {user.role === "ADMIN" && (
             <Card className="py-4">
               <CardContent>
-                <DeleteItem itemId={item.id} serial={item.serialNumber} />
+                <DeleteItem itemId={item.id} label={itemLabel(item)} hasComponents={item.components.length > 0} />
               </CardContent>
             </Card>
           )}
@@ -132,7 +180,7 @@ function HistoryCard({ logs }: { logs: EquipmentDetail["logs"] }) {
       <CardContent>
         <ol className="relative flex flex-col gap-4 border-s ps-5">
           {logs.map((log) => {
-            const created = log.note === "נקלט במערכת" && !log.fromStatus;
+            const created = !!log.note?.startsWith("נקלט במערכת") && !log.fromStatus;
             const holderChanged = log.fromSoldierId !== log.toSoldierId;
             const statusChanged = log.fromStatus !== log.toStatus;
             const Icon = created ? PackagePlus : ArrowLeftRight;
@@ -168,7 +216,7 @@ function HistoryCard({ logs }: { logs: EquipmentDetail["logs"] }) {
                       {!holderChanged && !statusChanged && log.platoon && (
                         <p className="text-muted-foreground">שויך ל{PLATOON_LABELS[log.platoon]}</p>
                       )}
-                      {log.note && log.note !== "נקלט במערכת" && <p className="text-muted-foreground">&quot;{log.note}&quot;</p>}
+                      {log.note && !log.note.startsWith("נקלט במערכת") && <p className="text-muted-foreground">&quot;{log.note}&quot;</p>}
                     </>
                   )}
                 </div>

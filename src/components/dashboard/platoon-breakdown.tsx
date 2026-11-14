@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PLATOONS, PLATOON_LABELS } from "@/lib/constants";
 import { formatNumber } from "@/lib/utils";
+import { PlatoonDot } from "@/components/platoon-badge";
 import type { DashboardData } from "@/lib/queries/dashboard";
 import type { Platoon } from "@/generated/prisma/enums";
 
@@ -38,7 +39,12 @@ export function PlatoonBreakdown({ data }: { data: DashboardData }) {
                 const k = kitsByPlatoon[p];
                 return (
                   <tr key={p} className="border-b last:border-0">
-                    <td className="py-3 font-medium">{PLATOON_LABELS[p]}</td>
+                    <td className="py-3 font-medium">
+                      <span className="flex items-center gap-2">
+                        <PlatoonDot platoon={p} />
+                        {PLATOON_LABELS[p]}
+                      </span>
+                    </td>
                     <td className="py-3 text-center">{formatNumber(data.roster.byPlatoon[p])}</td>
                     <td className="py-3 text-center">{formatNumber(data.equipment.byPlatoon[p])}</td>
                     <td className="py-3 text-center">{k.count ? `${Math.round(k.sum / k.count)}%` : "—"}</td>

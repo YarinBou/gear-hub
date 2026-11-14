@@ -2,14 +2,16 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckCheck, CheckCircle2, ShieldCheck, X } from "lucide-react";
+import { Boxes, CheckCheck, CheckCircle2, Link2, ShieldCheck, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { Serial } from "@/components/equipment/serial";
 import { EquipmentStatusBadge } from "@/components/equipment/status-badge";
+import { PlatoonBadge } from "@/components/platoon-badge";
 import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS, PLATOONS, PLATOON_LABELS } from "@/lib/constants";
-import { isStale } from "@/lib/equipment-rules";
+import { isStale, itemLabel } from "@/lib/equipment-rules";
 import { cn, formatDaysAgo } from "@/lib/utils";
 import type { EquipmentListItem } from "@/lib/queries/equipment";
 import { bulkSetPlatoon, bulkSetStatus, verifyEquipment, type BulkResult } from "./actions";
@@ -76,7 +78,7 @@ export function EquipmentList({ items }: { items: EquipmentListItem[] }) {
             const stale = isStale(i);
             return (
               <li key={i.id} className={cn("flex items-center", selected.has(i.id) && "bg-accent/60")}>
-                <label className="flex h-16 w-12 shrink-0 items-center justify-center" aria-label={`בחירת ${i.serialNumber}`}>
+                <label className="flex h-16 w-12 shrink-0 items-center justify-center" aria-label={`בחירת ${itemLabel(i)}`}>
                   <input
                     type="checkbox"
                     className="accent-primary size-5"
@@ -85,13 +87,15 @@ export function EquipmentList({ items }: { items: EquipmentListItem[] }) {
                   />
                 </label>
                 <Link href={`/equipment/${i.id}`} className="min-w-0 flex-1 py-3">
-                  <p className="flex items-center gap-2">
+                  <p className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{i.category.name}</span>
-                    <span className="ltr-text text-muted-foreground font-mono text-sm">{i.serialNumber}</span>
+                    <Serial value={i.serialNumber} className="text-muted-foreground text-sm" />
+                    <SetMarker item={i} />
                   </p>
                   <p className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                     <EquipmentStatusBadge status={i.status} />
-                    <span>{i.assignedSoldier?.name ?? (i.platoon ? PLATOON_LABELS[i.platoon] : "ללא שיוך")}</span>
+                    {i.platoon && <PlatoonBadge platoon={i.platoon} />}
+                    <span>{i.assignedSoldier?.name ?? "ללא שיוך"}</span>
                     <span className={cn(stale && "text-warning-foreground dark:text-warning font-medium")}>
                       אומת {formatDaysAgo(i.lastVerifiedAt)}
                     </span>
@@ -137,17 +141,18 @@ export function EquipmentList({ items }: { items: EquipmentListItem[] }) {
                       className="accent-primary size-4"
                       checked={selected.has(i.id)}
                       onChange={() => toggle(i.id)}
-                      aria-label={`בחירת ${i.serialNumber}`}
+                      aria-label={`בחירת ${itemLabel(i)}`}
                     />
                   </td>
                   <td className="px-3 py-2.5 font-medium">
                     <Link href={`/equipment/${i.id}`} className="hover:underline">
                       {i.category.name}
                     </Link>
+                    <SetMarker item={i} className="ms-2" />
                   </td>
                   <td className="px-3 py-2.5">
-                    <Link href={`/equipment/${i.id}`} className="ltr-text font-mono hover:underline">
-                      {i.serialNumber}
+                    <Link href={`/equipment/${i.id}`} className="hover:underline">
+                      <Serial value={i.serialNumber} />
                     </Link>
                   </td>
                   <td className="px-3 py-2.5">
@@ -159,7 +164,9 @@ export function EquipmentList({ items }: { items: EquipmentListItem[] }) {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
-                  <td className="px-3 py-2.5">{i.platoon ? PLATOON_LABELS[i.platoon] : <span className="text-muted-foreground">—</span>}</td>
+                  <td className="px-3 py-2.5">
+                    <PlatoonBadge platoon={i.platoon} />
+                  </td>
                   <td className="px-3 py-2.5">
                     <EquipmentStatusBadge status={i.status} />
                   </td>
@@ -266,3 +273,21 @@ function VerifyButton({
   );
 }
 
+
+/** "רכיב של …" on components, "+N רכיבים" on items that carry a set. */
+function SetMarker({ item, className }: { item: EquipmentListItem; className?: string }) {
+  if (item.parent)
+    return (
+      <Badge variant="outline" className={className} title="רכיב — עובר יחד עם הפריט הראשי">
+        <Link2 />
+        רכיב של {itemLabel(item.parent)}
+      </Badge>
+    );
+  if (item._count.components)
+    return (
+      <Badge variant="outline" className={className} title="פריט עם רכיבים מצורפים">
+        <Boxes />+{item._count.components} רכיבים
+      </Badge>
+    );
+  return null;
+}

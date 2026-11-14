@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { PlatoonBadge } from "@/components/platoon-badge";
 import { PLATOONS, PLATOON_LABELS } from "@/lib/constants";
 import { IMPORT_COLUMNS, MAX_IMPORT_ROWS, parseRosterText } from "@/lib/roster-import";
 import type { Platoon } from "@/generated/prisma/enums";
@@ -145,7 +146,9 @@ export function ImportForm() {
                         <tr key={r.line}>
                           <td className="text-muted-foreground py-2 tabular-nums">{r.line}</td>
                           <td className="py-2 font-medium">{r.data.name}</td>
-                          <td className="py-2">{PLATOON_LABELS[r.data.platoon as Platoon]}</td>
+                          <td className="py-2">
+                            <PlatoonBadge platoon={r.data.platoon as Platoon} />
+                          </td>
                           <td className="py-2">{r.data.position ?? "—"}</td>
                           <td className="py-2">
                             <span className="ltr-text tabular-nums">{r.data.personalNumber ?? "—"}</span>

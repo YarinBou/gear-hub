@@ -47,3 +47,11 @@ export function resolveStatus(opts: {
 export function normalizeSerial(raw: string) {
   return raw.trim().replace(/\s+/g, "").toUpperCase();
 }
+
+/** Shown wherever an item has no serial number recorded yet. */
+export const NO_SERIAL_LABEL = 'ללא צ';
+
+/** Plain-text label for an item, e.g. "נגב 39510823" / "משקפת מפקד (ללא צ)". */
+export function itemLabel(item: { serialNumber: string | null; category: { name: string } }) {
+  return item.serialNumber ? `${item.category.name} ${item.serialNumber}` : `${item.category.name} (${NO_SERIAL_LABEL})`;
+}

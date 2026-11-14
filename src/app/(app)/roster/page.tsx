@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { PLATOONS, PLATOON_LABELS } from "@/lib/constants";
 import { getRosterCounts, listSoldiers } from "@/lib/queries/soldiers";
 import { cn, formatNumber } from "@/lib/utils";
+import { PlatoonBadge, PlatoonDot } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -66,7 +67,14 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
         <ul className="flex w-max gap-2">
           <Chip href={href({ platoon: null })} active={!platoon} label="כל הפלוגה" count={counts.total} />
           {PLATOONS.map((p) => (
-            <Chip key={p} href={href({ platoon: p })} active={platoon === p} label={PLATOON_LABELS[p]} count={counts.byPlatoon[p]} />
+            <Chip
+              key={p}
+              href={href({ platoon: p })}
+              active={platoon === p}
+              label={PLATOON_LABELS[p]}
+              count={counts.byPlatoon[p]}
+              dot={p}
+            />
           ))}
         </ul>
       </nav>
@@ -116,7 +124,8 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
                         <span className="truncate">{s.name}</span>
                         {!s.isActive && <Badge variant="secondary">לא פעיל</Badge>}
                       </p>
-                      <p className="text-muted-foreground truncate text-xs">
+                      <p className="text-muted-foreground flex items-center gap-1.5 truncate text-xs">
+                        <PlatoonDot platoon={s.platoon} />
                         {[PLATOON_LABELS[s.platoon], s.position, s.personalNumber].filter(Boolean).join(" · ")}
                       </p>
                     </div>
@@ -155,7 +164,9 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
                         </Badge>
                       )}
                     </td>
-                    <td className="px-4 py-3">{PLATOON_LABELS[s.platoon]}</td>
+                    <td className="px-4 py-3">
+                      <PlatoonBadge platoon={s.platoon} />
+                    </td>
                     <td className="px-4 py-3">{s.position ?? "—"}</td>
                     <td className="px-4 py-3">
                       <span className="ltr-text tabular-nums">{s.personalNumber ?? "—"}</span>
@@ -177,7 +188,19 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
   );
 }
 
-function Chip({ href, active, label, count }: { href: string; active: boolean; label: string; count: number }) {
+function Chip({
+  href,
+  active,
+  label,
+  count,
+  dot,
+}: {
+  href: string;
+  active: boolean;
+  label: string;
+  count: number;
+  dot?: Platoon;
+}) {
   return (
     <li>
       <Link
@@ -188,6 +211,7 @@ function Chip({ href, active, label, count }: { href: string; active: boolean; l
           active ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent",
         )}
       >
+        {dot && <PlatoonDot platoon={dot} />}
         {label}
         <span className={cn("tabular-nums", active ? "opacity-80" : "text-muted-foreground")}>{count}</span>
       </Link>
