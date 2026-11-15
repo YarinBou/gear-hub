@@ -283,6 +283,20 @@ function SetMarker({ item, className }: { item: EquipmentListItem; className?: s
         רכיב של {itemLabel(item.parent)}
       </Badge>
     );
+  if (item.setMissing)
+    return (
+      <Badge variant="warning" className={className} title={`מארז "${item.setName}" חסר: ${item.setMissing}`}>
+        <Boxes />
+        מארז חסר: {item.setMissing}
+      </Badge>
+    );
+  if (item.setName)
+    return (
+      <Badge variant="outline" className={className} title="מארז שלם">
+        <Boxes />
+        {item.setName}
+      </Badge>
+    );
   if (item._count.components)
     return (
       <Badge variant="outline" className={className} title="פריט עם רכיבים מצורפים">

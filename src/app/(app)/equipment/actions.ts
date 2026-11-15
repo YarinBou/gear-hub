@@ -12,6 +12,8 @@ import {
   AssignmentError,
   applyAssignment,
   attachComponent,
+  createNoSerialComponent,
+  signOutSet,
   detachComponent,
   type DeploymentCtx,
 } from "@/lib/equipment-service";
@@ -24,6 +26,7 @@ import {
   UpdateDetailsSchema,
   type FieldErrors,
 } from "@/lib/validation/equipment";
+import { SignSetSchema, type SignSetInput } from "@/lib/equipment-sets";
 
 // Items are company-level (create / edit details / delete work with or without a deployment).
 // Who holds them, their status and platoon belong to a deployment: those actions need the viewed
@@ -177,6 +180,10 @@ export async function updateDetails(id: string, _prev: FormState, fd: FormData):
         categoryId: category.id,
         serialNumber: parsed.data.serialNumber ?? null,
         notes: parsed.data.notes ?? null,
+        // A set belongs to one main type — changing the type drops it.
+        ...(await db.equipmentSet.count({ where: { items: { some: { id } }, mainCategoryId: category.id } })
+          ? {}
+          : { setId: null }),
       },
     });
   } catch (e) {
@@ -246,7 +253,7 @@ async function linkContext() {
   const { user, db, deployment } = await companyContext();
   if (deployment?.readOnly) return { error: readOnlyMessage(deployment.name) } as const;
   const ctx = deployment ? { companyId: user.companyId, deploymentId: deployment.id, userId: user.id } : null;
-  return { db, ctx } as const;
+  return { db, ctx, user } as const;
 }
 
 export async function attachComponentAction(parentId: string, childId: string): Promise<SimpleResult> {
@@ -410,4 +417,59 @@ export async function bulkSetStatus(ids: string[], statusRaw: string): Promise<B
     ok: true,
     message: [`${toChange.length} פריטים עודכנו ל"${EQUIPMENT_STATUS_LABELS[status]}"`, ...skips].join(" · "),
   };
+}
+
+// ───────────── Sets (מארזים) ─────────────
+
+/** Sign a whole set out to a soldier: main item + attached / new "ללא צ" components, in one go. */
+export async function signSetAction(input: SignSetInput): Promise<SimpleResult & { itemId?: string }> {
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  const parsed = SignSetSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "בחירה לא תקינה" };
+  try {
+    const r = await w.db.$transaction((tx) => signOutSet(tx, deploymentCtx(w), parsed.data), { timeout: 30_000 });
+    refresh();
+    return { ok: true, message: "המארז הוחתם", itemId: r.mainItemId };
+  } catch (e) {
+    if (e instanceof AssignmentError) return { ok: false, message: e.message };
+    throw e;
+  }
+}
+
+/** Record which set an item is the main item of (null = none). Company-level, like linking. */
+export async function setItemSetAction(itemId: string, setId: string | null): Promise<SimpleResult> {
+  const l = await linkContext();
+  if ("error" in l) return { ok: false, message: l.error };
+  const item = await l.db.equipmentItem.findUnique({ where: { id: itemId }, select: { categoryId: true, parentId: true } });
+  if (!item) return { ok: false, message: "הפריט לא נמצא" };
+  if (setId) {
+    if (item.parentId) return { ok: false, message: "רכיב של פריט אחר לא יכול להיות פריט ראשי של מארז" };
+    const set = await l.db.equipmentSet.findUnique({ where: { id: setId }, select: { mainCategoryId: true } });
+    if (!set || set.mainCategoryId !== item.categoryId) return { ok: false, message: "המארז אינו מתאים לסוג הפריט" };
+  }
+  await l.db.equipmentItem.update({ where: { id: itemId }, data: { setId } });
+  refresh();
+  return { ok: true };
+}
+
+/** Fill a missing set line with a new "ללא צ" item (its serial can be added later on its page). */
+export async function addNoSerialComponentAction(parentId: string, categoryId: string): Promise<SimpleResult> {
+  const l = await linkContext();
+  if ("error" in l) return { ok: false, message: l.error };
+  try {
+    await l.db.$transaction((tx) =>
+      createNoSerialComponent(
+        tx,
+        { companyId: l.user.companyId, userId: l.user.id, deploymentId: l.ctx?.deploymentId ?? null },
+        parentId,
+        categoryId,
+      ),
+    );
+  } catch (e) {
+    if (e instanceof AssignmentError) return { ok: false, message: e.message };
+    throw e;
+  }
+  refresh();
+  return { ok: true, message: 'נוסף רכיב "ללא צ"' };
 }
