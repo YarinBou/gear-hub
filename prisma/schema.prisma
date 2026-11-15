@@ -97,6 +97,8 @@ model Company {
   personalKits         PersonalKit[]
   kitInspections       KitInspection[]
   storageItems         StorageItem[]
+  equipmentSets        EquipmentSet[]
+  equipmentSetSlots    EquipmentSetSlot[]
 }
 
 /// An operational deployment / mission (הפעלה), e.g. "עזה 2023". Holds who signed for what.
@@ -220,6 +222,10 @@ model EquipmentCategory {
   equipmentItems EquipmentItem[]
   ammoStocks     AmmoStock[]
   storageItems   StorageItem[]
+  /// Sets (מארזים) whose main item is of this type.
+  setsAsMain     EquipmentSet[]     @relation("SetMain")
+  /// Set lines that call for this type.
+  setSlots       EquipmentSetSlot[]
 
   @@unique([companyId, domain, name])
 }
@@ -243,8 +249,11 @@ model EquipmentItem {
   parentId   String?
   parent     EquipmentItem?  @relation("ItemComponents", fields: [parentId], references: [id], onDelete: SetNull)
   components EquipmentItem[] @relation("ItemComponents")
+  /// The set (מארז) this item is the main item of: what its components are expected to be.
+  setId      String?
+  set        EquipmentSet?   @relation(fields: [setId], references: [id], onDelete: SetNull)
 
-  logs         EquipmentLog[]
+  logs        EquipmentLog[]
   /// Holder / status / platoon of this item in each deployment.
   assignments  EquipmentAssignment[]
   /// Kits (one per deployment at most) where this item is the personal weapon.
@@ -252,6 +261,48 @@ model EquipmentItem {
 
   @@unique([companyId, serialNumber])
   @@index([parentId])
+  @@index([setId])
+}
+
+/// A set (מארז) defined by admins on /catalog/sets: a main item type and the component types that
+/// come with it (e.g. נגב + קנס"פ + שח"ע + ציין + מתאם). When equipment is signed out as a set, the
+/// main item and its components are linked (parentId) and move together. Completeness is soft:
+/// a set can be signed out with lines missing — it is flagged, never blocked.
+model EquipmentSet {
+  id             String            @id @default(cuid())
+  companyId      String
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  name           String
+  mainCategoryId String
+  mainCategory   EquipmentCategory @relation("SetMain", fields: [mainCategoryId], references: [id], onDelete: Restrict)
+  notes          String?
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  slots EquipmentSetSlot[]
+  items EquipmentItem[]
+
+  @@unique([companyId, name])
+  @@index([mainCategoryId])
+}
+
+/// One line of a set: a component type, how many, and whether it is required or an optional add-on.
+model EquipmentSetSlot {
+  id         String            @id @default(cuid())
+  companyId  String
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  setId      String
+  set        EquipmentSet      @relation(fields: [setId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  quantity   Int               @default(1)
+  /// false = optional add-on (תוספת): offered when signing, never reported as missing.
+  required   Boolean           @default(true)
+  sortOrder  Int               @default(0)
+
+  @@unique([setId, categoryId])
+  @@index([categoryId])
 }
 
 /// Where an item is in one deployment. Every item has a row in every deployment it existed in

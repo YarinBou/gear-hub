@@ -59,7 +59,19 @@ export default async function CatalogPage({ searchParams }: PageProps<"/catalog"
         ))}
       </nav>
 
-      <p className="text-muted-foreground text-sm">{copy.description}</p>
+      <p className="text-muted-foreground text-sm">
+        {copy.description}
+        {domain === "EQUIPMENT" && (
+          <>
+            {" "}
+            פריטים שבאים יחד (נשק + כוונת, נגב + רכיבים) מגדירים ב
+            <Link href="/catalog/sets" className="text-primary font-medium hover:underline">
+              מארזים
+            </Link>
+            .
+          </>
+        )}
+      </p>
 
       {/* key: reset the add form when switching tabs */}
       <AddCategoryForm key={domain} domain={domain} label={copy.add} />

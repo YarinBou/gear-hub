@@ -188,3 +188,100 @@ export async function detachComponent(tx: Tx, ctx: DeploymentCtx | null, childId
     await writeState(tx, ctx, row, row, { note: `נותק מ${itemLabel(child.parent)}` });
   }
 }
+
+/**
+ * Create a new "ללא צ" item of `categoryId` as a component of `parentId` (a set line with no
+ * serial recorded yet). In a deployment it takes the parent's holder / status / platoon.
+ */
+export async function createNoSerialComponent(
+  tx: Tx,
+  ctx: { companyId: string; userId: string; deploymentId: string | null },
+  parentId: string,
+  categoryId: string,
+) {
+  const [parent, category] = await Promise.all([
+    tx.equipmentItem.findUnique({ where: { id: parentId }, select: linkSelect }),
+    tx.equipmentCategory.findFirst({ where: { id: categoryId, domain: "EQUIPMENT" }, select: { id: true, name: true } }),
+  ]);
+  if (!parent) throw new AssignmentError("הפריט לא נמצא");
+  if (parent.parentId) throw new AssignmentError("פריט שהוא רכיב לא יכול לשמש כפריט ראשי");
+  if (!category) throw new AssignmentError("סוג הרכיב לא נמצא");
+
+  const item = await tx.equipmentItem.create({
+    data: { companyId: ctx.companyId, categoryId: category.id, serialNumber: null, parentId: parent.id },
+    select: { id: true },
+  });
+  const note = `נקלט במערכת (ללא צ) כרכיב של ${itemLabel(parent)}`;
+  if (!ctx.deploymentId) {
+    await tx.equipmentLog.create({
+      data: { companyId: ctx.companyId, itemId: item.id, toStatus: "IN_ARMORY", note, performedById: ctx.userId },
+    });
+    return item;
+  }
+  const parentRow = await ensureAssignment(tx, { ...ctx, deploymentId: ctx.deploymentId }, parent.id);
+  await tx.equipmentAssignment.create({
+    data: {
+      companyId: ctx.companyId,
+      deploymentId: ctx.deploymentId,
+      itemId: item.id,
+      soldierId: parentRow.soldierId,
+      status: parentRow.status,
+      platoon: parentRow.platoon,
+    },
+  });
+  await tx.equipmentLog.create({
+    data: {
+      companyId: ctx.companyId,
+      deploymentId: ctx.deploymentId,
+      itemId: item.id,
+      toSoldierId: parentRow.soldierId,
+      toStatus: parentRow.status,
+      platoon: parentRow.platoon,
+      note,
+      performedById: ctx.userId,
+    },
+  });
+  return item;
+}
+
+export type SignOutSetInput = {
+  setId: string;
+  soldierId: string;
+  mainItemId: string;
+  componentIds: string[];
+  newComponentCategoryIds: string[];
+  note?: string;
+};
+
+/**
+ * Sign a set (מארז) out to a soldier in one go: the main item is assigned to the soldier, the chosen
+ * items are attached as its components (they follow it from now on), missing pieces can be created
+ * "ללא צ", and the main item records which set it is. All or nothing.
+ */
+export async function signOutSet(tx: Tx, ctx: DeploymentCtx, input: SignOutSetInput) {
+  const set = await tx.equipmentSet.findUnique({
+    where: { id: input.setId },
+    select: { id: true, name: true, mainCategoryId: true, slots: { select: { categoryId: true } } },
+  });
+  if (!set) throw new AssignmentError("המארז לא נמצא");
+  const main = await tx.equipmentItem.findUnique({
+    where: { id: input.mainItemId },
+    select: { id: true, categoryId: true, parentId: true },
+  });
+  if (!main) throw new AssignmentError("הפריט הראשי לא נמצא");
+  if (main.categoryId !== set.mainCategoryId) throw new AssignmentError("הפריט הראשי אינו מהסוג שהמארז מגדיר");
+  if (main.parentId) throw new AssignmentError("הפריט הראשי משויך כרכיב של פריט אחר — יש לנתק אותו תחילה");
+  if (new Set(input.componentIds).size !== input.componentIds.length || input.componentIds.includes(main.id)) {
+    throw new AssignmentError("אותו פריט נבחר פעמיים");
+  }
+  // Pieces created "ללא צ" must be of the set's types (attached existing items may be anything — תוספות).
+  const slotTypes = new Set(set.slots.map((s) => s.categoryId));
+  if (input.newComponentCategoryIds.some((c) => !slotTypes.has(c))) throw new AssignmentError("סוג רכיב שאינו במארז");
+
+  // The main item first, so the components take its new holder when they're attached.
+  await applyAssignment(tx, ctx, main.id, { soldierId: input.soldierId, note: input.note ?? `הוחתם כמארז "${set.name}"` });
+  for (const childId of input.componentIds) await attachComponent(tx, ctx, main.id, childId);
+  for (const categoryId of input.newComponentCategoryIds) await createNoSerialComponent(tx, ctx, main.id, categoryId);
+  await tx.equipmentItem.update({ where: { id: main.id }, data: { setId: set.id } });
+  return { mainItemId: main.id };
+}

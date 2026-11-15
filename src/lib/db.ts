@@ -37,6 +37,8 @@ export const SCOPED_MODELS = new Set([
   "KitItemDef",
   "KitItemStatus",
   "StorageItem",
+  "EquipmentSet",
+  "EquipmentSetSlot",
 ]);
 
 /** Models that belong to one deployment (deploymentId NOT NULL). */

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { FileText, Plus, ShieldAlert } from "lucide-react";
+import { Boxes, FileText, Plus, ShieldAlert } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS, PLATOONS, VERIFICATION_STALE_DAYS } from "@/lib/constants";
 import { getEquipmentCategories, getEquipmentCounts, listEquipment, type EquipmentFilters } from "@/lib/queries/equipment";
@@ -31,6 +31,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
       platoonRaw === "NONE" ? "NONE" : (PLATOONS as string[]).includes(platoonRaw ?? "") ? (platoonRaw as Platoon) : undefined,
     stale: first(sp.filter) === "stale",
     noSerial: first(sp.filter) === "noserial",
+    setMissing: first(sp.filter) === "setmissing",
     page: Number(first(sp.page)) || 1,
   };
 
@@ -41,7 +42,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
   ]);
 
   /** Status / stale chips keep the other filters. */
-  const chipHref = (next: { status?: EquipmentStatus; stale?: boolean; noSerial?: boolean }) => {
+  const chipHref = (next: { status?: EquipmentStatus; stale?: boolean; noSerial?: boolean; setMissing?: boolean }) => {
     const p = new URLSearchParams();
     if (filters.q) p.set("q", filters.q);
     if (filters.categoryId) p.set("category", filters.categoryId);
@@ -49,6 +50,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
     if (next.status) p.set("status", next.status);
     if (next.stale) p.set("filter", "stale");
     if (next.noSerial) p.set("filter", "noserial");
+    if (next.setMissing) p.set("filter", "setmissing");
     const s = p.toString();
     return s ? `/equipment?${s}` : "/equipment";
   };
@@ -59,7 +61,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
     return `/equipment?${p.toString()}`;
   };
 
-  const noFilterChip = !filters.status && !filters.stale && !filters.noSerial;
+  const noFilterChip = !filters.status && !filters.stale && !filters.noSerial && !filters.setMissing;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
@@ -68,11 +70,17 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
           <h1 className="text-2xl font-bold">ניהול צל&quot;ם</h1>
           <p className="text-muted-foreground text-sm">{formatNumber(counts.total)} פריטים ממוספרים</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
             <Link href="/equipment/report">
               <FileText />
               דוח פלוגתי
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/equipment/sign">
+              <Boxes />
+              החתמת מארז
             </Link>
           </Button>
           <Button asChild>
@@ -101,6 +109,15 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
               active={!!filters.noSerial}
               label="ללא צ"
               count={counts.noSerial}
+              tone="warning"
+            />
+          )}
+          {(counts.setMissing > 0 || filters.setMissing) && (
+            <Chip
+              href={chipHref({ setMissing: true })}
+              active={!!filters.setMissing}
+              label="מארז חסר"
+              count={counts.setMissing}
               tone="warning"
             />
           )}

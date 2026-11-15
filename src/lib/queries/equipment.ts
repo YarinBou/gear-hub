@@ -5,8 +5,10 @@ import { companyContext } from "@/lib/context";
 import { EQUIPMENT_STATUSES } from "@/lib/constants";
 import { staleWhere } from "@/lib/equipment-rules";
 import { flattenState, inState, NO_ITEMS, stateSelect } from "@/lib/equipment-state";
+import { missingSummary, setStatus } from "@/lib/equipment-sets";
+import { slotSelect } from "@/lib/queries/sets";
 import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
-import type { Prisma } from "@/generated/prisma/client";
+import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 
 // Items are company-level; their holder / status / platoon come from the deployment being viewed.
 // Without a deployment every item is "in the armory" and state filters match accordingly.
@@ -25,6 +27,8 @@ export type EquipmentFilters = {
   categoryId?: string;
   platoon?: Platoon | "NONE";
   stale?: boolean;
+  /** Only main items whose set (מארז) is missing required components. */
+  setMissing?: boolean;
   /** Only items whose serial number hasn't been recorded yet. */
   noSerial?: boolean;
   page?: number;
@@ -58,12 +62,23 @@ function buildWhere(f: EquipmentFilters, now: Date, deploymentId: string | null)
   return and.length ? { AND: and } : {};
 }
 
+
+/** Items whose set (מארז) is missing required components. Computed in memory — sets are few. */
+async function incompleteSetItemIds(db: PrismaClient) {
+  const items = await db.equipmentItem.findMany({
+    where: { setId: { not: null } },
+    select: { id: true, set: { select: { slots: slotSelect } }, components: { select: { categoryId: true } } },
+  });
+  return items.filter((i) => i.set && !setStatus(i.set.slots, i.components).complete).map((i) => i.id);
+}
+
 export async function listEquipment(f: EquipmentFilters) {
   await connection();
   const { db, deployment } = await companyContext();
   const deploymentId = deployment?.id ?? null;
   const now = new Date();
-  const where = buildWhere(f, now, deploymentId);
+  const base = buildWhere(f, now, deploymentId);
+  const where = f.setMissing ? { AND: [base, { id: { in: await incompleteSetItemIds(db) } }] } : base;
   const page = Math.max(1, f.page ?? 1);
   const [items, total] = await Promise.all([
     db.equipmentItem.findMany({
@@ -77,12 +92,20 @@ export async function listEquipment(f: EquipmentFilters) {
         category: { select: { name: true } },
         parent: { select: { id: true, serialNumber: true, category: { select: { name: true } } } },
         _count: { select: { components: true } },
+        set: { select: { name: true, slots: slotSelect } },
+        components: { select: { categoryId: true } },
         ...stateSelect(deploymentId, { id: true, name: true }),
       },
     }),
     db.equipmentItem.count({ where }),
   ]);
-  return { items: items.map(flattenState), total, page, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
+  const rows = items.map(({ set, components, ...i }) => {
+    const status = set ? setStatus(set.slots, components) : null;
+    // "What's missing from its set" — null when it isn't a set or the set is complete.
+    const setMissing = status && !status.complete ? missingSummary(status) : null;
+    return { ...flattenState(i), setName: set?.name ?? null, setMissing };
+  });
+  return { items: rows, total, page, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
 }
 
 export type EquipmentListItem = Awaited<ReturnType<typeof listEquipment>>["items"][number];
@@ -91,14 +114,15 @@ export type EquipmentListItem = Awaited<ReturnType<typeof listEquipment>>["items
 export async function getEquipmentCounts() {
   await connection();
   const { db, deployment } = await companyContext();
-  const [total, noSerial] = await Promise.all([
+  const [total, noSerial, setMissing] = await Promise.all([
     db.equipmentItem.count(),
     db.equipmentItem.count({ where: { serialNumber: null } }),
+    incompleteSetItemIds(db).then((ids) => ids.length),
   ]);
   const status = Object.fromEntries(EQUIPMENT_STATUSES.map((s) => [s, 0])) as Record<EquipmentStatus, number>;
   if (!deployment) {
     status.IN_ARMORY = total;
-    return { status, stale: 0, total, noSerial };
+    return { status, stale: 0, total, noSerial, setMissing };
   }
   // `db` is scoped to the viewed deployment, so these count that deployment's state rows.
   const [byStatus, stale] = await Promise.all([
@@ -106,7 +130,7 @@ export async function getEquipmentCounts() {
     db.equipmentAssignment.count({ where: staleWhere() }),
   ]);
   for (const r of byStatus) status[r.status] = r._count._all;
-  return { status, stale, total, noSerial };
+  return { status, stale, total, noSerial, setMissing };
 }
 
 export async function getEquipmentItem(id: string) {
@@ -122,10 +146,12 @@ export async function getEquipmentItem(id: string) {
       categoryId: true,
       category: { select: { id: true, name: true } },
       parent: { select: { id: true, serialNumber: true, category: { select: { name: true } } } },
+      set: { select: { id: true, name: true, isActive: true, slots: slotSelect } },
       components: {
         orderBy: [{ category: { name: "asc" } }, { serialNumber: { sort: "asc", nulls: "last" } }],
         select: {
           id: true,
+          categoryId: true,
           serialNumber: true,
           category: { select: { name: true } },
           ...stateSelect(deploymentId, { id: true }),

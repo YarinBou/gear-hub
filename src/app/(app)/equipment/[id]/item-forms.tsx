@@ -2,7 +2,7 @@
 
 import { startTransition, useActionState, useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckCircle2, Link2, ShieldCheck, Trash2, Unlink } from "lucide-react";
+import { CheckCircle2, Link2, Plus, ShieldCheck, Trash2, Unlink } from "lucide-react";
 import { Field } from "@/components/form-field";
 import { Serial } from "@/components/equipment/serial";
 import { EquipmentStatusBadge } from "@/components/equipment/status-badge";
@@ -16,10 +16,12 @@ import { cn } from "@/lib/utils";
 import type { SoldierOption } from "@/lib/queries/soldiers";
 import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
 import {
+  addNoSerialComponentAction,
   assignEquipment,
   attachComponentAction,
   deleteEquipment,
   detachComponentAction,
+  setItemSetAction,
   updateDetails,
   verifyEquipment,
   type FormState,
@@ -343,6 +345,67 @@ export function DetachButton({ itemId, compact, className }: { itemId: string; c
       >
         <Unlink />
         {!compact && (pending ? "מנתק…" : "ניתוק")}
+      </Button>
+      {error && <span className="text-danger text-xs">{error}</span>}
+    </span>
+  );
+}
+
+// ───────────── Sets (מארזים) ─────────────
+
+/** Choose which set this item is the main item of. */
+export function SetPicker({ itemId, current, sets }: { itemId: string; current: { id: string; name: string } | null; sets: { id: string; name: string }[] }) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  // An inactive current set must still show as selected.
+  const options = current && !sets.some((s) => s.id === current.id) ? [current, ...sets] : sets;
+  return (
+    <div className="flex flex-col gap-1">
+      <Select
+        aria-label="מארז"
+        value={current?.id ?? ""}
+        disabled={pending}
+        onChange={(e) =>
+          start(async () => {
+            const r = await setItemSetAction(itemId, e.target.value || null);
+            setError(r.ok ? null : (r.message ?? "שגיאה"));
+          })
+        }
+        className="sm:max-w-72"
+      >
+        <option value="">ללא מארז</option>
+        {options.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </Select>
+      {error && <p className="text-danger text-sm">{error}</p>}
+    </div>
+  );
+}
+
+/** Fill a missing set line with a new "ללא צ" component. */
+export function AddNoSerialButton({ parentId, categoryId, label }: { parentId: string; categoryId: string; label: string }) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className="inline-flex items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={pending}
+        title={`רישום ${label} חדש ללא צ וצירופו`}
+        onClick={() =>
+          start(async () => {
+            const r = await addNoSerialComponentAction(parentId, categoryId);
+            setError(r.ok ? null : (r.message ?? "שגיאה"));
+          })
+        }
+      >
+        <Plus />
+        {pending ? "מוסיף…" : "ללא צ"}
       </Button>
       {error && <span className="text-danger text-xs">{error}</span>}
     </span>

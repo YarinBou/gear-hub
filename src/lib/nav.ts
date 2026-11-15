@@ -5,6 +5,7 @@ import {
   Crosshair,
   Flag,
   LayoutDashboard,
+  Package,
   Tags,
   UserCog,
   Users,
@@ -31,6 +32,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/storage", label: 'ציוד פלוגתי בימ"ח', shortLabel: 'בימ"ח', icon: Warehouse },
   { href: "/deployments", label: "הפעלות", icon: Flag },
   { href: "/catalog", label: "קטלוג ציוד", icon: Tags, adminOnly: true },
+  { href: "/catalog/sets", label: "מארזים", icon: Package, adminOnly: true },
   { href: "/kits/items", label: "תכולת ערכה", icon: ClipboardList, adminOnly: true },
   { href: "/users", label: "ניהול משתמשים", icon: UserCog, adminOnly: true },
 ];

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeftRight, Backpack, Boxes, History, Link2, PackagePlus } from "lucide-react";
+import { ArrowLeftRight, Backpack, Boxes, CircleAlert, CircleCheck, History, Link2, PackagePlus } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { ReadOnlyWhenClosed } from "@/components/deployment-gate";
 import { EQUIPMENT_STATUS_LABELS, PLATOON_LABELS } from "@/lib/constants";
@@ -13,6 +13,8 @@ import {
   type EquipmentDetail,
 } from "@/lib/queries/equipment";
 import { getSoldierOptions } from "@/lib/queries/soldiers";
+import { getSetsForCategory } from "@/lib/queries/sets";
+import { missingSummary, setStatus } from "@/lib/equipment-sets";
 import { formatDateTime, formatDaysAgo } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
 import { Serial } from "@/components/equipment/serial";
@@ -20,7 +22,16 @@ import { EquipmentStatusBadge } from "@/components/equipment/status-badge";
 import { PlatoonBadge } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AssignForm, ComponentsEditor, DeleteItem, DetachButton, DetailsForm, VerifyNowButton } from "./item-forms";
+import {
+  AddNoSerialButton,
+  AssignForm,
+  ComponentsEditor,
+  DeleteItem,
+  DetachButton,
+  DetailsForm,
+  SetPicker,
+  VerifyNowButton,
+} from "./item-forms";
 import { isCompanyAdmin } from "@/lib/roles";
 
 export const metadata: Metadata = { title: 'פריט צל"ם' };
@@ -36,7 +47,10 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
   if (!item) notFound();
   const stale = isStale(item);
   // A component can't take components of its own (one level only).
-  const candidates = item.parent ? [] : await getComponentCandidates(item);
+  const [candidates, sets] = item.parent
+    ? [[], []]
+    : await Promise.all([getComponentCandidates(item), getSetsForCategory(item.categoryId)]);
+  const setState = item.set ? setStatus(item.set.slots, item.components) : null;
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-4">
@@ -98,6 +112,14 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
           <Card>
             <CardHeader>
               <CardTitle>שיוך וסטטוס</CardTitle>
+              {setState && !setState.complete && (
+                <p className="bg-warning/15 flex items-start gap-2 rounded-md px-3 py-2 text-sm">
+                  <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                  <span>
+                    מארז &quot;{item.set!.name}&quot; חסר: {missingSummary(setState)}. ניתן להחתים בכל זאת.
+                  </span>
+                </p>
+              )}
               <CardDescription>
                 {item.components.length
                   ? `השינוי יחול גם על ${item.components.length} הרכיבים המצורפים. כל שינוי נרשם ביומן.`
@@ -137,12 +159,41 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Boxes className="size-4" /> רכיבים מצורפים
+                  <Boxes className="size-4" /> מארז ורכיבים
                 </CardTitle>
                 <CardDescription>פריטים שעוברים יחד עם הפריט הזה (למשל ציין או קנס&quot;פ של נגב)</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex flex-col gap-4">
                 <ReadOnlyWhenClosed>
+                  {(item.set || sets.length > 0) && (
+                    <div className="flex flex-col gap-3">
+                      <SetPicker itemId={item.id} current={item.set} sets={sets} />
+                      {setState && (
+                        <ul className="divide-y rounded-lg border">
+                          {setState.lines.map((l) => (
+                            <li key={l.categoryId} className="flex items-center gap-2 px-3 py-2 text-sm">
+                              {l.missing > 0 ? (
+                                <CircleAlert className="text-warning-foreground dark:text-warning size-4 shrink-0" />
+                              ) : (
+                                <CircleCheck className={l.have > 0 ? "text-success size-4 shrink-0" : "text-muted-foreground size-4 shrink-0"} />
+                              )}
+                              <span className="font-medium">{l.category.name}</span>
+                              <span className="text-muted-foreground tabular-nums">
+                                {l.have}/{l.quantity}
+                              </span>
+                              {!l.required && <Badge variant="secondary">תוספת</Badge>}
+                              {l.missing > 0 && <span className="text-warning-foreground dark:text-warning text-xs font-medium">חסר {l.missing}</span>}
+                              {l.have < l.quantity && (
+                                <span className="ms-auto">
+                                  <AddNoSerialButton parentId={item.id} categoryId={l.categoryId} label={l.category.name} />
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                   <ComponentsEditor itemId={item.id} components={item.components} candidates={candidates} />
                 </ReadOnlyWhenClosed>
               </CardContent>
