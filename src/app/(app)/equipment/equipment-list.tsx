@@ -10,13 +10,14 @@ import { Select } from "@/components/ui/select";
 import { Serial } from "@/components/equipment/serial";
 import { EquipmentStatusBadge } from "@/components/equipment/status-badge";
 import { PlatoonBadge } from "@/components/platoon-badge";
-import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS, PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
+import type { PlatoonRef } from "@/lib/platoons";
 import { isStale, itemLabel } from "@/lib/equipment-rules";
 import { cn, formatDaysAgo } from "@/lib/utils";
 import type { EquipmentListItem } from "@/lib/queries/equipment";
 import { bulkSetPlatoon, bulkSetStatus, verifyEquipment, type BulkResult } from "./actions";
 
-export function EquipmentList({ items }: { items: EquipmentListItem[] }) {
+export function EquipmentList({ items, platoons }: { items: EquipmentListItem[]; platoons: PlatoonRef[] }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<BulkResult | null>(null);
   const [pending, startTransition] = useTransition();
@@ -211,9 +212,9 @@ export function EquipmentList({ items }: { items: EquipmentListItem[] }) {
                 }}
               >
                 <option value="">שיוך למחלקה…</option>
-                {PLATOONS.map((p) => (
-                  <option key={p} value={p}>
-                    {PLATOON_LABELS[p]}
+                {platoons.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
                   </option>
                 ))}
                 <option value="NONE">ללא מחלקה</option>

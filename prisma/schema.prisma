@@ -30,13 +30,6 @@ enum Role {
   REGULAR // רס"פ / מ"מ
 }
 
-enum Platoon {
-  PLATOON_1 // מחלקה 1
-  PLATOON_2 // מחלקה 2
-  PLATOON_3 // מחלקה 3
-  HQ // חפ"ק ומפל"ג
-}
-
 enum DeploymentStatus {
   ACTIVE // פעילה
   CLOSED // הסתיימה — read-only history
@@ -97,6 +90,7 @@ model Company {
   personalKits         PersonalKit[]
   kitInspections       KitInspection[]
   storageItems         StorageItem[]
+  platoons             Platoon[]
   equipmentSets        EquipmentSet[]
   equipmentSetSlots    EquipmentSetSlot[]
 }
@@ -140,7 +134,8 @@ model User {
   passwordHash String
   role         Role     @default(REGULAR)
   /// Optional home platoon (e.g. a מ"מ). Null = company-wide.
-  platoon      Platoon?
+  platoonId    String?
+  platoon      Platoon? @relation(fields: [platoonId], references: [id], onDelete: Restrict)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -179,7 +174,8 @@ model Soldier {
   /// מספר אישי — unique within the company
   personalNumber String?
   phone          String?
-  platoon        Platoon
+  platoonId      String
+  platoon        Platoon  @relation(fields: [platoonId], references: [id], onDelete: Restrict)
   /// תפקיד (e.g. מטול, קשר, חובש)
   position       String?
   isActive       Boolean  @default(true)
@@ -193,8 +189,31 @@ model Soldier {
   logsTo      EquipmentLog[]        @relation("LogToSoldier")
 
   @@unique([companyId, personalNumber])
-  @@index([companyId, platoon])
+  @@index([companyId, platoonId])
   @@index([companyId, name])
+}
+
+/// A platoon / team (מחלקה) of a company. Admin-managed on /platoons: any number, any names
+/// (e.g. "צוות 1", "מפלג"). Never deleted once used — deactivate instead.
+model Platoon {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  name      String
+  sortOrder Int      @default(0)
+  /// Index into the badge palette (src/lib/platoons.ts), fixed at creation so colors don't shift.
+  color     Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  soldiers    Soldier[]
+  users       User[]
+  assignments EquipmentAssignment[]
+  logs        EquipmentLog[]
+
+  @@unique([companyId, name])
+  @@index([companyId, sortOrder])
 }
 
 // ───────────────────────────── Catalog (per company) ─────────────────────────────
@@ -253,7 +272,7 @@ model EquipmentItem {
   setId      String?
   set        EquipmentSet?   @relation(fields: [setId], references: [id], onDelete: SetNull)
 
-  logs        EquipmentLog[]
+  logs         EquipmentLog[]
   /// Holder / status / platoon of this item in each deployment.
   assignments  EquipmentAssignment[]
   /// Kits (one per deployment at most) where this item is the personal weapon.
@@ -320,7 +339,8 @@ model EquipmentAssignment {
   soldierId      String?
   soldier        Soldier?        @relation(fields: [soldierId], references: [id], onDelete: SetNull)
   /// Auto-filled from the soldier; can also be set directly for platoon-level bulk assignment.
-  platoon        Platoon?
+  platoonId      String?
+  platoon        Platoon?        @relation(fields: [platoonId], references: [id], onDelete: Restrict)
   lastVerifiedAt DateTime?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -328,7 +348,7 @@ model EquipmentAssignment {
   @@unique([deploymentId, itemId])
   @@index([deploymentId, status])
   @@index([deploymentId, soldierId])
-  @@index([deploymentId, platoon])
+  @@index([deploymentId, platoonId])
   @@index([deploymentId, lastVerifiedAt])
   @@index([itemId])
 }
@@ -349,7 +369,8 @@ model EquipmentLog {
   toSoldier     Soldier?         @relation("LogToSoldier", fields: [toSoldierId], references: [id], onDelete: SetNull)
   fromStatus    EquipmentStatus?
   toStatus      EquipmentStatus?
-  platoon       Platoon?
+  platoonId     String?
+  platoon       Platoon?         @relation(fields: [platoonId], references: [id], onDelete: Restrict)
   note          String?
   performedById String?
   performedBy   User?            @relation(fields: [performedById], references: [id], onDelete: SetNull)

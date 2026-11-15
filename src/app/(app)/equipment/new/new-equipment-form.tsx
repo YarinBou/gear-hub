@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { SoldierSelect } from "@/components/soldier-select";
-import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS, PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
+import type { PlatoonRef } from "@/lib/platoons";
 import { MAX_BATCH_SERIALS } from "@/lib/validation/equipment";
 import type { SoldierOption } from "@/lib/queries/soldiers";
 import { createEquipment } from "../actions";
@@ -16,10 +17,12 @@ export function NewEquipmentForm({
   categories,
   soldiers,
   defaultCategoryId,
+  platoons,
 }: {
   categories: { id: string; name: string }[];
   soldiers: SoldierOption[];
   defaultCategoryId?: string;
+  platoons: PlatoonRef[];
 }) {
   const [state, action, pending] = useActionState(createEquipment, undefined);
   const v = state?.values ?? {};
@@ -122,14 +125,14 @@ export function NewEquipmentForm({
         <Field id="platoon" label="מחלקה" error={err.platoon}>
           {soldier ? (
             <p className="bg-muted flex h-11 items-center rounded-md px-3 text-sm">
-              {PLATOON_LABELS[soldier.platoon]} <span className="text-muted-foreground ms-1">(לפי הלוחם)</span>
+              {soldier.platoon.name} <span className="text-muted-foreground ms-1">(לפי הלוחם)</span>
             </p>
           ) : (
             <Select id="platoon" name="platoon" defaultValue={v.platoon ?? ""}>
               <option value="">ללא מחלקה</option>
-              {PLATOONS.map((p) => (
-                <option key={p} value={p}>
-                  {PLATOON_LABELS[p]}
+              {platoons.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
               ))}
             </Select>

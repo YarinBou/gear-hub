@@ -2,7 +2,7 @@
 
 import { refresh } from "next/cache";
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
-import type { Platoon, Role } from "@/generated/prisma/enums";
+import type { Role } from "@/generated/prisma/enums";
 import { adminContext } from "@/lib/context";
 import { clearFailures } from "@/lib/login-throttle";
 import { generateTempPassword, hashPassword } from "@/lib/passwords";
@@ -30,6 +30,12 @@ async function activeAdminCount(db: PrismaClient, excludeId?: string) {
   return db.user.count({ where: { role: "ADMIN", isActive: true, ...(excludeId ? { id: { not: excludeId } } : {}) } });
 }
 
+/** A platoon id from the form → that platoon if it's this company's (`db` is company-scoped), else none. */
+async function validPlatoon(db: PrismaClient, id: string | undefined) {
+  if (!id) return null;
+  return (await db.platoon.findUnique({ where: { id }, select: { id: true } }))?.id ?? null;
+}
+
 export async function createUser(_prev: UserFormState, fd: FormData): Promise<UserFormState> {
   const { user: me, db } = await adminContext();
   const parsed = CreateUserSchema.safeParse(read(fd, ["name", "username", "role", "platoon"]));
@@ -44,7 +50,7 @@ export async function createUser(_prev: UserFormState, fd: FormData): Promise<Us
         name,
         username,
         role: role as Role,
-        platoon: (platoon as Platoon | undefined) ?? null,
+        platoonId: await validPlatoon(db, platoon),
         passwordHash: await hashPassword(password),
       },
     });
@@ -70,7 +76,7 @@ export async function updateUser(id: string, _prev: UserFormState, fd: FormData)
   }
   await db.user.update({
     where: { id },
-    data: { name: parsed.data.name, role, platoon: (parsed.data.platoon as Platoon | undefined) ?? null },
+    data: { name: parsed.data.name, role, platoonId: await validPlatoon(db, parsed.data.platoon) },
   });
   refresh();
   return { ok: true, message: "נשמר", at: Date.now() };

@@ -7,8 +7,8 @@ export const E2E = {
   superAdmin: "e2e-super",
   password: "E2e-password-123",
   soldiers: [
-    ["ישראל ישראלי", "PLATOON_1"],
-    ["דנה כהן", "PLATOON_2"],
+    ["ישראל ישראלי", "מחלקה 1"],
+    ["דנה כהן", "מחלקה 2"],
   ] as const,
   rifleSerial: "77001",
 };

@@ -10,11 +10,12 @@ import { SoldierSelect } from "@/components/soldier-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS, PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
 import { itemLabel } from "@/lib/equipment-rules";
 import { cn } from "@/lib/utils";
 import type { SoldierOption } from "@/lib/queries/soldiers";
-import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
+import type { EquipmentStatus } from "@/generated/prisma/enums";
+import type { PlatoonRef } from "@/lib/platoons";
 import {
   addNoSerialComponentAction,
   assignEquipment,
@@ -58,10 +59,13 @@ export function AssignForm({
   itemId,
   soldiers,
   current,
+  platoons,
 }: {
   itemId: string;
   soldiers: SoldierOption[];
-  current: { soldierId: string | null; status: EquipmentStatus; platoon: Platoon | null; holder?: SoldierOption };
+  current: { soldierId: string | null; status: EquipmentStatus; platoon: PlatoonRef | null; holder?: SoldierOption };
+  /** Active platoons. */
+  platoons: PlatoonRef[];
 }) {
   const [state, action, pending] = useActionState(assignEquipment.bind(null, itemId), undefined);
   const [soldierId, setSoldierId] = useState(current.soldierId ?? "");
@@ -70,6 +74,9 @@ export function AssignForm({
     current.holder && !soldiers.some((s) => s.id === current.holder!.id) ? [current.holder, ...soldiers] : soldiers;
   const soldier = options.find((s) => s.id === soldierId);
   const err = state?.errors ?? {};
+  // A deactivated current platoon stays selectable.
+  const platoonOptions =
+    current.platoon && !platoons.some((p) => p.id === current.platoon!.id) ? [current.platoon, ...platoons] : platoons;
 
   return (
     <form key={state?.at ?? 0} onSubmit={submitWith(action)} className="flex flex-col gap-4" noValidate>
@@ -88,14 +95,14 @@ export function AssignForm({
         <Field id="platoon" label="מחלקה" error={err.platoon}>
           {soldier ? (
             <p className="bg-muted flex h-11 items-center rounded-md px-3 text-sm">
-              {PLATOON_LABELS[soldier.platoon]} <span className="text-muted-foreground ms-1">(לפי הלוחם)</span>
+              {soldier.platoon.name} <span className="text-muted-foreground ms-1">(לפי הלוחם)</span>
             </p>
           ) : (
-            <Select id="platoon" name="platoon" defaultValue={current.platoon ?? ""}>
+            <Select id="platoon" name="platoon" defaultValue={current.platoon?.id ?? ""}>
               <option value="">ללא מחלקה</option>
-              {PLATOONS.map((p) => (
-                <option key={p} value={p}>
-                  {PLATOON_LABELS[p]}
+              {platoonOptions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
               ))}
             </Select>

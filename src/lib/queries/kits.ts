@@ -5,11 +5,11 @@ import { flattenState, inState, stateSelect } from "@/lib/equipment-state";
 import { TOTAL_KITS } from "@/lib/constants";
 import { checklistLines, kitItemsSelect, kitReadiness, missingDescriptions, type ChecklistLine } from "@/lib/kit";
 import { activeItemDefs } from "@/lib/kit-service";
-import type { Platoon } from "@/generated/prisma/enums";
+import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
 
 export type KitTile = {
   kitNumber: number;
-  soldier: { id: string; name: string; platoon: Platoon } | null;
+  soldier: { id: string; name: string; platoon: PlatoonRef } | null;
   readiness: number;
   /** Incomplete checklist lines ("קסדה", "מחסניות (5/7)"). */
   missing: string[];
@@ -27,7 +27,7 @@ export async function listKits(): Promise<KitTile[]> {
         kitNumber: true,
         signedAt: true,
         lastInspectedAt: true,
-        soldier: { select: { id: true, name: true, platoon: true } },
+        soldier: { select: { id: true, name: true, platoon: platoonSelect } },
         ...kitItemsSelect,
       },
     }),
@@ -57,7 +57,7 @@ export async function getKit(kitNumber: number) {
   const kit = await db.personalKit.findFirst({
     where: { kitNumber },
     include: {
-      soldier: { select: { id: true, name: true, platoon: true, personalNumber: true, phone: true } },
+      soldier: { select: { id: true, name: true, platoon: platoonSelect, personalNumber: true, phone: true } },
       personalWeapon: {
         select: {
           id: true,
@@ -85,9 +85,9 @@ export async function getKit(kitNumber: number) {
 export type KitDetail = NonNullable<Awaited<ReturnType<typeof getKit>>>;
 
 /** Previous / next *issued* kit numbers, for walking through a מסדר. */
-export async function getKitNeighbours(kitNumber: number, platoon?: Platoon) {
+export async function getKitNeighbours(kitNumber: number, platoonId?: string) {
   const { db } = await companyContext();
-  const where = { soldierId: { not: null }, ...(platoon ? { soldier: { platoon } } : {}) };
+  const where = { soldierId: { not: null }, ...(platoonId ? { soldier: { platoonId } } : {}) };
   const [prev, next] = await Promise.all([
     db.personalKit.findFirst({
       where: { ...where, kitNumber: { lt: kitNumber } },

@@ -3,7 +3,8 @@ import Form from "next/form";
 import Link from "next/link";
 import { Backpack, ChevronLeft, Crosshair, FileSpreadsheet, Search, UserPlus } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import { getPlatoons } from "@/lib/queries/platoons";
+import type { PlatoonRef } from "@/lib/platoons";
 import { getRosterCounts, listSoldiers } from "@/lib/queries/soldiers";
 import { cn, formatNumber } from "@/lib/utils";
 import { PlatoonBadge, PlatoonDot } from "@/components/platoon-badge";
@@ -11,7 +12,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import type { Platoon } from "@/generated/prisma/enums";
 
 export const metadata: Metadata = { title: 'ניהול סד"כ' };
 
@@ -24,12 +24,15 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
   const sp = await searchParams;
   const q = first(sp.q)?.trim() || undefined;
   const platoonRaw = first(sp.platoon);
-  const platoon = (PLATOONS as string[]).includes(platoonRaw ?? "") ? (platoonRaw as Platoon) : undefined;
+  const allPlatoons = await getPlatoons();
+  const platoon = allPlatoons.some((p) => p.id === platoonRaw) ? platoonRaw : undefined;
   const includeInactive = first(sp.inactive) === "1";
 
-  const [soldiers, counts] = await Promise.all([listSoldiers({ platoon, q, includeInactive }), getRosterCounts()]);
+  const [soldiers, counts] = await Promise.all([listSoldiers({ platoonId: platoon, q, includeInactive }), getRosterCounts()]);
+  // Active platoons, plus inactive ones that still have soldiers or are being filtered on.
+  const chipPlatoons = allPlatoons.filter((p) => p.isActive || counts.byPlatoon[p.id] || p.id === platoon);
 
-  const href = (next: { platoon?: Platoon | null; inactive?: boolean }) => {
+  const href = (next: { platoon?: string | null; inactive?: boolean }) => {
     const params = new URLSearchParams();
     const p = next.platoon === undefined ? platoon : next.platoon;
     if (p) params.set("platoon", p);
@@ -66,13 +69,13 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
       <nav aria-label="סינון לפי מחלקה" className="no-scrollbar -mx-4 overflow-x-auto px-4">
         <ul className="flex w-max gap-2">
           <Chip href={href({ platoon: null })} active={!platoon} label="כל הפלוגה" count={counts.total} />
-          {PLATOONS.map((p) => (
+          {chipPlatoons.map((p) => (
             <Chip
-              key={p}
-              href={href({ platoon: p })}
-              active={platoon === p}
-              label={PLATOON_LABELS[p]}
-              count={counts.byPlatoon[p]}
+              key={p.id}
+              href={href({ platoon: p.id })}
+              active={platoon === p.id}
+              label={p.name}
+              count={counts.byPlatoon[p.id] ?? 0}
               dot={p}
             />
           ))}
@@ -126,7 +129,7 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
                       </p>
                       <p className="text-muted-foreground flex items-center gap-1.5 truncate text-xs">
                         <PlatoonDot platoon={s.platoon} />
-                        {[PLATOON_LABELS[s.platoon], s.position, s.personalNumber].filter(Boolean).join(" · ")}
+                        {[s.platoon.name, s.position, s.personalNumber].filter(Boolean).join(" · ")}
                       </p>
                     </div>
                     <Holdings kit={s.kit?.kitNumber} equipment={s._count.equipment} />
@@ -199,7 +202,7 @@ function Chip({
   active: boolean;
   label: string;
   count: number;
-  dot?: Platoon;
+  dot?: PlatoonRef;
 }) {
   return (
     <li>

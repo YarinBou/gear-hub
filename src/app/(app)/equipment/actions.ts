@@ -3,10 +3,10 @@
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
-import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
+import type { EquipmentStatus } from "@/generated/prisma/enums";
 import { adminContext, companyContext, readOnlyMessage, writableContext } from "@/lib/context";
 import { scopedDb } from "@/lib/db";
-import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS, PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
 import { resolveStatus } from "@/lib/equipment-rules";
 import {
   AssignmentError,
@@ -97,14 +97,17 @@ export async function createEquipment(_prev: FormState, fd: FormData): Promise<F
   });
   if (!category) return { errors: { categoryId: "סוג פריט לא תקין" }, values };
 
-  let platoon = (parsed.data.platoon as Platoon | undefined) ?? null;
+  let platoonId = parsed.data.platoon ?? null;
+  if (platoonId && !(await db.platoon.findFirst({ where: { id: platoonId, isActive: true }, select: { id: true } }))) {
+    return { errors: { platoon: "מחלקה לא תקינה" }, values };
+  }
   if (parsed.data.soldierId) {
     const soldier = await db.soldier.findFirst({
       where: { id: parsed.data.soldierId, isActive: true },
-      select: { platoon: true },
+      select: { platoonId: true },
     });
     if (!soldier) return { errors: { soldierId: "הלוחם לא נמצא" }, values };
-    platoon = soldier.platoon;
+    platoonId = soldier.platoonId;
   }
   const resolved = resolveStatus({
     current: "IN_ARMORY",
@@ -134,7 +137,7 @@ export async function createEquipment(_prev: FormState, fd: FormData): Promise<F
             itemId: i.id,
             soldierId,
             status: resolved.status,
-            platoon,
+            platoonId,
           })),
         });
       }
@@ -145,7 +148,7 @@ export async function createEquipment(_prev: FormState, fd: FormData): Promise<F
           itemId: i.id,
           toSoldierId: soldierId,
           toStatus: resolved.status,
-          platoon,
+          platoonId,
           note: noSerial ? "נקלט במערכת (ללא צ)" : "נקלט במערכת",
           performedById: user.id,
         })),
@@ -210,7 +213,7 @@ export async function assignEquipment(id: string, _prev: FormState, fd: FormData
       applyAssignment(tx, deploymentCtx(w), id, {
         soldierId: d.soldierId ?? null,
         status: d.status as EquipmentStatus | undefined,
-        platoon: (d.platoon as Platoon | undefined) ?? null,
+        platoonId: d.platoon ?? null,
         note: d.note,
         verify: d.verify,
       }),
@@ -297,9 +300,9 @@ const rowSelect = {
   id: true,
   itemId: true,
   status: true,
-  platoon: true,
+  platoonId: true,
   soldierId: true,
-  soldier: { select: { platoon: true } },
+  soldier: { select: { platoonId: true } },
   item: { select: { parentId: true } },
 } as const;
 
@@ -337,18 +340,20 @@ export async function bulkSetPlatoon(ids: string[], platoonRaw: string): Promise
   if (!w.ok) return { ok: false, message: w.message };
   const { user, db, deployment } = w;
   const list = cleanIds(ids);
-  const platoon = platoonRaw === "NONE" ? null : (PLATOONS as string[]).includes(platoonRaw) ? (platoonRaw as Platoon) : undefined;
-  if (!list.length || platoon === undefined) return { ok: false, message: "בחירה לא תקינה" };
+  const platoonId = platoonRaw === "NONE" ? null : typeof platoonRaw === "string" ? platoonRaw : undefined;
+  const platoon = platoonId ? await db.platoon.findUnique({ where: { id: platoonId }, select: { name: true } }) : null;
+  if (platoonId && !platoon) return { ok: false, message: "בחירה לא תקינה" };
+  if (!list.length || platoonId === undefined) return { ok: false, message: "בחירה לא תקינה" };
 
   const rows = await rowsOf(db, list);
   const components = rows.filter((r) => r.item.parentId);
-  const heldElsewhere = rows.filter((r) => !r.item.parentId && r.soldier && r.soldier.platoon !== platoon);
-  const eligible = rows.filter((r) => !r.item.parentId && (!r.soldier || r.soldier.platoon === platoon));
+  const heldElsewhere = rows.filter((r) => !r.item.parentId && r.soldier && r.soldier.platoonId !== platoonId);
+  const eligible = rows.filter((r) => !r.item.parentId && (!r.soldier || r.soldier.platoonId === platoonId));
   const followers = await componentRowsOf(db, eligible.map((r) => r.itemId));
-  const toChange = [...eligible, ...followers].filter((r) => r.platoon !== platoon);
+  const toChange = [...eligible, ...followers].filter((r) => r.platoonId !== platoonId);
 
   await db.$transaction([
-    db.equipmentAssignment.updateMany({ where: { id: { in: toChange.map((r) => r.id) } }, data: { platoon } }),
+    db.equipmentAssignment.updateMany({ where: { id: { in: toChange.map((r) => r.id) } }, data: { platoonId } }),
     db.equipmentLog.createMany({
       data: toChange.map((r) => ({
         companyId: user.companyId,
@@ -358,14 +363,14 @@ export async function bulkSetPlatoon(ids: string[], platoonRaw: string): Promise
         toSoldierId: r.soldierId,
         fromStatus: r.status,
         toStatus: r.status,
-        platoon,
+        platoonId,
         note: "שיוך מרוכז למחלקה",
         performedById: user.id,
       })),
     }),
   ]);
   refresh();
-  const target = platoon ? PLATOON_LABELS[platoon] : "ללא מחלקה";
+  const target = platoon ? platoon.name : "ללא מחלקה";
   const skips = [
     heldElsewhere.length ? `${heldElsewhere.length} דולגו (מוחזקים ע"י לוחם ממחלקה אחרת)` : "",
     components.length ? `${components.length} רכיבים דולגו (${COMPONENT_SKIP_NOTE})` : "",
@@ -402,7 +407,7 @@ export async function bulkSetStatus(ids: string[], statusRaw: string): Promise<B
         toSoldierId: r.soldierId,
         fromStatus: r.status,
         toStatus: status,
-        platoon: r.platoon,
+        platoonId: r.platoonId,
         note: "עדכון סטטוס מרוכז",
         performedById: user.id,
       })),

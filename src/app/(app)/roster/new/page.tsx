@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
-import { PLATOONS } from "@/lib/constants";
+import { getActivePlatoons } from "@/lib/queries/platoons";
 import { BackLink } from "@/components/layout/back-link";
 import { Card, CardContent } from "@/components/ui/card";
 import { createSoldier } from "../actions";
@@ -12,7 +12,8 @@ export const metadata: Metadata = { title: "הוספת לוחם" };
 export default async function NewSoldierPage({ searchParams }: PageProps<"/roster/new">) {
   await requireUser();
   const p = (await searchParams).platoon;
-  const platoon = typeof p === "string" && (PLATOONS as string[]).includes(p) ? p : undefined;
+  const platoons = await getActivePlatoons();
+  const platoon = typeof p === "string" && platoons.some((x) => x.id === p) ? p : undefined;
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4">
@@ -20,7 +21,7 @@ export default async function NewSoldierPage({ searchParams }: PageProps<"/roste
       <h1 className="text-2xl font-bold">הוספת לוחם</h1>
       <Card>
         <CardContent>
-          <SoldierForm mode="create" action={createSoldier} initial={{ platoon }} />
+          <SoldierForm mode="create" action={createSoldier} initial={{ platoon }} platoons={platoons} />
         </CardContent>
       </Card>
       <p className="text-muted-foreground text-sm">

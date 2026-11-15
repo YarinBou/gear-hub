@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Download } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import { getPlatoons } from "@/lib/queries/platoons";
 import { itemLabel } from "@/lib/equipment-rules";
 import { getEquipmentReport, type EquipmentReportType } from "@/lib/queries/equipment";
 import { cn, formatDateTime, formatNumber } from "@/lib/utils";
@@ -12,7 +12,6 @@ import { BackLink } from "@/components/layout/back-link";
 import { PlatoonBadge, PlatoonDot } from "@/components/platoon-badge";
 import { PrintButton } from "@/components/print-button";
 import { Button } from "@/components/ui/button";
-import type { Platoon } from "@/generated/prisma/enums";
 
 export const metadata: Metadata = { title: 'דוח צל"ם פלוגתי' };
 
@@ -20,7 +19,9 @@ export const metadata: Metadata = { title: 'דוח צל"ם פלוגתי' };
 export default async function EquipmentReportPage({ searchParams }: PageProps<"/equipment/report">) {
   await requireUser();
   const raw = (await searchParams).platoon;
-  const platoon = PLATOONS.includes(raw as Platoon) ? (raw as Platoon) : undefined;
+  const platoons = await getPlatoons();
+  const current = platoons.find((p) => p.id === raw);
+  const platoon = current?.id;
   const report = await getEquipmentReport(platoon);
   const types = report.filter((t) => t.equipmentItems.length > 0 || (!platoon && t.targetQuantity));
   const totals = types.reduce(
@@ -47,7 +48,7 @@ export default async function EquipmentReportPage({ searchParams }: PageProps<"/
 
       <header className="flex flex-wrap items-end justify-between gap-2 border-b pb-3">
         <div>
-          <h1 className="text-2xl font-bold">דוח צל&quot;ם פלוגתי{platoon ? ` — ${PLATOON_LABELS[platoon]}` : ""}</h1>
+          <h1 className="text-2xl font-bold">דוח צל&quot;ם פלוגתי{current ? ` — ${current.name}` : ""}</h1>
           <p className="text-muted-foreground text-sm">
             {formatNumber(totals.held)} פריטים במצאי
             {totals.missing ? ` · ${formatNumber(totals.missing)} חסרים` : ""}
@@ -59,18 +60,18 @@ export default async function EquipmentReportPage({ searchParams }: PageProps<"/
 
       <nav aria-label="סינון לפי מחלקה" className="no-scrollbar -mx-4 overflow-x-auto px-4 print:hidden">
         <ul className="flex w-max gap-2">
-          {[undefined, ...PLATOONS].map((p) => (
-            <li key={p ?? "all"}>
+          {[undefined, ...platoons.filter((x) => x.isActive || x.id === platoon)].map((p) => (
+            <li key={p?.id ?? "all"}>
               <Link
-                href={p ? `/equipment/report?platoon=${p}` : "/equipment/report"}
-                aria-current={platoon === p ? "page" : undefined}
+                href={p ? `/equipment/report?platoon=${p.id}` : "/equipment/report"}
+                aria-current={platoon === p?.id ? "page" : undefined}
                 className={cn(
                   "flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium whitespace-nowrap",
-                  platoon === p ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent",
+                  platoon === p?.id ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent",
                 )}
               >
                 {p && <PlatoonDot platoon={p} />}
-                {p ? PLATOON_LABELS[p] : "כל הפלוגה"}
+                {p ? p.name : "כל הפלוגה"}
               </Link>
             </li>
           ))}

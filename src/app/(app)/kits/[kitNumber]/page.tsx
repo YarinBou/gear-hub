@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, ClipboardList, Crosshair, History, PenLine, Printer, UserRound } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { NoDeploymentCard, ReadOnlyWhenClosed } from "@/components/deployment-gate";
-import { PLATOONS, TOTAL_KITS } from "@/lib/constants";
+import { TOTAL_KITS } from "@/lib/constants";
+import { getPlatoons } from "@/lib/queries/platoons";
 import { kitReadiness } from "@/lib/kit";
 import { getKit, getKitNeighbours, getSoldiersWithKit, getWeaponOptions } from "@/lib/queries/kits";
 import { getSoldierOptions } from "@/lib/queries/soldiers";
@@ -14,7 +15,6 @@ import { PlatoonBadge } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Platoon } from "@/generated/prisma/enums";
 import { AssignKitForm, WeaponForm } from "./kit-forms";
 import { KitChecklist } from "./kit-checklist";
 import { SignaturePad } from "./signature-pad";
@@ -28,8 +28,8 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
   const [{ kitNumber: raw }, sp] = await Promise.all([params, searchParams]);
   const kitNumber = Number(raw);
   if (!Number.isInteger(kitNumber) || kitNumber < 1 || kitNumber > TOTAL_KITS) notFound();
-  // Inspection walk can be scoped to one platoon: /kits/12?platoon=PLATOON_2
-  const platoon = PLATOONS.includes(sp.platoon as Platoon) ? (sp.platoon as Platoon) : undefined;
+  // Inspection walk can be scoped to one platoon: /kits/12?platoon=<platoon id>
+  const platoon = (await getPlatoons()).find((p) => p.id === sp.platoon)?.id;
 
   const kit = await getKit(kitNumber);
   const soldierId = kit?.soldierId ?? null;

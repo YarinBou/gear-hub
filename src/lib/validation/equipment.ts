@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { EQUIPMENT_STATUSES, PLATOONS } from "@/lib/constants";
+import { EQUIPMENT_STATUSES } from "@/lib/constants";
 import { normalizeSerial } from "@/lib/equipment-rules";
 
 const status = z.enum(EQUIPMENT_STATUSES as [string, ...string[]], { error: "סטטוס לא תקין" });
-const platoon = z.enum(PLATOONS as [string, ...string[]], { error: "מחלקה לא תקינה" });
+/** A platoon id; that it belongs to the company is checked by the action. */
+const platoon = z.string({ error: "מחלקה לא תקינה" }).min(1, "מחלקה לא תקינה").max(64, "מחלקה לא תקינה");
 const emptyToUndef = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
 
 export const SerialSchema = z

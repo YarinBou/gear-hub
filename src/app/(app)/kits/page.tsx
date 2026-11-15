@@ -3,13 +3,14 @@ import Link from "next/link";
 import { PenLine } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { NoDeploymentCard } from "@/components/deployment-gate";
-import { PLATOONS, PLATOON_LABELS, TOTAL_KITS } from "@/lib/constants";
+import { TOTAL_KITS } from "@/lib/constants";
+import { getPlatoons } from "@/lib/queries/platoons";
+import type { PlatoonRef } from "@/lib/platoons";
 import { listKits, type KitTile } from "@/lib/queries/kits";
 import { cn } from "@/lib/utils";
 import { PlatoonDot } from "@/components/platoon-badge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import type { Platoon } from "@/generated/prisma/enums";
 
 export const metadata: Metadata = { title: "ציוד אישי והחתמות" };
 
@@ -36,7 +37,8 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
   if (!deployment) return <NoDeploymentCard what="ערכות אישיות והחתמות" />;
   const sp = await searchParams;
   const platoonRaw = first(sp.platoon);
-  const platoon = PLATOONS.includes(platoonRaw as Platoon) ? (platoonRaw as Platoon) : undefined;
+  const platoons = await getPlatoons();
+  const platoon = platoons.find((p) => p.id === platoonRaw)?.id;
   const filterRaw = first(sp.filter);
   const filter = filterRaw && filterRaw in FILTERS ? (filterRaw as Filter) : undefined;
 
@@ -47,10 +49,10 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
   const signed = issued.filter((k) => k.signedAt).length;
 
   const shown = all
-    .filter((k) => !platoon || k.soldier?.platoon === platoon)
+    .filter((k) => !platoon || k.soldier?.platoon.id === platoon)
     .filter((k) => !filter || FILTERS[filter].test(k));
 
-  const href = (next: { platoon?: Platoon | null; filter?: Filter | null }) => {
+  const href = (next: { platoon?: string | null; filter?: Filter | null }) => {
     const p = new URLSearchParams();
     const pl = next.platoon === undefined ? platoon : next.platoon;
     const f = next.filter === undefined ? filter : next.filter;
@@ -59,7 +61,7 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
     const s = p.toString();
     return s ? `/kits?${s}` : "/kits";
   };
-  const chip = (label: string, to: string, active: boolean, count?: number, dot?: Platoon) => (
+  const chip = (label: string, to: string, active: boolean, count?: number, dot?: PlatoonRef) => (
     <li key={label}>
       <Link
         href={to}
@@ -98,12 +100,12 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
       <nav aria-label="סינון לפי מחלקה" className="no-scrollbar -mx-4 overflow-x-auto px-4">
         <ul className="flex w-max gap-2">
           {chip("כל הפלוגה", href({ platoon: null }), !platoon)}
-          {PLATOONS.map((p) =>
+          {platoons.filter((p) => p.isActive || p.id === platoon).map((p) =>
             chip(
-              PLATOON_LABELS[p],
-              href({ platoon: p }),
-              platoon === p,
-              issued.filter((k) => k.soldier?.platoon === p).length,
+              p.name,
+              href({ platoon: p.id }),
+              platoon === p.id,
+              issued.filter((k) => k.soldier?.platoon.id === p.id).length,
               p,
             ),
           )}

@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
-import type { Platoon, Role } from "../src/generated/prisma/enums";
+import type { Role } from "../src/generated/prisma/enums";
 import { provisionCompany } from "../src/lib/company-setup";
 
 // Idempotent seed — safe to re-run.
@@ -58,7 +58,7 @@ async function seedDemo(companyId: string) {
     console.log("• soldiers exist — demo data skipped");
     return;
   }
-  const platoons: Platoon[] = ["PLATOON_1", "PLATOON_2", "PLATOON_3", "HQ"];
+  const platoons = (await prisma.platoon.findMany({ where: { companyId }, orderBy: { sortOrder: "asc" } })).map((p) => p.id);
   const firstNames = ["יוסי", "דניאל", "איתי", "נועם", "עומר", "אביב", "רועי", "אורי", "תומר", "עידו"];
   const lastNames = ["כהן", "לוי", "מזרחי", "פרץ", "ביטון", "אברהם", "פרידמן", "דהן", "אזולאי", "שפירא"];
 
@@ -79,13 +79,13 @@ async function seedDemo(companyId: string) {
   });
 
   for (let i = 0; i < 40; i++) {
-    const platoon = platoons[i % 4];
+    const platoonId = platoons[i % platoons.length];
     const soldier = await prisma.soldier.create({
       data: {
         companyId,
         name: `${firstNames[i % 10]} ${lastNames[(i * 3) % 10]}`,
         personalNumber: String(8_000_000 + i * 137),
-        platoon,
+        platoonId,
       },
     });
     const weapon = await prisma.equipmentItem.create({
@@ -99,7 +99,7 @@ async function seedDemo(companyId: string) {
             deploymentId,
             status: "WITH_SOLDIER",
             soldierId: soldier.id,
-            platoon,
+            platoonId,
             lastVerifiedAt: new Date(Date.now() - (i % 12) * 86_400_000),
           },
         },

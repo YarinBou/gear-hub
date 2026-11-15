@@ -1,5 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client";
-import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
+import type { EquipmentStatus } from "@/generated/prisma/enums";
+import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
 
 // Reading an item's state (holder / status / platoon / last verified) in one deployment.
 // The state lives in EquipmentAssignment; these helpers let queries select it and hand pages the
@@ -19,14 +20,14 @@ export function stateSelect<S extends Prisma.SoldierSelect>(deploymentId: string
     assignments: {
       where: { deploymentId: deploymentId ?? NONE },
       take: 1,
-      select: { status: true, platoon: true, lastVerifiedAt: true, soldierId: true, soldier: { select: soldier } },
+      select: { status: true, platoon: platoonSelect, lastVerifiedAt: true, soldierId: true, soldier: { select: soldier } },
     },
   } as const;
 }
 
 type StateRow<S> = {
   status: EquipmentStatus;
-  platoon: Platoon | null;
+  platoon: PlatoonRef | null;
   lastVerifiedAt: Date | null;
   soldierId: string | null;
   soldier: S | null;
@@ -34,7 +35,7 @@ type StateRow<S> = {
 
 export type FlatState<S> = {
   status: EquipmentStatus;
-  platoon: Platoon | null;
+  platoon: PlatoonRef | null;
   lastVerifiedAt: Date | null;
   assignedSoldierId: string | null;
   assignedSoldier: S | null;

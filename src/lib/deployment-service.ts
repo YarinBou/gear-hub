@@ -69,7 +69,7 @@ export async function startDeployment(
   const prevRows = previous
     ? await tx.equipmentAssignment.findMany({
         where: { deploymentId: previous.id },
-        select: { itemId: true, soldierId: true, status: true, platoon: true, lastVerifiedAt: true },
+        select: { itemId: true, soldierId: true, status: true, platoonId: true, lastVerifiedAt: true },
       })
     : [];
   const prevByItem = new Map(prevRows.map((r) => [r.itemId, r]));
@@ -80,7 +80,7 @@ export async function startDeployment(
       if (copy && prev) {
         const soldierId = keepSoldier(prev.soldierId);
         const status: EquipmentStatus = !soldierId && prev.status === "WITH_SOLDIER" ? "IN_ARMORY" : prev.status;
-        return { ...base, soldierId, status, platoon: prev.platoon, lastVerifiedAt: prev.lastVerifiedAt };
+        return { ...base, soldierId, status, platoonId: prev.platoonId, lastVerifiedAt: prev.lastVerifiedAt };
       }
       const status: EquipmentStatus = prev && PHYSICAL_STATUSES.includes(prev.status) ? prev.status : "IN_ARMORY";
       return { ...base, status };

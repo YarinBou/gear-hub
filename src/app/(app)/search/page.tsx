@@ -6,6 +6,7 @@ import { flattenState, stateSelect } from "@/lib/equipment-state";
 import { EQUIPMENT_STATUS_LABELS, TOTAL_KITS } from "@/lib/constants";
 import { Serial } from "@/components/equipment/serial";
 import { PlatoonBadge } from "@/components/platoon-badge";
+import { platoonSelect } from "@/lib/platoons";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { GlobalSearch } from "@/components/layout/global-search";
@@ -27,7 +28,7 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
           },
           take: 20,
           orderBy: { name: "asc" },
-          select: { id: true, name: true, personalNumber: true, platoon: true },
+          select: { id: true, name: true, personalNumber: true, platoon: platoonSelect },
         }),
         db.equipmentItem
           .findMany({

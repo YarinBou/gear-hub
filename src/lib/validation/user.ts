@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { PLATOONS } from "@/lib/constants";
 
 const emptyToUndef = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
 
@@ -19,7 +18,7 @@ export const UsernameSchema = z
 export const UserFieldsSchema = z.object({
   name: z.string().trim().min(2, "יש להזין שם מלא").max(60, "השם ארוך מדי"),
   role: z.enum(["ADMIN", "REGULAR"], { error: "יש לבחור תפקיד" }),
-  platoon: z.preprocess(emptyToUndef, z.enum(PLATOONS as [string, ...string[]]).optional()),
+  platoon: z.preprocess(emptyToUndef, z.string().max(64).optional()),
 });
 
 export const CreateUserSchema = UserFieldsSchema.extend({ username: UsernameSchema });

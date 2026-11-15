@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import type { CatalogDomain, EquipmentStatus, Platoon, Role } from "@/generated/prisma/enums";
+import type { CatalogDomain, EquipmentStatus, Role } from "@/generated/prisma/enums";
+import { DEFAULT_PLATOONS } from "@/lib/platoons";
 import { chooseCompany, signInAs } from "./auth-mock";
 import { DEFAULT_KIT_ITEMS } from "@/lib/kit";
 
@@ -25,7 +26,31 @@ export async function makeCompany(opts: { name?: string; isActive?: boolean; kit
   await prisma.kitItemDef.createMany({
     data: DEFAULT_KIT_ITEMS.map((item, i) => ({ companyId: company.id, sortOrder: (i + 1) * 10, ...item })),
   });
+  await prisma.platoon.createMany({
+    data: DEFAULT_PLATOONS.map((name, i) => ({ companyId: company.id, name, sortOrder: (i + 1) * 10, color: i })),
+  });
   return company;
+}
+
+/**
+ * Tests name a company's four default platoons by key (they're per-company rows with generated ids).
+ * PLATOON_1..3 = "מחלקה 1..3", HQ = 'חפ"ק ומפל"ג'.
+ */
+export type PlatoonKey = "PLATOON_1" | "PLATOON_2" | "PLATOON_3" | "HQ";
+const PLATOON_KEYS: PlatoonKey[] = ["PLATOON_1", "PLATOON_2", "PLATOON_3", "HQ"];
+
+/** The id of one of the company's default platoons. */
+export async function platoonId(key: PlatoonKey, companyId?: string) {
+  const name = DEFAULT_PLATOONS[PLATOON_KEYS.indexOf(key)];
+  const p = await prisma.platoon.findFirstOrThrow({ where: { companyId: await companyOf(companyId), name }, select: { id: true } });
+  return p.id;
+}
+
+/** The key of a default platoon by id (null for none). */
+async function platoonKey(id: string | null): Promise<PlatoonKey | null> {
+  if (!id) return null;
+  const p = await prisma.platoon.findUniqueOrThrow({ where: { id }, select: { name: true } });
+  return PLATOON_KEYS[DEFAULT_PLATOONS.indexOf(p.name)] ?? null;
 }
 
 /** A checklist item of the company, by its name (e.g. "קסדה"). */
@@ -80,24 +105,25 @@ export async function stateOf(itemId: string, deploymentId?: string) {
     parentId: item.parentId,
     assignedSoldierId: row?.soldierId ?? null,
     status: row?.status ?? "IN_ARMORY",
-    platoon: row?.platoon ?? null,
+    platoon: await platoonKey(row?.platoonId ?? null),
     lastVerifiedAt: row?.lastVerifiedAt ?? null,
   };
 }
 
-export async function makeUser(opts: { role?: Role; platoon?: Platoon | null; name?: string; companyId?: string } = {}) {
+export async function makeUser(opts: { role?: Role; platoon?: PlatoonKey | null; name?: string; companyId?: string } = {}) {
   const n = next();
   const role = opts.role ?? "REGULAR";
+  const companyId = role === "SUPER_ADMIN" ? null : await companyOf(opts.companyId);
   return prisma.user.create({
     data: {
-      companyId: role === "SUPER_ADMIN" ? null : await companyOf(opts.companyId),
+      companyId,
       username: `user${n}`,
       name: opts.name ?? `משתמש ${n}`,
       passwordHash: "x",
       role,
-      platoon: opts.platoon ?? null,
+      platoonId: opts.platoon && companyId ? await platoonId(opts.platoon, companyId) : null,
     },
-    select: { id: true, name: true, username: true, role: true, platoon: true, isActive: true, companyId: true },
+    select: { id: true, name: true, username: true, role: true, isActive: true, companyId: true },
   });
 }
 
@@ -117,14 +143,15 @@ export async function loginAsSuperAdmin(companyId: string | null) {
 }
 
 export async function makeSoldier(
-  opts: { platoon?: Platoon; isActive?: boolean; name?: string; personalNumber?: string; companyId?: string } = {},
+  opts: { platoon?: PlatoonKey; isActive?: boolean; name?: string; personalNumber?: string; companyId?: string } = {},
 ) {
   const n = next();
+  const companyId = await companyOf(opts.companyId);
   return prisma.soldier.create({
     data: {
-      companyId: await companyOf(opts.companyId),
+      companyId,
       name: opts.name ?? `לוחם ${n}`,
-      platoon: opts.platoon ?? "PLATOON_1",
+      platoonId: await platoonId(opts.platoon ?? "PLATOON_1", companyId),
       isActive: opts.isActive ?? true,
       personalNumber: opts.personalNumber ?? null,
     },
@@ -152,7 +179,7 @@ export async function makeItem(
     serialNumber?: string | null;
     status?: EquipmentStatus;
     assignedSoldierId?: string | null;
-    platoon?: Platoon | null;
+    platoon?: PlatoonKey | null;
     parentId?: string | null;
     companyId?: string;
   } = {},
@@ -172,7 +199,7 @@ export async function makeItem(
           deploymentId: deployment.id,
           status: opts.status ?? "IN_ARMORY",
           soldierId: opts.assignedSoldierId ?? null,
-          platoon: opts.platoon ?? null,
+          platoonId: opts.platoon ? await platoonId(opts.platoon, companyId) : null,
         },
       },
     },

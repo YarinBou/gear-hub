@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Check, X } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { PLATOON_LABELS, TOTAL_KITS } from "@/lib/constants";
+import { TOTAL_KITS } from "@/lib/constants";
 import { groupLines, lineComplete, WEAPON_ITEM, type ChecklistLine } from "@/lib/kit";
 import { getKit } from "@/lib/queries/kits";
 import { formatDate, formatDateTime } from "@/lib/utils";
@@ -50,7 +50,7 @@ export default async function KitSheetPage({ params }: PageProps<"/kits/[kitNumb
           </div>
           <div>
             <dt className="text-muted-foreground text-xs">מחלקה</dt>
-            <dd className="font-semibold">{PLATOON_LABELS[kit.soldier.platoon]}</dd>
+            <dd className="font-semibold">{kit.soldier.platoon.name}</dd>
           </div>
           <div>
             <dt className="text-muted-foreground text-xs">טלפון</dt>

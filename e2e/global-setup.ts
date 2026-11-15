@@ -5,6 +5,7 @@ import { config } from "dotenv";
 import { Client } from "pg";
 import { describeUrl, hasMarker, MARKER_TABLE, rememberAppUrls, testDatabaseUrl } from "../test/integration/test-db";
 import { DEFAULT_KIT_ITEMS } from "../src/lib/kit";
+import { DEFAULT_PLATOONS } from "../src/lib/platoons";
 import { E2E } from "./fixtures";
 
 // Before the browser tests: same guards as the integration tests (the database must be the marked
@@ -44,10 +45,20 @@ export default async function globalSetup() {
          ($5, NULL, $6, 'מנהל מערכת', $4, 'SUPER_ADMIN', now())`,
       [id(), companyId, E2E.admin, hash, id(), E2E.superAdmin],
     );
+    // The default platoons (what provisionCompany gives a real company).
+    const platoonIds = new Map<string, string>();
+    for (const [i, name] of DEFAULT_PLATOONS.entries()) {
+      const pid = id();
+      platoonIds.set(name, pid);
+      await db.query(
+        `INSERT INTO "Platoon"(id, "companyId", name, "sortOrder", color, "updatedAt") VALUES ($1, $2, $3, $4, $5, now())`,
+        [pid, companyId, name, (i + 1) * 10, i],
+      );
+    }
     for (const [name, platoon] of E2E.soldiers) {
       await db.query(
-        `INSERT INTO "Soldier"(id, "companyId", name, platoon, "updatedAt") VALUES ($1, $2, $3, $4, now())`,
-        [id(), companyId, name, platoon],
+        `INSERT INTO "Soldier"(id, "companyId", name, "platoonId", "updatedAt") VALUES ($1, $2, $3, $4, now())`,
+        [id(), companyId, name, platoonIds.get(platoon)],
       );
     }
     // The default personal-kit checklist (what provisionCompany gives a real company).

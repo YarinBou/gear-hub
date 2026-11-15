@@ -3,13 +3,12 @@
 import { updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma } from "@/generated/prisma/client";
-import type { Platoon } from "@/generated/prisma/enums";
 import { companyContext } from "@/lib/context";
 import { scopedDb } from "@/lib/db";
-import { PLATOONS } from "@/lib/constants";
+import { getActivePlatoons } from "@/lib/queries/platoons";
 import { soldiersTag } from "@/lib/queries/soldiers";
 import { MAX_IMPORT_ROWS, parseRosterText } from "@/lib/roster-import";
-import { fieldErrors, SoldierSchema, type SoldierFieldErrors } from "@/lib/validation/soldier";
+import { fieldErrors, SoldierSchema, type SoldierFieldErrors, type SoldierInput } from "@/lib/validation/soldier";
 
 export type SoldierFormState =
   | {
@@ -35,17 +34,29 @@ function isUniqueViolation(e: unknown) {
 }
 
 const DUPLICATE_PN: SoldierFieldErrors = { personalNumber: "מספר אישי זה כבר קיים בסד\"כ" };
+const BAD_PLATOON: SoldierFieldErrors = { platoon: "יש לבחור מחלקה" };
+
+/** The chosen platoon must be one of the company's active platoons (or the soldier's current one). */
+async function platoonAllowed(platoonId: string, current?: string) {
+  return platoonId === current || (await getActivePlatoons()).some((p) => p.id === platoonId);
+}
+
+/** Form fields → Soldier columns. */
+function soldierData({ platoon, ...rest }: SoldierInput) {
+  return { ...rest, platoonId: platoon };
+}
 
 export async function createSoldier(_prev: SoldierFormState, formData: FormData): Promise<SoldierFormState> {
   const { user, db } = await companyContext();
   const values = readForm(formData);
   const parsed = SoldierSchema.safeParse(values);
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values };
+  if (!(await platoonAllowed(parsed.data.platoon))) return { errors: BAD_PLATOON, values };
 
   let id: string;
   try {
     const soldier = await db.soldier.create({
-      data: { ...parsed.data, platoon: parsed.data.platoon as Platoon, companyId: user.companyId },
+      data: { ...soldierData(parsed.data), companyId: user.companyId },
     });
     id = soldier.id;
   } catch (e) {
@@ -66,21 +77,24 @@ export async function updateSoldier(
   _prev: SoldierFormState,
   formData: FormData,
 ): Promise<SoldierFormState> {
-  const { user } = await companyContext();
+  const { user, db } = await companyContext();
   const values = readForm(formData);
   const parsed = SoldierSchema.safeParse(values);
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values };
-  const platoon = parsed.data.platoon as Platoon;
+  const platoonId = parsed.data.platoon;
+  const current = await db.soldier.findUnique({ where: { id }, select: { platoonId: true } });
+  if (!current) return { errors: { name: "הלוחם לא נמצא" }, values };
+  if (!(await platoonAllowed(platoonId, current.platoonId))) return { errors: BAD_PLATOON, values };
 
   try {
     // Company-level client: the platoon sync below targets the ACTIVE deployment, whichever one is viewed.
     await scopedDb(user.companyId).$transaction(async (tx) => {
-      const before = await tx.soldier.findUniqueOrThrow({ where: { id }, select: { platoon: true } });
+      const before = await tx.soldier.findUniqueOrThrow({ where: { id }, select: { platoonId: true } });
       await tx.soldier.update({
         where: { id },
         data: {
           name: parsed.data.name,
-          platoon,
+          platoonId,
           personalNumber: parsed.data.personalNumber ?? null,
           phone: parsed.data.phone ?? null,
           position: parsed.data.position ?? null,
@@ -88,10 +102,10 @@ export async function updateSoldier(
       });
       // Equipment platoon is auto-filled from the holder — keep it in sync on transfer
       // (in the active deployment; closed deployments are history).
-      if (before.platoon !== platoon) {
+      if (before.platoonId !== platoonId) {
         await tx.equipmentAssignment.updateMany({
           where: { soldierId: id, deployment: { status: "ACTIVE" } },
-          data: { platoon },
+          data: { platoonId },
         });
       }
     });
@@ -146,10 +160,11 @@ export async function importSoldiers(_prev: ImportState, formData: FormData): Pr
   const { user, db } = await companyContext();
   const text = String(formData.get("text") ?? "");
   const defaultRaw = String(formData.get("defaultPlatoon") ?? "");
-  const defaultPlatoon = (PLATOONS as string[]).includes(defaultRaw) ? (defaultRaw as Platoon) : null;
+  const platoons = await getActivePlatoons();
+  const defaultPlatoon = platoons.some((p) => p.id === defaultRaw) ? defaultRaw : null;
 
   // Never trust the client preview — parse and validate again here.
-  const rows = parseRosterText(text, defaultPlatoon);
+  const rows = parseRosterText(text, defaultPlatoon, platoons);
   if (rows.length === 0) return { error: "לא נמצאו שורות לייבוא" };
   if (rows.length > MAX_IMPORT_ROWS) return { error: `ניתן לייבא עד ${MAX_IMPORT_ROWS} שורות בכל פעם` };
 
@@ -176,7 +191,7 @@ export async function importSoldiers(_prev: ImportState, formData: FormData): Pr
   });
 
   const { count } = await db.soldier.createMany({
-    data: toCreate.map((r) => ({ ...r.data, platoon: r.data.platoon as Platoon, companyId: user.companyId })),
+    data: toCreate.map((r) => ({ ...soldierData(r.data), companyId: user.companyId })),
     skipDuplicates: true,
   });
   if (count) updateTag(soldiersTag(user.companyId));

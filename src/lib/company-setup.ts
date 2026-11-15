@@ -1,9 +1,10 @@
 import type { Prisma } from "../generated/prisma/client";
 import type { AmmoCategory } from "../generated/prisma/enums";
 import { DEFAULT_KIT_ITEMS } from "./kit";
+import { DEFAULT_PLATOONS } from "./platoons";
 
 // What a brand-new company starts with: a default catalog (editable afterwards on /catalog), its
-// storage lines (תקן / מצאי) and the personal-kit checklist (editable on /kits/items). No deployment — kits 1–98 are created when the company starts
+// storage lines (תקן / מצאי), its platoons (editable on /platoons) and the personal-kit checklist (editable on /kits/items). No deployment — kits 1–98 are created when the company starts
 // its first deployment. Idempotent — safe to run again.
 // Shared by the super-admin "create company" action and prisma/seed.ts, so it uses relative
 // imports only (the seed runs outside Next.js).
@@ -68,6 +69,13 @@ export async function provisionCompany(tx: Tx, companyId: string) {
   if (storageTypes.length) {
     await tx.storageItem.createMany({
       data: storageTypes.map((c) => ({ companyId, categoryId: c.id, targetQuantity: targets.get(c.name) ?? 0 })),
+    });
+  }
+
+  // Platoons (renamed / added on /platoons) — only for a company that has none yet.
+  if (!(await tx.platoon.count({ where: { companyId } }))) {
+    await tx.platoon.createMany({
+      data: DEFAULT_PLATOONS.map((name, i) => ({ companyId, name, sortOrder: (i + 1) * 10, color: i })),
     });
   }
 

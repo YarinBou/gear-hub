@@ -1,17 +1,16 @@
 import { Select } from "@/components/ui/select";
-import { PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import type { PlatoonRef } from "@/lib/platoons";
 import type { SoldierOption } from "@/lib/queries/soldiers";
-import type { Platoon } from "@/generated/prisma/enums";
 
 /**
- * The app-wide soldier picker. Feed it `await getSoldierOptions()` (cached, roster-wide).
- * Grouped by platoon; works in server and client components alike.
+ * The app-wide soldier picker. Feed it `await getSoldierOptions()` (cached, roster-wide, sorted by
+ * platoon order). Grouped by platoon; works in server and client components alike.
  *
  *   <SoldierSelect name="assignedSoldierId" options={await getSoldierOptions()} />
  */
 export function SoldierSelect({
   options,
-  platoon,
+  platoonId,
   placeholder = "בחירת לוחם…",
   allowEmpty = true,
   emptyLabel = "ללא שיוך",
@@ -19,14 +18,18 @@ export function SoldierSelect({
 }: Omit<React.ComponentProps<typeof Select>, "children"> & {
   options: SoldierOption[];
   /** Restrict to one platoon (e.g. a מ"מ assigning within their platoon). */
-  platoon?: Platoon;
+  platoonId?: string;
   placeholder?: string;
   allowEmpty?: boolean;
   emptyLabel?: string;
 }) {
-  const groups = (platoon ? [platoon] : PLATOONS)
-    .map((p) => ({ platoon: p, soldiers: options.filter((o) => o.platoon === p) }))
-    .filter((g) => g.soldiers.length > 0);
+  const groups: { platoon: PlatoonRef; soldiers: SoldierOption[] }[] = [];
+  for (const s of options) {
+    if (platoonId && s.platoon.id !== platoonId) continue;
+    const g = groups.find((x) => x.platoon.id === s.platoon.id);
+    if (g) g.soldiers.push(s);
+    else groups.push({ platoon: s.platoon, soldiers: [s] });
+  }
 
   return (
     <Select defaultValue="" {...props}>
@@ -34,7 +37,7 @@ export function SoldierSelect({
         {allowEmpty ? emptyLabel : placeholder}
       </option>
       {groups.map((g) => (
-        <optgroup key={g.platoon} label={PLATOON_LABELS[g.platoon]}>
+        <optgroup key={g.platoon.id} label={g.platoon.name}>
           {g.soldiers.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
