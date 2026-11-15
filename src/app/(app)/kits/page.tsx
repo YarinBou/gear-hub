@@ -3,7 +3,6 @@ import Link from "next/link";
 import { PenLine } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { NoDeploymentCard } from "@/components/deployment-gate";
-import { TOTAL_KITS } from "@/lib/constants";
 import { getPlatoons } from "@/lib/queries/platoons";
 import type { PlatoonRef } from "@/lib/platoons";
 import { listKits, type KitTile } from "@/lib/queries/kits";
@@ -85,7 +84,7 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
       <div>
         <h1 className="text-2xl font-bold">ציוד אישי והחתמות</h1>
         <p className="text-muted-foreground text-sm">
-          {issued.length} מתוך {TOTAL_KITS} ערכות הונפקו · {full} מלאות · {signed} הוחתמו
+          {issued.length} מתוך {all.length} ערכות הונפקו · {full} מלאות · {signed} הוחתמו
         </p>
       </div>
 

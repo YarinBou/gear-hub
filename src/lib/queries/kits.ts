@@ -2,7 +2,6 @@ import "server-only";
 import { connection } from "next/server";
 import { companyContext } from "@/lib/context";
 import { flattenState, inState, stateSelect } from "@/lib/equipment-state";
-import { TOTAL_KITS } from "@/lib/constants";
 import { checklistLines, kitItemsSelect, kitReadiness, missingDescriptions, type ChecklistLine } from "@/lib/kit";
 import { activeItemDefs } from "@/lib/kit-service";
 import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
@@ -17,7 +16,7 @@ export type KitTile = {
   lastInspectedAt: Date | null;
 };
 
-/** All 98 slots, including kits whose DB row doesn't exist yet. */
+/** All kit slots of the viewed deployment, including kits whose DB row doesn't exist yet. */
 export async function listKits(): Promise<KitTile[]> {
   await connection();
   const { db, deployment } = await companyContext();
@@ -35,7 +34,8 @@ export async function listKits(): Promise<KitTile[]> {
   ]);
   const history = !!deployment?.readOnly;
   const byNumber = new Map(kits.map((k) => [k.kitNumber, k]));
-  return Array.from({ length: TOTAL_KITS }, (_, i) => {
+  const slots = await getKitSlots();
+  return Array.from({ length: slots }, (_, i) => {
     const k = byNumber.get(i + 1);
     const lines = k ? checklistLines(k.items, { history, activeDefs }) : [];
     return {
@@ -154,3 +154,16 @@ export async function getWeaponOptions(soldierId: string | null, currentWeaponId
 }
 
 export type WeaponOption = Awaited<ReturnType<typeof getWeaponOptions>>[number];
+
+/**
+ * How many kit slots the viewed deployment has: the company's kit count — or, for a closed
+ * deployment, as many as it had (the count may have changed since).
+ */
+export async function getKitSlots() {
+  const { user, db, deployment } = await companyContext();
+  const company = await db.company.findUnique({ where: { id: user.companyId }, select: { kitCount: true } });
+  const count = company?.kitCount ?? 0;
+  if (!deployment?.readOnly) return count;
+  const last = await db.personalKit.findFirst({ orderBy: { kitNumber: "desc" }, select: { kitNumber: true } });
+  return last?.kitNumber ?? count;
+}

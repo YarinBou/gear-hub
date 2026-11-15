@@ -73,6 +73,8 @@ model Company {
   isActive          Boolean  @default(true)
   /// New kits start with every checklist item present (true) or missing (false). Set on /kits/items.
   kitDefaultPresent Boolean  @default(false)
+  /// How many personal kits (ערכות) the company has: every deployment has kits 1..kitCount. Set on /kits/items.
+  kitCount          Int      @default(98)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

@@ -4,10 +4,9 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, ChevronRight, ClipboardList, Crosshair, History, PenLine, Printer, UserRound } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { NoDeploymentCard, ReadOnlyWhenClosed } from "@/components/deployment-gate";
-import { TOTAL_KITS } from "@/lib/constants";
 import { getPlatoons } from "@/lib/queries/platoons";
 import { kitReadiness } from "@/lib/kit";
-import { getKit, getKitNeighbours, getSoldiersWithKit, getWeaponOptions } from "@/lib/queries/kits";
+import { getKit, getKitNeighbours, getSoldiersWithKit, getWeaponOptions, getKitSlots } from "@/lib/queries/kits";
 import { getSoldierOptions } from "@/lib/queries/soldiers";
 import { formatDateTime, formatDaysAgo } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
@@ -27,7 +26,7 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
   if (!deployment) return <NoDeploymentCard what="ערכות אישיות והחתמות" />;
   const [{ kitNumber: raw }, sp] = await Promise.all([params, searchParams]);
   const kitNumber = Number(raw);
-  if (!Number.isInteger(kitNumber) || kitNumber < 1 || kitNumber > TOTAL_KITS) notFound();
+  if (!Number.isInteger(kitNumber) || kitNumber < 1 || kitNumber > (await getKitSlots())) notFound();
   // Inspection walk can be scoped to one platoon: /kits/12?platoon=<platoon id>
   const platoon = (await getPlatoons()).find((p) => p.id === sp.platoon)?.id;
 

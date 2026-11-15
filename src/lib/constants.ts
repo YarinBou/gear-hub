@@ -50,7 +50,9 @@ export const STORAGE_STATUS_LABELS: Record<StorageStatus, string> = {
 };
 
 /** Business rules */
-export const TOTAL_KITS = 98;
+/** Kits a new company starts with; each company sets its own on /kits/items (Company.kitCount). */
+export const DEFAULT_KIT_COUNT = 98;
+export const MAX_KIT_COUNT = 500;
 export const VERIFICATION_STALE_DAYS = 7;
 export const EXPIRY_WARNING_DAYS = 30;
 

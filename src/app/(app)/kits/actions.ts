@@ -4,7 +4,6 @@ import { refresh } from "next/cache";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { writableContext } from "@/lib/context";
-import { TOTAL_KITS } from "@/lib/constants";
 import { AssignmentError, applyAssignment, ensureAssignment } from "@/lib/equipment-service";
 import { checklistLines, kitItemsSelect, missingDescriptions, WEAPON_ITEM } from "@/lib/kit";
 import { activeItemDefs, createKitStatuses } from "@/lib/kit-service";
@@ -15,11 +14,13 @@ export type KitResult = { ok: boolean; message?: string };
 
 const emptyToUndef = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
 
-function validKitNumber(n: number) {
-  return Number.isInteger(n) && n >= 1 && n <= TOTAL_KITS;
+async function validKitNumber(db: Prisma.TransactionClient, companyId: string, n: number) {
+  if (!Number.isInteger(n) || n < 1) return false;
+  const company = await db.company.findUnique({ where: { id: companyId }, select: { kitCount: true } });
+  return n <= (company?.kitCount ?? 0);
 }
 
-// Kits belong to a deployment (each deployment has its own kits 1–98). Every action here works on
+// Kits belong to a deployment (each deployment has its own kits 1..company.kitCount). Every action here works on
 // the viewed deployment and needs it to be the active one (writableContext()).
 
 /** Unique key of a kit: kit numbers repeat across deployments (and companies). */
@@ -28,11 +29,11 @@ function kitKey(deploymentId: string, kitNumber: number) {
 }
 
 /**
- * Kits 1–98 (and their checklist rows) are created when a deployment starts; create anything
+ * Kits 1..kitCount (and their checklist rows) are created when a deployment starts; create anything
  * missing lazily — e.g. a checklist item added since.
  */
 async function ensureKit(db: Prisma.TransactionClient, ids: { companyId: string; deploymentId: string }, kitNumber: number) {
-  if (!validKitNumber(kitNumber)) throw new Error("Invalid kit number");
+  if (!(await validKitNumber(db, ids.companyId, kitNumber))) throw new Error("Invalid kit number");
   const kit = await db.personalKit.upsert({
     where: kitKey(ids.deploymentId, kitNumber),
     update: {},

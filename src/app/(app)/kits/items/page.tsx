@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { adminContext } from "@/lib/context";
+import { DEFAULT_KIT_COUNT } from "@/lib/constants";
 import { groupLines } from "@/lib/kit";
 import { BackLink } from "@/components/layout/back-link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AddKitItemForm, KitDefaultSetting, KitItemLine } from "./kit-item-forms";
+import { AddKitItemForm, KitCountSetting, KitDefaultSetting, KitItemLine } from "./kit-item-forms";
 
 export const metadata: Metadata = { title: "תכולת ערכה" };
 
@@ -15,7 +16,7 @@ export default async function KitItemsPage() {
       orderBy: { sortOrder: "asc" },
       select: { id: true, label: true, groupName: true, sortOrder: true, targetQuantity: true, systemKey: true, isActive: true },
     }),
-    db.company.findUnique({ where: { id: user.companyId }, select: { kitDefaultPresent: true } }),
+    db.company.findUnique({ where: { id: user.companyId }, select: { kitDefaultPresent: true, kitCount: true } }),
   ]);
   const active = items.filter((i) => i.isActive);
   const inactive = items.filter((i) => !i.isActive);
@@ -33,6 +34,12 @@ export default async function KitItemsPage() {
           הפעלות שהסתיימו נשארות כפי שנרשמו.
         </p>
       </div>
+
+      <Card>
+        <CardContent>
+          <KitCountSetting count={company?.kitCount ?? DEFAULT_KIT_COUNT} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent>

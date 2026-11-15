@@ -5,6 +5,7 @@ import { z } from "zod";
 import { adminContext } from "@/lib/context";
 import { scopedDb } from "@/lib/db";
 import { createKitStatuses } from "@/lib/kit-service";
+import { MAX_KIT_COUNT } from "@/lib/constants";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
 
 // Admin: the company's personal-kit checklist (תכולת ערכה). Company-level — changes apply to the
@@ -118,4 +119,56 @@ export async function setKitDefaultPresent(present: boolean): Promise<SimpleResu
   await scopedDb(user.companyId).company.update({ where: { id: user.companyId }, data: { kitDefaultPresent: present } });
   refresh();
   return { ok: true };
+}
+
+/**
+ * How many personal kits the company has. The active deployment follows right away: new kits are
+ * added (with their checklist), and kits above the new count are removed — only if none of them is
+ * issued (soldier, weapon or signature). Closed deployments keep the kits they had.
+ */
+export async function setKitCount(countRaw: number): Promise<SimpleResult> {
+  const { user } = await adminContext();
+  const count = Math.floor(Number(countRaw));
+  if (!Number.isFinite(count) || count < 1 || count > MAX_KIT_COUNT) {
+    return { ok: false, message: `מספר בין 1 ל-${MAX_KIT_COUNT}` };
+  }
+  const db = scopedDb(user.companyId);
+  const active = await db.deployment.findFirst({ where: { status: "ACTIVE" }, select: { id: true } });
+
+  if (active) {
+    const issued = await db.personalKit.findMany({
+      where: {
+        deploymentId: active.id,
+        kitNumber: { gt: count },
+        OR: [{ soldierId: { not: null } }, { personalWeaponId: { not: null } }, { signedAt: { not: null } }],
+      },
+      orderBy: { kitNumber: "asc" },
+      select: { kitNumber: true },
+    });
+    if (issued.length) {
+      const list = issued.slice(0, 10).map((k) => k.kitNumber).join(", ");
+      return { ok: false, message: `ערכות מונפקות מעל ${count}: ${list}${issued.length > 10 ? "…" : ""}. יש לזכות אותן קודם.` };
+    }
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.company.update({ where: { id: user.companyId }, data: { kitCount: count } });
+    if (!active) return;
+    // Removing: checklist rows and inspections go with the kit (cascade).
+    await tx.personalKit.deleteMany({ where: { deploymentId: active.id, kitNumber: { gt: count } } });
+    // Adding: create the missing kits and their checklist.
+    const existing = new Set(
+      (await tx.personalKit.findMany({ where: { deploymentId: active.id }, select: { kitNumber: true } })).map((k) => k.kitNumber),
+    );
+    const missing = Array.from({ length: count }, (_, i) => i + 1).filter((n) => !existing.has(n));
+    if (missing.length) {
+      const kits = await tx.personalKit.createManyAndReturn({
+        data: missing.map((kitNumber) => ({ companyId: user.companyId, deploymentId: active.id, kitNumber })),
+        select: { id: true },
+      });
+      await createKitStatuses(tx, { companyId: user.companyId, kitIds: kits.map((k) => k.id) });
+    }
+  }, { timeout: 30_000 });
+  refresh();
+  return { ok: true, message: `לפלוגה ${count} ערכות` };
 }

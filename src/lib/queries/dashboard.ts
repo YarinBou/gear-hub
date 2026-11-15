@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { companyContext } from "@/lib/context";
 import { checklistLines, kitItemsSelect, kitReadiness } from "@/lib/kit";
 import { activeItemDefs } from "@/lib/kit-service";
-import { TOTAL_KITS } from "@/lib/constants";
+import { getKitSlots } from "@/lib/queries/kits";
 import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
 import { getPlatoons } from "@/lib/queries/platoons";
 import { staleWhere } from "@/lib/equipment-rules";
@@ -108,10 +108,11 @@ export async function getDashboardData() {
   }));
   const lowAmmo = ammo.filter((a) => isLowStock(a.quantity, a.minThreshold));
 
-  // ── Kits (always show all 98 slots) ──
+  // ── Kits (always show every slot) ──
   const activeDefs = await activeItemDefs(db);
   const kitMap = new Map(kits.map((k) => [k.kitNumber, k]));
-  const kitCells: KitCell[] = Array.from({ length: TOTAL_KITS }, (_, i) => {
+  const kitSlots = await getKitSlots();
+  const kitCells: KitCell[] = Array.from({ length: kitSlots }, (_, i) => {
     const k = kitMap.get(i + 1);
     return {
       kitNumber: i + 1,
@@ -153,7 +154,7 @@ export async function getDashboardData() {
       staleItems: staleItems.map((r) => ({ ...r.item, lastVerifiedAt: r.lastVerifiedAt, assignedSoldier: r.soldier })),
     },
     ammo: { types: ammo, low: lowAmmo },
-    kits: { cells: kitCells, issued: issuedKits.length, avgReadiness, fullKits },
+    kits: { cells: kitCells, total: kitSlots, issued: issuedKits.length, avgReadiness, fullKits },
     storage: {
       itemCount: storageItems.length,
       shortages: storageShortages,

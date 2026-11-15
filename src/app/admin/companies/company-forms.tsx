@@ -58,7 +58,7 @@ export function AddCompanyForm() {
             </Field>
           </div>
           <p className="text-muted-foreground text-xs">
-            הפלוגה נפתחת עם קטלוג ציוד ברירת מחדל ו-98 ערכות אישיות. ניתן לערוך את הקטלוג לאחר הכניסה.
+            הפלוגה נפתחת עם קטלוג ציוד ברירת מחדל, 4 מחלקות ו-98 ערכות אישיות. את כולם ניתן לשנות לאחר הכניסה.
           </p>
           {state?.error && <p className="text-danger text-sm">{state.error}</p>}
           <div className="flex gap-2">

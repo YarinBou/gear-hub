@@ -74,7 +74,11 @@ async function seedDemo(companyId: string) {
     }));
   const deploymentId = deployment.id;
   await prisma.personalKit.createMany({
-    data: Array.from({ length: 98 }, (_, i) => ({ companyId, deploymentId, kitNumber: i + 1 })),
+    data: Array.from({ length: (await prisma.company.findUniqueOrThrow({ where: { id: companyId } })).kitCount }, (_, i) => ({
+      companyId,
+      deploymentId,
+      kitNumber: i + 1,
+    })),
     skipDuplicates: true,
   });
 

@@ -4,7 +4,7 @@ import { DEFAULT_KIT_ITEMS } from "./kit";
 import { DEFAULT_PLATOONS } from "./platoons";
 
 // What a brand-new company starts with: a default catalog (editable afterwards on /catalog), its
-// storage lines (תקן / מצאי), its platoons (editable on /platoons) and the personal-kit checklist (editable on /kits/items). No deployment — kits 1–98 are created when the company starts
+// storage lines (תקן / מצאי), its platoons (editable on /platoons) and the personal-kit checklist (editable on /kits/items). No deployment — kits 1..kitCount are created when the company starts
 // its first deployment. Idempotent — safe to run again.
 // Shared by the super-admin "create company" action and prisma/seed.ts, so it uses relative
 // imports only (the seed runs outside Next.js).
