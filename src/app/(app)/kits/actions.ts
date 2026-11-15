@@ -4,7 +4,7 @@ import { refresh } from "next/cache";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { writableContext } from "@/lib/context";
-import { AssignmentError, applyAssignment, ensureAssignment } from "@/lib/equipment-service";
+import { AssignmentError, applyAssignment, ensureAssignment, NOT_IN_DEPLOYMENT_MESSAGE } from "@/lib/equipment-service";
 import { checklistLines, kitItemsSelect, missingDescriptions, WEAPON_ITEM } from "@/lib/kit";
 import { activeItemDefs, createKitStatuses } from "@/lib/kit-service";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
@@ -80,6 +80,7 @@ export async function assignKit(kitNumber: number, _prev: KitFormState, fd: Form
   if (soldierId) {
     const soldier = await db.soldier.findFirst({ where: { id: soldierId, isActive: true }, select: { id: true } });
     if (!soldier) return { error: "הלוחם לא נמצא בסד\"כ" };
+    if (await db.deploymentAbsence.findFirst({ where: { soldierId }, select: { id: true } })) return { error: NOT_IN_DEPLOYMENT_MESSAGE };
     const other = await db.personalKit.findFirst({ where: { soldierId }, select: { kitNumber: true } });
     if (other) return { error: `ללוחם כבר מונפקת ערכה ${other.kitNumber}` };
   }

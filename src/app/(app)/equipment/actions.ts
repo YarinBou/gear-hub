@@ -15,6 +15,7 @@ import {
   createNoSerialComponent,
   signOutSet,
   detachComponent,
+  NOT_IN_DEPLOYMENT_MESSAGE,
   type DeploymentCtx,
 } from "@/lib/equipment-service";
 import {
@@ -107,6 +108,9 @@ export async function createEquipment(_prev: FormState, fd: FormData): Promise<F
       select: { platoonId: true },
     });
     if (!soldier) return { errors: { soldierId: "הלוחם לא נמצא" }, values };
+    if (await db.deploymentAbsence.findFirst({ where: { soldierId: parsed.data.soldierId }, select: { id: true } })) {
+      return { errors: { soldierId: NOT_IN_DEPLOYMENT_MESSAGE }, values };
+    }
     platoonId = soldier.platoonId;
   }
   const resolved = resolveStatus({

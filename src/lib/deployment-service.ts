@@ -12,7 +12,8 @@ import { createKitStatuses } from "@/lib/kit-service";
 //     who holds which item, kit holders + their checklist + weapon, and ammo quantities
 //     (as an opening count). Signatures are NOT copied — soldiers sign again for a new deployment.
 //     Soldiers who have since left the roster are dropped (their items return to the armory).
-//   - "empty": nobody holds anything, kits are blank (checklist per the company's "new kits start
+//     Who was marked as not participating stays that way.
+//   - "empty": everyone on the roster participates, nobody holds anything, kits are blank (checklist per the company's "new kits start
 //     full / empty" setting), no ammo. Physical conditions that outlive a
 //     deployment are kept: items that are missing / in repair / stored stay that way.
 
@@ -85,6 +86,17 @@ export async function startDeployment(
       return { ...base, status };
     }),
   });
+
+  // ── Who is not in it: "copy" carries over who wasn't in the previous one (still on the roster) ──
+  if (copy) {
+    const absent = await tx.deploymentAbsence.findMany({ where: { deploymentId: copy.id }, select: { soldierId: true } });
+    const keep = absent.filter((a) => activeSoldiers.has(a.soldierId));
+    if (keep.length) {
+      await tx.deploymentAbsence.createMany({
+        data: keep.map((a) => ({ companyId, deploymentId: deployment.id, soldierId: a.soldierId })),
+      });
+    }
+  }
 
   // ── Personal kits 1..kitCount ──
   const { kitCount } = await tx.company.findUniqueOrThrow({ where: { id: companyId }, select: { kitCount: true } });

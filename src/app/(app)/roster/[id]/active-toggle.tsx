@@ -1,10 +1,10 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, useTransition } from "react";
 import { UserMinus, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { setSoldierActive } from "../actions";
+import { setPresence, setSoldierActive } from "../actions";
 
 /** Remove from / restore to the roster (soft delete). Two-step confirm without a browser dialog. */
 export function ActiveToggle({ id, isActive }: { id: string; isActive: boolean }) {
@@ -48,6 +48,44 @@ export function ActiveToggle({ id, isActive }: { id: string; isActive: boolean }
             {state.error}
           </p>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** In / not in the viewed deployment. */
+export function PresenceToggle({ id, deploymentName, inDeployment }: { id: string; deploymentName: string; inDeployment: boolean }) {
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  return (
+    <Card className="gap-3 py-4">
+      <CardContent className="flex flex-col gap-2">
+        <p className="text-sm">
+          {inDeployment ? (
+            <>
+              משתתף ב<span className="font-medium">{deploymentName}</span>
+            </>
+          ) : (
+            <>
+              <span className="font-medium">לא משתתף</span> ב{deploymentName} — לא יופיע בבחירת לוחם ולא ניתן להחתים אותו.
+            </>
+          )}
+        </p>
+        <Button
+          variant="outline"
+          disabled={pending}
+          onClick={() =>
+            start(async () => {
+              const r = await setPresence([id], !inDeployment);
+              // Errors, or "skipped: still holds equipment".
+              setMessage(!r.ok || r.message.includes("דולגו") ? r.message : null);
+            })
+          }
+        >
+          {inDeployment ? <UserMinus /> : <UserPlus />}
+          {pending ? "מעדכן…" : inDeployment ? "סימון כלא משתתף בהפעלה" : "סימון כמשתתף בהפעלה"}
+        </Button>
+        {message && <p className="text-danger text-sm">{message}</p>}
       </CardContent>
     </Card>
   );

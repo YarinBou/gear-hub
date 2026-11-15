@@ -1,9 +1,9 @@
 "use server";
 
-import { updateTag } from "next/cache";
+import { refresh, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma } from "@/generated/prisma/client";
-import { companyContext } from "@/lib/context";
+import { companyContext, writableContext } from "@/lib/context";
 import { scopedDb } from "@/lib/db";
 import { getActivePlatoons } from "@/lib/queries/platoons";
 import { soldiersTag } from "@/lib/queries/soldiers";
@@ -198,4 +198,42 @@ export async function importSoldiers(_prev: ImportState, formData: FormData): Pr
 
   skipped.sort((a, b) => a.line - b.line);
   return { created: count, skipped };
+}
+
+export type PresenceResult = { ok: boolean; message: string };
+
+/**
+ * Mark soldiers as in / not in the viewed deployment (it must be the active one). Someone holding
+ * equipment or a kit in it can't be taken out — they're skipped and named in the message.
+ */
+export async function setPresence(soldierIds: string[], present: boolean): Promise<PresenceResult> {
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  const { user, db, deployment } = w;
+  const ids = Array.isArray(soldierIds) ? [...new Set(soldierIds.filter((x) => typeof x === "string"))].slice(0, 1000) : [];
+  if (!ids.length || typeof present !== "boolean") return { ok: false, message: "לא נבחרו לוחמים" };
+
+  // Only this company's soldiers (`db` is company-scoped).
+  const soldiers = await db.soldier.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  if (present) {
+    const { count } = await db.deploymentAbsence.deleteMany({ where: { soldierId: { in: soldiers.map((s) => s.id) } } });
+    refresh();
+    return { ok: true, message: count ? `${count} לוחמים סומנו כמשתתפים בהפעלה` : "לא בוצע שינוי" };
+  }
+
+  const [holdingItems, holdingKits] = await Promise.all([
+    db.equipmentAssignment.findMany({ where: { soldierId: { in: soldiers.map((s) => s.id) } }, select: { soldierId: true } }),
+    db.personalKit.findMany({ where: { soldierId: { in: soldiers.map((s) => s.id) } }, select: { soldierId: true } }),
+  ]);
+  const holding = new Set([...holdingItems, ...holdingKits].map((r) => r.soldierId));
+  const eligible = soldiers.filter((s) => !holding.has(s.id));
+  const { count } = await db.deploymentAbsence.createMany({
+    data: eligible.map((s) => ({ companyId: user.companyId, deploymentId: deployment.id, soldierId: s.id })),
+    skipDuplicates: true,
+  });
+  refresh();
+  const blocked = soldiers.filter((s) => holding.has(s.id)).map((s) => s.name);
+  const parts = [count ? `${count} לוחמים סומנו כלא משתתפים` : "לא בוצע שינוי"];
+  if (blocked.length) parts.push(`דולגו (מחזיקים ציוד או ערכה — יש לזכות קודם): ${blocked.slice(0, 8).join(", ")}${blocked.length > 8 ? "…" : ""}`);
+  return { ok: true, message: parts.join(" · ") };
 }

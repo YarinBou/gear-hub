@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Backpack, Crosshair, Phone } from "lucide-react";
-import { requireUser } from "@/lib/auth";
+import { companyContext } from "@/lib/context";
 import { EQUIPMENT_STATUS_LABELS, VERIFICATION_STALE_DAYS } from "@/lib/constants";
 import { getSoldier } from "@/lib/queries/soldiers";
 import { getActivePlatoons } from "@/lib/queries/platoons";
@@ -14,12 +14,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { updateSoldier } from "../actions";
 import { SoldierForm } from "../soldier-form";
-import { ActiveToggle } from "./active-toggle";
+import { ActiveToggle, PresenceToggle } from "./active-toggle";
+import { ReadOnlyWhenClosed } from "@/components/deployment-gate";
 
 export const metadata: Metadata = { title: "כרטיס לוחם" };
 
 export default async function SoldierPage({ params }: PageProps<"/roster/[id]">) {
-  await requireUser();
+  const { deployment } = await companyContext();
   const { id } = await params;
   const [soldier, active] = await Promise.all([getSoldier(id), getActivePlatoons()]);
   if (!soldier) notFound();
@@ -34,6 +35,7 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             {soldier.name}
             {!soldier.isActive && <Badge variant="secondary">הוצא מהסד&quot;כ</Badge>}
+            {soldier.isActive && soldier.inDeployment === false && <Badge variant="outline">לא בהפעלה</Badge>}
           </h1>
           <p className="text-muted-foreground mt-1 flex items-center gap-2 text-sm">
             <PlatoonBadge platoon={soldier.platoon} />
@@ -123,6 +125,11 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
             </CardContent>
           </Card>
 
+          {deployment && soldier.isActive && soldier.inDeployment !== null && (
+            <ReadOnlyWhenClosed>
+              <PresenceToggle id={soldier.id} deploymentName={deployment.name} inDeployment={soldier.inDeployment} />
+            </ReadOnlyWhenClosed>
+          )}
           <ActiveToggle id={soldier.id} isActive={soldier.isActive} />
         </div>
       </div>
