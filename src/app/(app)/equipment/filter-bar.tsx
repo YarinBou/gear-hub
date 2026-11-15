@@ -5,11 +5,11 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import type { PlatoonRef } from "@/lib/platoons";
 import { cn } from "@/lib/utils";
 
 /** Search + type + platoon filters. Updates the URL (shareable, back-button friendly). */
-export function FilterBar({ categories }: { categories: { id: string; name: string }[] }) {
+export function FilterBar({ categories, platoons }: { categories: { id: string; name: string }[]; platoons: PlatoonRef[] }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -64,9 +64,9 @@ export function FilterBar({ categories }: { categories: { id: string; name: stri
         onChange={(e) => update("platoon", e.target.value)}
       >
         <option value="">כל המחלקות</option>
-        {PLATOONS.map((p) => (
-          <option key={p} value={p}>
-            {PLATOON_LABELS[p]}
+        {platoons.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
           </option>
         ))}
         <option value="NONE">ללא מחלקה</option>

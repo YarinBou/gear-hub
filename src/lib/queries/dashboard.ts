@@ -3,18 +3,20 @@ import { connection } from "next/server";
 import { companyContext } from "@/lib/context";
 import { checklistLines, kitItemsSelect, kitReadiness } from "@/lib/kit";
 import { activeItemDefs } from "@/lib/kit-service";
-import { PLATOONS, TOTAL_KITS } from "@/lib/constants";
+import { getKitSlots } from "@/lib/queries/kits";
+import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
+import { getPlatoons } from "@/lib/queries/platoons";
 import { staleWhere } from "@/lib/equipment-rules";
 import { isLowStock } from "@/lib/ammo-rules";
 import { storageFlags } from "@/lib/storage-rules";
-import type { AmmoCategory, EquipmentStatus, Platoon } from "@/generated/prisma/enums";
+import type { AmmoCategory, EquipmentStatus } from "@/generated/prisma/enums";
 import type { PrismaClient } from "@/generated/prisma/client";
 
 export type KitCell = {
   kitNumber: number;
   readiness: number | null; // null = kit record not created yet
   soldierName: string | null;
-  platoon: Platoon | null;
+  platoon: PlatoonRef | null;
 };
 
 export async function getDashboardData() {
@@ -34,10 +36,11 @@ export async function getDashboardData() {
     ammoTotals,
     kits,
     storageItems,
+    platoons,
   ] = await Promise.all([
-    db.soldier.groupBy({ by: ["platoon"], where: { isActive: true }, _count: { _all: true } }),
+    db.soldier.groupBy({ by: ["platoonId"], where: { isActive: true }, _count: { _all: true } }),
     countItemsByState(db, deployment?.id ?? null, "status"),
-    countItemsByState(db, deployment?.id ?? null, "platoon"),
+    countItemsByState(db, deployment?.id ?? null, "platoonId"),
     db.equipmentAssignment.findMany({
       where: stale,
       orderBy: [{ lastVerifiedAt: { sort: "asc", nulls: "first" } }],
@@ -60,7 +63,7 @@ export async function getDashboardData() {
       orderBy: { kitNumber: "asc" },
       select: {
         kitNumber: true,
-        soldier: { select: { name: true, platoon: true } },
+        soldier: { select: { name: true, platoon: platoonSelect } },
         ...kitItemsSelect,
       },
     }),
@@ -74,21 +77,23 @@ export async function getDashboardData() {
         category: { select: { name: true } },
       },
     }),
+    getPlatoons(),
   ]);
 
   // ── Roster ──
-  const roster = Object.fromEntries(PLATOONS.map((p) => [p, 0])) as Record<Platoon, number>;
-  for (const row of soldiersByPlatoon) roster[row.platoon] = row._count._all;
+  /** platoonId → count (platoons with none are absent). */
+  const roster: Record<string, number> = {};
+  for (const row of soldiersByPlatoon) roster[row.platoonId] = row._count._all;
   const rosterTotal = Object.values(roster).reduce((a, b) => a + b, 0);
 
   // ── Equipment ──
   const statusCounts: Partial<Record<EquipmentStatus, number>> = {};
   for (const row of equipmentByStatus) statusCounts[row.status] = row._count._all;
   const equipmentTotal = equipmentByStatus.reduce((a, r) => a + r._count._all, 0);
-  const equipmentPlatoon = Object.fromEntries(PLATOONS.map((p) => [p, 0])) as Record<Platoon, number>;
+  const equipmentPlatoon: Record<string, number> = {};
   let equipmentUnassigned = 0;
   for (const row of equipmentByPlatoon) {
-    if (row.platoon) equipmentPlatoon[row.platoon] = row._count._all;
+    if (row.platoonId) equipmentPlatoon[row.platoonId] = row._count._all;
     else equipmentUnassigned += row._count._all;
   }
 
@@ -103,10 +108,11 @@ export async function getDashboardData() {
   }));
   const lowAmmo = ammo.filter((a) => isLowStock(a.quantity, a.minThreshold));
 
-  // ── Kits (always show all 98 slots) ──
+  // ── Kits (always show every slot) ──
   const activeDefs = await activeItemDefs(db);
   const kitMap = new Map(kits.map((k) => [k.kitNumber, k]));
-  const kitCells: KitCell[] = Array.from({ length: TOTAL_KITS }, (_, i) => {
+  const kitSlots = await getKitSlots();
+  const kitCells: KitCell[] = Array.from({ length: kitSlots }, (_, i) => {
     const k = kitMap.get(i + 1);
     return {
       kitNumber: i + 1,
@@ -135,6 +141,8 @@ export async function getDashboardData() {
 
   return {
     deployment,
+    // Active platoons, plus deactivated ones that still have soldiers or equipment.
+    platoons: platoons.filter((p) => p.isActive || roster[p.id] || equipmentPlatoon[p.id]),
     roster: { byPlatoon: roster, total: rosterTotal },
     equipment: {
       total: equipmentTotal,
@@ -146,7 +154,7 @@ export async function getDashboardData() {
       staleItems: staleItems.map((r) => ({ ...r.item, lastVerifiedAt: r.lastVerifiedAt, assignedSoldier: r.soldier })),
     },
     ammo: { types: ammo, low: lowAmmo },
-    kits: { cells: kitCells, issued: issuedKits.length, avgReadiness, fullKits },
+    kits: { cells: kitCells, total: kitSlots, issued: issuedKits.length, avgReadiness, fullKits },
     storage: {
       itemCount: storageItems.length,
       shortages: storageShortages,
@@ -162,13 +170,13 @@ export type DashboardData = Awaited<ReturnType<typeof getDashboardData>>;
  * Item counts by status or platoon in one deployment. Without a deployment every item is in the
  * armory with no platoon. Same row shape as groupBy so the caller doesn't care which.
  */
-async function countItemsByState<K extends "status" | "platoon">(db: PrismaClient, deploymentId: string | null, by: K) {
+async function countItemsByState<K extends "status" | "platoonId">(db: PrismaClient, deploymentId: string | null, by: K) {
   if (deploymentId) {
     const rows = await db.equipmentAssignment.groupBy({ by: [by], _count: { _all: true } });
-    return rows as unknown as ({ _count: { _all: number } } & Record<K, K extends "status" ? EquipmentStatus : Platoon | null>)[];
+    return rows as unknown as ({ _count: { _all: number } } & Record<K, K extends "status" ? EquipmentStatus : string | null>)[];
   }
   const total = await db.equipmentItem.count();
   const value = by === "status" ? "IN_ARMORY" : null;
   return (total ? [{ [by]: value, _count: { _all: total } }] : []) as unknown as ({ _count: { _all: number } } &
-    Record<K, K extends "status" ? EquipmentStatus : Platoon | null>)[];
+    Record<K, K extends "status" ? EquipmentStatus : string | null>)[];
 }

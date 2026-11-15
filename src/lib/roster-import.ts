@@ -1,4 +1,4 @@
-import type { Platoon } from "@/generated/prisma/enums";
+import { matchPlatoon } from "@/lib/platoons";
 import { fieldErrors, SoldierSchema, type SoldierInput } from "@/lib/validation/soldier";
 
 // Pure parser for pasted roster rows (from Excel / Google Sheets / CSV).
@@ -14,18 +14,6 @@ export type ImportRow =
   | { line: number; ok: true; data: SoldierInput }
   | { line: number; ok: false; raw: string; error: string };
 
-/** Maps free-text platoon values ("1", "מחלקה 2", "חפ\"ק", "מפלג", "HQ") to the enum. */
-export function parsePlatoon(raw: string | undefined): Platoon | null {
-  if (!raw) return null;
-  const v = raw.replace(/["'״׳]/g, "").trim().toLowerCase();
-  if (!v) return null;
-  if (/^(מחלקה\s*)?1$|^platoon_1$/.test(v)) return "PLATOON_1";
-  if (/^(מחלקה\s*)?2$|^platoon_2$/.test(v)) return "PLATOON_2";
-  if (/^(מחלקה\s*)?3$|^platoon_3$/.test(v)) return "PLATOON_3";
-  if (/חפק|מפלג|פלג|hq|מפקדה/.test(v)) return "HQ";
-  return null;
-}
-
 function splitLine(line: string): string[] {
   if (line.includes("\t")) return line.split("\t");
   if (line.includes(",")) return line.split(",");
@@ -37,7 +25,15 @@ function looksLikeHeader(cells: string[]) {
   return /שם|name/i.test(cells[0] ?? "") && !/\d/.test(cells[0] ?? "");
 }
 
-export function parseRosterText(text: string, defaultPlatoon: Platoon | null): ImportRow[] {
+/**
+ * Parse pasted rows. The platoon column is matched against the company's platoons by name
+ * (see matchPlatoon); `data.platoon` is the matched platoon's id.
+ */
+export function parseRosterText(
+  text: string,
+  defaultPlatoonId: string | null,
+  platoons: { id: string; name: string }[],
+): ImportRow[] {
   const lines = text.split(/\r?\n/);
   const rows: ImportRow[] = [];
   let first = true;
@@ -50,8 +46,9 @@ export function parseRosterText(text: string, defaultPlatoon: Platoon | null): I
       if (looksLikeHeader(cells)) return;
     }
     const [name, personalNumber, phone, position, platoonRaw] = cells;
-    const platoon = parsePlatoon(platoonRaw) ?? defaultPlatoon;
-    if (platoonRaw && !parsePlatoon(platoonRaw)) {
+    const matched = matchPlatoon(platoonRaw, platoons);
+    const platoon = matched?.id ?? defaultPlatoonId;
+    if (platoonRaw && !matched) {
       rows.push({ line: i + 1, ok: false, raw: rawLine, error: `מחלקה לא מזוהה: "${platoonRaw}"` });
       return;
     }

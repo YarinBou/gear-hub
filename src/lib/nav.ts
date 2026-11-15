@@ -6,6 +6,7 @@ import {
   Flag,
   LayoutDashboard,
   Package,
+  Rows3,
   Tags,
   UserCog,
   Users,
@@ -34,6 +35,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/catalog", label: "קטלוג ציוד", icon: Tags, adminOnly: true },
   { href: "/catalog/sets", label: "מארזים", icon: Package, adminOnly: true },
   { href: "/kits/items", label: "תכולת ערכה", icon: ClipboardList, adminOnly: true },
+  { href: "/platoons", label: "מחלקות", icon: Rows3, adminOnly: true },
   { href: "/users", label: "ניהול משתמשים", icon: UserCog, adminOnly: true },
 ];
 

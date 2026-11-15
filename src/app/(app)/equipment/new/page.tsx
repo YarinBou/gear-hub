@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { getEquipmentCategories } from "@/lib/queries/equipment";
 import { getSoldierOptions } from "@/lib/queries/soldiers";
+import { getActivePlatoons } from "@/lib/queries/platoons";
 import { BackLink } from "@/components/layout/back-link";
 import { Card, CardContent } from "@/components/ui/card";
 import { NewEquipmentForm } from "./new-equipment-form";
@@ -12,7 +13,12 @@ export const metadata: Metadata = { title: 'הוספת צל"ם' };
 
 export default async function NewEquipmentPage({ searchParams }: PageProps<"/equipment/new">) {
   const user = await requireUser();
-  const [categories, soldiers, sp] = await Promise.all([getEquipmentCategories(), getSoldierOptions(), searchParams]);
+  const [categories, soldiers, sp, platoons] = await Promise.all([
+    getEquipmentCategories(),
+    getSoldierOptions(),
+    searchParams,
+    getActivePlatoons(),
+  ]);
   const category = typeof sp.category === "string" ? sp.category : undefined;
 
   return (
@@ -33,7 +39,7 @@ export default async function NewEquipmentPage({ searchParams }: PageProps<"/equ
       ) : (
         <Card>
           <CardContent>
-            <NewEquipmentForm categories={categories} soldiers={soldiers} defaultCategoryId={category} />
+            <NewEquipmentForm categories={categories} soldiers={soldiers} defaultCategoryId={category} platoons={platoons} />
           </CardContent>
         </Card>
       )}

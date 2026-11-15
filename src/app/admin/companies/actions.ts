@@ -24,7 +24,7 @@ export type CompanyFormState =
     }
   | undefined;
 
-/** Create a company with its default catalog, kits 1–98, and its first admin. */
+/** Create a company with its default catalog, platoons, kit count (98, editable), and its first admin. */
 export async function createCompany(_prev: CompanyFormState, fd: FormData): Promise<CompanyFormState> {
   await requireSuperAdmin();
   const parsed = CreateCompanySchema.safeParse({

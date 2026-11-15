@@ -1,8 +1,8 @@
 import { requireUser } from "@/lib/auth";
-import { EQUIPMENT_STATUS_LABELS, PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import { EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
+import { getPlatoons } from "@/lib/queries/platoons";
 import { NO_SERIAL_LABEL, itemLabel } from "@/lib/equipment-rules";
 import { getEquipmentReport } from "@/lib/queries/equipment";
-import type { Platoon } from "@/generated/prisma/enums";
 
 /** CSV cell: quote everything, double inner quotes; neutralize spreadsheet formulas. */
 function cell(value: string | number | null | undefined) {
@@ -18,7 +18,7 @@ function cell(value: string | number | null | undefined) {
 export async function GET(request: Request) {
   await requireUser();
   const raw = new URL(request.url).searchParams.get("platoon");
-  const platoon = PLATOONS.includes(raw as Platoon) ? (raw as Platoon) : undefined;
+  const platoon = (await getPlatoons()).find((p) => p.id === raw)?.id;
   const report = await getEquipmentReport(platoon);
 
   const header = ["אמצעי", 'צ / מס"ט', "מחלקה", "חייל", "מ.א", "סטטוס", "רכיב של", "רכיבים מצורפים", "הערות"];
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
       rows.push([
         t.name,
         i.serialNumber ?? NO_SERIAL_LABEL,
-        i.platoon ? PLATOON_LABELS[i.platoon] : "",
+        i.platoon?.name ?? "",
         i.assignedSoldier?.name ?? "",
         i.assignedSoldier?.personalNumber ?? "",
         EQUIPMENT_STATUS_LABELS[i.status],
@@ -59,7 +59,7 @@ export async function GET(request: Request) {
   return new Response(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="gear-hub-equipment-${platoon ?? "company"}-${date}.csv"`,
+      "Content-Disposition": `attachment; filename="gear-hub-equipment-${platoon ? "platoon" : "company"}-${date}.csv"`,
       "Cache-Control": "no-store",
     },
   });

@@ -2,12 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Boxes, FileText, Plus, ShieldAlert } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS, PLATOONS, VERIFICATION_STALE_DAYS } from "@/lib/constants";
+import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS, VERIFICATION_STALE_DAYS } from "@/lib/constants";
+import { getPlatoons } from "@/lib/queries/platoons";
 import { getEquipmentCategories, getEquipmentCounts, listEquipment, type EquipmentFilters } from "@/lib/queries/equipment";
 import { cn, formatNumber } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
+import type { EquipmentStatus } from "@/generated/prisma/enums";
 import { EquipmentList } from "./equipment-list";
 import { ReadOnlyWhenClosed } from "@/components/deployment-gate";
 import { FilterBar } from "./filter-bar";
@@ -23,12 +24,13 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
   const sp = await searchParams;
   const statusRaw = first(sp.status);
   const platoonRaw = first(sp.platoon);
+  const platoons = await getPlatoons();
   const filters: EquipmentFilters = {
     q: first(sp.q)?.trim() || undefined,
     status: (EQUIPMENT_STATUSES as string[]).includes(statusRaw ?? "") ? (statusRaw as EquipmentStatus) : undefined,
     categoryId: first(sp.category) || undefined,
-    platoon:
-      platoonRaw === "NONE" ? "NONE" : (PLATOONS as string[]).includes(platoonRaw ?? "") ? (platoonRaw as Platoon) : undefined,
+    platoonId:
+      platoonRaw === "NONE" ? "NONE" : platoons.some((p) => p.id === platoonRaw) ? platoonRaw : undefined,
     stale: first(sp.filter) === "stale",
     noSerial: first(sp.filter) === "noserial",
     setMissing: first(sp.filter) === "setmissing",
@@ -46,7 +48,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
     const p = new URLSearchParams();
     if (filters.q) p.set("q", filters.q);
     if (filters.categoryId) p.set("category", filters.categoryId);
-    if (filters.platoon) p.set("platoon", filters.platoon);
+    if (filters.platoonId) p.set("platoon", filters.platoonId);
     if (next.status) p.set("status", next.status);
     if (next.stale) p.set("filter", "stale");
     if (next.noSerial) p.set("filter", "noserial");
@@ -134,7 +136,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
         </ul>
       </nav>
 
-      <FilterBar categories={categories} />
+      <FilterBar categories={categories} platoons={platoons} />
 
       {items.length === 0 ? (
         <Card className="items-center py-12 text-center">
@@ -155,7 +157,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
               : `${formatNumber(total)} פריטים`}
           </p>
           <ReadOnlyWhenClosed orNone>
-            <EquipmentList items={items} />
+            <EquipmentList items={items} platoons={platoons.filter((p) => p.isActive)} />
           </ReadOnlyWhenClosed>
           {pageCount > 1 && (
             <nav aria-label="עימוד" className="flex items-center justify-center gap-2">

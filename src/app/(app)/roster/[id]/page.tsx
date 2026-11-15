@@ -5,6 +5,7 @@ import { Backpack, Crosshair, Phone } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { EQUIPMENT_STATUS_LABELS, VERIFICATION_STALE_DAYS } from "@/lib/constants";
 import { getSoldier } from "@/lib/queries/soldiers";
+import { getActivePlatoons } from "@/lib/queries/platoons";
 import { daysAgo, formatDate } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
 import { Serial } from "@/components/equipment/serial";
@@ -20,13 +21,13 @@ export const metadata: Metadata = { title: "כרטיס לוחם" };
 export default async function SoldierPage({ params }: PageProps<"/roster/[id]">) {
   await requireUser();
   const { id } = await params;
-  const soldier = await getSoldier(id);
+  const [soldier, active] = await Promise.all([getSoldier(id), getActivePlatoons()]);
   if (!soldier) notFound();
   const staleBefore = daysAgo(VERIFICATION_STALE_DAYS);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4">
-      <BackLink href={`/roster?platoon=${soldier.platoon}`} label='חזרה לסד"כ' />
+      <BackLink href={`/roster?platoon=${soldier.platoon.id}`} label='חזרה לסד"כ' />
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -59,9 +60,10 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
             <SoldierForm
               mode="edit"
               action={updateSoldier.bind(null, soldier.id)}
+              platoons={active.some((p) => p.id === soldier.platoon.id) ? active : [...active, soldier.platoon]}
               initial={{
                 name: soldier.name,
-                platoon: soldier.platoon,
+                platoon: soldier.platoon.id,
                 position: soldier.position ?? "",
                 personalNumber: soldier.personalNumber ?? "",
                 phone: soldier.phone ?? "",

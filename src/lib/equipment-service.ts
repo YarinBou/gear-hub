@@ -1,6 +1,6 @@
 import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
-import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
+import type { EquipmentStatus } from "@/generated/prisma/enums";
 import { itemLabel, resolveStatus } from "@/lib/equipment-rules";
 
 // Single place that changes who holds an item / its status / platoon, and writes the history log.
@@ -24,17 +24,17 @@ export type AssignmentInput = {
   soldierId?: string | null;
   status?: EquipmentStatus;
   /** Only used when the item has no soldier. undefined = keep; null = no platoon. */
-  platoon?: Platoon | null;
+  platoonId?: string | null;
   note?: string;
   verify?: boolean;
 };
 
 export class AssignmentError extends Error {}
 
-type State = { soldierId: string | null; status: EquipmentStatus; platoon: Platoon | null };
+type State = { soldierId: string | null; status: EquipmentStatus; platoonId: string | null };
 type Row = State & { id: string; itemId: string };
 
-const rowSelect = { id: true, itemId: true, soldierId: true, status: true, platoon: true } as const;
+const rowSelect = { id: true, itemId: true, soldierId: true, status: true, platoonId: true } as const;
 
 /** The item's state row in this deployment (created with defaults if missing). */
 export async function ensureAssignment(tx: Tx, ctx: DeploymentCtx, itemId: string): Promise<Row> {
@@ -48,14 +48,14 @@ export async function ensureAssignment(tx: Tx, ctx: DeploymentCtx, itemId: strin
 
 /** Set one item's holder/status/platoon and log the change. No rules — callers decide the target state. */
 async function writeState(tx: Tx, ctx: DeploymentCtx, row: Row, next: State, opts: { note?: string; verify?: boolean }) {
-  const changed = next.soldierId !== row.soldierId || next.status !== row.status || next.platoon !== row.platoon;
+  const changed = next.soldierId !== row.soldierId || next.status !== row.status || next.platoonId !== row.platoonId;
   await tx.equipmentAssignment.update({
     where: { id: row.id },
     // Pick the three fields explicitly — callers may pass a whole record as `next`.
     data: {
       soldierId: next.soldierId,
       status: next.status,
-      platoon: next.platoon,
+      platoonId: next.platoonId,
       ...(opts.verify ? { lastVerifiedAt: new Date() } : {}),
     },
   });
@@ -69,7 +69,7 @@ async function writeState(tx: Tx, ctx: DeploymentCtx, row: Row, next: State, opt
         toSoldierId: next.soldierId,
         fromStatus: row.status,
         toStatus: next.status,
-        platoon: next.platoon,
+        platoonId: next.platoonId,
         note: opts.note,
         performedById: ctx.userId,
       },
@@ -90,7 +90,7 @@ async function syncComponents(
   const note = `עבר יחד עם ${itemLabel(parent)}`;
   for (const c of components) {
     const row = await ensureAssignment(tx, ctx, c.id);
-    const moves = row.soldierId !== next.soldierId || row.status !== next.status || row.platoon !== next.platoon;
+    const moves = row.soldierId !== next.soldierId || row.status !== next.status || row.platoonId !== next.platoonId;
     // Only components that actually move get a history entry (explaining why).
     await writeState(tx, ctx, row, next, { ...opts, note: moves ? note : undefined });
   }
@@ -116,23 +116,27 @@ export async function applyAssignment(tx: Tx, ctx: DeploymentCtx, itemId: string
   const row = await ensureAssignment(tx, ctx, item.id);
 
   const soldierId = input.soldierId === undefined ? row.soldierId : input.soldierId;
-  let platoon: Platoon | null;
+  let platoonId: string | null;
 
   if (soldierId) {
-    const soldier = await tx.soldier.findUnique({ where: { id: soldierId }, select: { platoon: true, isActive: true } });
+    const soldier = await tx.soldier.findUnique({ where: { id: soldierId }, select: { platoonId: true, isActive: true } });
     if (!soldier) throw new AssignmentError("הלוחם לא נמצא");
     if (!soldier.isActive && soldierId !== row.soldierId) {
       throw new AssignmentError('לא ניתן לשייך ללוחם שהוצא מהסד"כ');
     }
-    platoon = soldier.platoon; // auto-filled from the holder
+    platoonId = soldier.platoonId; // auto-filled from the holder
   } else {
-    platoon = input.platoon === undefined ? row.platoon : input.platoon;
+    platoonId = input.platoonId === undefined ? row.platoonId : input.platoonId;
+    // Must be one of this company's platoons (another company's reads as missing).
+    if (platoonId && platoonId !== row.platoonId && !(await tx.platoon.findUnique({ where: { id: platoonId }, select: { id: true } }))) {
+      throw new AssignmentError("המחלקה לא נמצאה");
+    }
   }
 
   const resolved = resolveStatus({ current: row.status, requested: input.status, hasSoldier: !!soldierId });
   if ("error" in resolved) throw new AssignmentError(resolved.error);
 
-  const next: State = { soldierId, status: resolved.status, platoon };
+  const next: State = { soldierId, status: resolved.status, platoonId };
   const changed = await writeState(tx, ctx, row, next, { note: input.note, verify: input.verify });
   await syncComponents(tx, ctx, item, next, { verify: input.verify });
   return { changed };
@@ -226,7 +230,7 @@ export async function createNoSerialComponent(
       itemId: item.id,
       soldierId: parentRow.soldierId,
       status: parentRow.status,
-      platoon: parentRow.platoon,
+      platoonId: parentRow.platoonId,
     },
   });
   await tx.equipmentLog.create({
@@ -236,7 +240,7 @@ export async function createNoSerialComponent(
       itemId: item.id,
       toSoldierId: parentRow.soldierId,
       toStatus: parentRow.status,
-      platoon: parentRow.platoon,
+      platoonId: parentRow.platoonId,
       note,
       performedById: ctx.userId,
     },

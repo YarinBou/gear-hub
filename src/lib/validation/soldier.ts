@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { PLATOONS } from "@/lib/constants";
 
 // Shared (client + server) validation for roster records. All messages are Hebrew.
 
@@ -30,7 +29,8 @@ export const SoldierSchema = z.object({
     .optional()
     .transform((v) => (v && v.trim() ? normalizePhone(v) : undefined))
     .refine((v) => v === undefined || /^0\d{8,9}$/.test(v), "מספר טלפון לא תקין"),
-  platoon: z.enum(PLATOONS as [string, ...string[]], { error: "יש לבחור מחלקה" }),
+  /** A platoon id; that it belongs to the company is checked by the action. */
+  platoon: z.string({ error: "יש לבחור מחלקה" }).trim().min(1, "יש לבחור מחלקה").max(64, "מחלקה לא תקינה"),
   position: optionalText(40, "התפקיד ארוך מדי"),
 });
 

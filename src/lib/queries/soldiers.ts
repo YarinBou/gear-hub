@@ -3,8 +3,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { companyContext } from "@/lib/context";
 import { scopedDb } from "@/lib/db";
-import { PLATOONS } from "@/lib/constants";
-import type { Platoon } from "@/generated/prisma/enums";
+import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
 import type { Prisma } from "@/generated/prisma/client";
 
 /** Matches no row: nested relation filters when no deployment is being viewed. */
@@ -13,7 +12,7 @@ const NO_DEPLOYMENT = "__no_deployment__";
 /** Cache tag for one company's roster. Roster mutations call updateTag(soldiersTag(companyId)). */
 export const soldiersTag = (companyId: string) => `soldiers:${companyId}`;
 
-export type SoldierOption = { id: string; name: string; platoon: Platoon; personalNumber: string | null };
+export type SoldierOption = { id: string; name: string; platoon: PlatoonRef; personalNumber: string | null };
 
 /**
  * Active soldiers of the current user's company, for dropdowns across the app (equipment
@@ -31,19 +30,19 @@ async function cachedSoldierOptions(companyId: string): Promise<SoldierOption[]>
   cacheLife("hours");
   return scopedDb(companyId).soldier.findMany({
     where: { isActive: true },
-    orderBy: [{ platoon: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, platoon: true, personalNumber: true },
+    orderBy: [{ platoon: { sortOrder: "asc" } }, { name: "asc" }],
+    select: { id: true, name: true, platoon: platoonSelect, personalNumber: true },
   });
 }
 
-export type RosterFilters = { platoon?: Platoon; q?: string; includeInactive?: boolean };
+export type RosterFilters = { platoonId?: string; q?: string; includeInactive?: boolean };
 
-export async function listSoldiers({ platoon, q, includeInactive }: RosterFilters) {
+export async function listSoldiers({ platoonId, q, includeInactive }: RosterFilters) {
   const { db, deployment } = await companyContext();
   const deploymentId = deployment?.id ?? NO_DEPLOYMENT;
   const where: Prisma.SoldierWhereInput = {
     ...(includeInactive ? {} : { isActive: true }),
-    ...(platoon ? { platoon } : {}),
+    ...(platoonId ? { platoonId } : {}),
     ...(q
       ? {
           OR: [
@@ -57,13 +56,13 @@ export async function listSoldiers({ platoon, q, includeInactive }: RosterFilter
   };
   const rows = await db.soldier.findMany({
     where,
-    orderBy: [{ isActive: "desc" }, { platoon: "asc" }, { name: "asc" }],
+    orderBy: [{ isActive: "desc" }, { platoon: { sortOrder: "asc" } }, { name: "asc" }],
     select: {
       id: true,
       name: true,
       personalNumber: true,
       phone: true,
-      platoon: true,
+      platoon: platoonSelect,
       position: true,
       isActive: true,
       // Kit and equipment held in the viewed deployment.
@@ -76,9 +75,10 @@ export async function listSoldiers({ platoon, q, includeInactive }: RosterFilter
 
 export async function getRosterCounts() {
   const { db } = await companyContext();
-  const rows = await db.soldier.groupBy({ by: ["platoon"], where: { isActive: true }, _count: { _all: true } });
-  const counts = Object.fromEntries(PLATOONS.map((p) => [p, 0])) as Record<Platoon, number>;
-  for (const r of rows) counts[r.platoon] = r._count._all;
+  const rows = await db.soldier.groupBy({ by: ["platoonId"], where: { isActive: true }, _count: { _all: true } });
+  /** platoonId → active soldiers (platoons with none are absent). */
+  const counts: Record<string, number> = {};
+  for (const r of rows) counts[r.platoonId] = r._count._all;
   return { byPlatoon: counts, total: rows.reduce((a, r) => a + r._count._all, 0) };
 }
 
@@ -88,6 +88,7 @@ export async function getSoldier(id: string) {
   const soldier = await db.soldier.findUnique({
     where: { id },
     include: {
+      platoon: platoonSelect,
       // What the soldier holds in the viewed deployment.
       kits: { where: { deploymentId }, take: 1, select: { id: true, kitNumber: true, signedAt: true } },
       assignments: {

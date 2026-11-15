@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import type { PlatoonRef } from "@/lib/platoons";
 import type { SoldierFormState } from "./actions";
 
 type Values = Partial<Record<"name" | "personalNumber" | "phone" | "platoon" | "position", string>>;
@@ -17,10 +17,13 @@ export function SoldierForm({
   action,
   initial = {},
   mode,
+  platoons,
 }: {
   action: (prev: SoldierFormState, formData: FormData) => Promise<SoldierFormState>;
   initial?: Values;
   mode: "create" | "edit";
+  /** Active platoons (plus the soldier's current one if it was deactivated). */
+  platoons: PlatoonRef[];
 }) {
   const [state, formAction, pending] = useActionState(action, undefined);
   const v = (k: keyof Values) => state?.values?.[k] ?? (state?.ok && mode === "create" ? "" : initial[k]) ?? "";
@@ -46,9 +49,9 @@ export function SoldierForm({
             <option value="" disabled>
               בחירת מחלקה…
             </option>
-            {PLATOONS.map((p) => (
-              <option key={p} value={p}>
-                {PLATOON_LABELS[p]}
+            {platoons.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
               </option>
             ))}
           </Select>

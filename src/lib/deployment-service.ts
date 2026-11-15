@@ -1,7 +1,6 @@
 import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import type { EquipmentStatus } from "@/generated/prisma/enums";
-import { TOTAL_KITS } from "@/lib/constants";
 import { createKitStatuses } from "@/lib/kit-service";
 
 // Starting and closing deployments (הפעלות). Runs with a client scoped to the company but NOT to a
@@ -69,7 +68,7 @@ export async function startDeployment(
   const prevRows = previous
     ? await tx.equipmentAssignment.findMany({
         where: { deploymentId: previous.id },
-        select: { itemId: true, soldierId: true, status: true, platoon: true, lastVerifiedAt: true },
+        select: { itemId: true, soldierId: true, status: true, platoonId: true, lastVerifiedAt: true },
       })
     : [];
   const prevByItem = new Map(prevRows.map((r) => [r.itemId, r]));
@@ -80,14 +79,15 @@ export async function startDeployment(
       if (copy && prev) {
         const soldierId = keepSoldier(prev.soldierId);
         const status: EquipmentStatus = !soldierId && prev.status === "WITH_SOLDIER" ? "IN_ARMORY" : prev.status;
-        return { ...base, soldierId, status, platoon: prev.platoon, lastVerifiedAt: prev.lastVerifiedAt };
+        return { ...base, soldierId, status, platoonId: prev.platoonId, lastVerifiedAt: prev.lastVerifiedAt };
       }
       const status: EquipmentStatus = prev && PHYSICAL_STATUSES.includes(prev.status) ? prev.status : "IN_ARMORY";
       return { ...base, status };
     }),
   });
 
-  // ── Personal kits 1–98 ──
+  // ── Personal kits 1..kitCount ──
+  const { kitCount } = await tx.company.findUniqueOrThrow({ where: { id: companyId }, select: { kitCount: true } });
   const prevKits = copy
     ? await tx.personalKit.findMany({
         where: { deploymentId: copy.id },
@@ -107,7 +107,7 @@ export async function startDeployment(
   // Kits that carry over to the same soldier keep their checklist (by kit number).
   const carried = new Map<number, (typeof prevKits)[number]>();
   const newKits = await tx.personalKit.createManyAndReturn({
-    data: Array.from({ length: TOTAL_KITS }, (_, i) => {
+    data: Array.from({ length: kitCount }, (_, i) => {
       const kitNumber = i + 1;
       const base = { companyId, deploymentId: deployment.id, kitNumber };
       const prev = kitByNumber.get(kitNumber);

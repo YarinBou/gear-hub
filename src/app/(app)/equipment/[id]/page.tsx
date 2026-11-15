@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import { ArrowLeftRight, Backpack, Boxes, CircleAlert, CircleCheck, History, Link2, PackagePlus } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { ReadOnlyWhenClosed } from "@/components/deployment-gate";
-import { EQUIPMENT_STATUS_LABELS, PLATOON_LABELS } from "@/lib/constants";
+import { EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
+import { getActivePlatoons } from "@/lib/queries/platoons";
 import { isStale, itemLabel } from "@/lib/equipment-rules";
 import {
   getComponentCandidates,
@@ -39,10 +40,11 @@ export const metadata: Metadata = { title: 'פריט צל"ם' };
 export default async function EquipmentItemPage({ params }: PageProps<"/equipment/[id]">) {
   const { user, deployment } = await companyContext();
   const { id } = await params;
-  const [item, soldiers, categories] = await Promise.all([
+  const [item, soldiers, categories, platoons] = await Promise.all([
     getEquipmentItem(id),
     getSoldierOptions(),
     getEquipmentCategories(),
+    getActivePlatoons(),
   ]);
   if (!item) notFound();
   const stale = isStale(item);
@@ -144,6 +146,7 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
                   <AssignForm
                     itemId={item.id}
                     soldiers={soldiers}
+                    platoons={platoons}
                     current={{
                       soldierId: item.assignedSoldierId,
                       status: item.status,
@@ -280,7 +283,7 @@ function HistoryCard({ logs }: { logs: EquipmentDetail["logs"] }) {
                         </p>
                       )}
                       {!holderChanged && !statusChanged && log.platoon && (
-                        <p className="text-muted-foreground">שויך ל{PLATOON_LABELS[log.platoon]}</p>
+                        <p className="text-muted-foreground">שויך ל{log.platoon.name}</p>
                       )}
                       {log.note && !log.note.startsWith("נקלט במערכת") && <p className="text-muted-foreground">&quot;{log.note}&quot;</p>}
                     </>

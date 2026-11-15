@@ -2,14 +2,13 @@ import "server-only";
 import { connection } from "next/server";
 import { companyContext } from "@/lib/context";
 import { flattenState, inState, stateSelect } from "@/lib/equipment-state";
-import { TOTAL_KITS } from "@/lib/constants";
 import { checklistLines, kitItemsSelect, kitReadiness, missingDescriptions, type ChecklistLine } from "@/lib/kit";
 import { activeItemDefs } from "@/lib/kit-service";
-import type { Platoon } from "@/generated/prisma/enums";
+import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
 
 export type KitTile = {
   kitNumber: number;
-  soldier: { id: string; name: string; platoon: Platoon } | null;
+  soldier: { id: string; name: string; platoon: PlatoonRef } | null;
   readiness: number;
   /** Incomplete checklist lines ("קסדה", "מחסניות (5/7)"). */
   missing: string[];
@@ -17,7 +16,7 @@ export type KitTile = {
   lastInspectedAt: Date | null;
 };
 
-/** All 98 slots, including kits whose DB row doesn't exist yet. */
+/** All kit slots of the viewed deployment, including kits whose DB row doesn't exist yet. */
 export async function listKits(): Promise<KitTile[]> {
   await connection();
   const { db, deployment } = await companyContext();
@@ -27,7 +26,7 @@ export async function listKits(): Promise<KitTile[]> {
         kitNumber: true,
         signedAt: true,
         lastInspectedAt: true,
-        soldier: { select: { id: true, name: true, platoon: true } },
+        soldier: { select: { id: true, name: true, platoon: platoonSelect } },
         ...kitItemsSelect,
       },
     }),
@@ -35,7 +34,8 @@ export async function listKits(): Promise<KitTile[]> {
   ]);
   const history = !!deployment?.readOnly;
   const byNumber = new Map(kits.map((k) => [k.kitNumber, k]));
-  return Array.from({ length: TOTAL_KITS }, (_, i) => {
+  const slots = await getKitSlots();
+  return Array.from({ length: slots }, (_, i) => {
     const k = byNumber.get(i + 1);
     const lines = k ? checklistLines(k.items, { history, activeDefs }) : [];
     return {
@@ -57,7 +57,7 @@ export async function getKit(kitNumber: number) {
   const kit = await db.personalKit.findFirst({
     where: { kitNumber },
     include: {
-      soldier: { select: { id: true, name: true, platoon: true, personalNumber: true, phone: true } },
+      soldier: { select: { id: true, name: true, platoon: platoonSelect, personalNumber: true, phone: true } },
       personalWeapon: {
         select: {
           id: true,
@@ -85,9 +85,9 @@ export async function getKit(kitNumber: number) {
 export type KitDetail = NonNullable<Awaited<ReturnType<typeof getKit>>>;
 
 /** Previous / next *issued* kit numbers, for walking through a מסדר. */
-export async function getKitNeighbours(kitNumber: number, platoon?: Platoon) {
+export async function getKitNeighbours(kitNumber: number, platoonId?: string) {
   const { db } = await companyContext();
-  const where = { soldierId: { not: null }, ...(platoon ? { soldier: { platoon } } : {}) };
+  const where = { soldierId: { not: null }, ...(platoonId ? { soldier: { platoonId } } : {}) };
   const [prev, next] = await Promise.all([
     db.personalKit.findFirst({
       where: { ...where, kitNumber: { lt: kitNumber } },
@@ -154,3 +154,16 @@ export async function getWeaponOptions(soldierId: string | null, currentWeaponId
 }
 
 export type WeaponOption = Awaited<ReturnType<typeof getWeaponOptions>>[number];
+
+/**
+ * How many kit slots the viewed deployment has: the company's kit count — or, for a closed
+ * deployment, as many as it had (the count may have changed since).
+ */
+export async function getKitSlots() {
+  const { user, db, deployment } = await companyContext();
+  const company = await db.company.findUnique({ where: { id: user.companyId }, select: { kitCount: true } });
+  const count = company?.kitCount ?? 0;
+  if (!deployment?.readOnly) return count;
+  const last = await db.personalKit.findFirst({ orderBy: { kitNumber: "desc" }, select: { kitNumber: true } });
+  return last?.kitNumber ?? count;
+}

@@ -8,9 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { PLATOONS, PLATOON_LABELS, ROLE_LABELS } from "@/lib/constants";
+import { ROLE_LABELS } from "@/lib/constants";
+import type { PlatoonRef } from "@/lib/platoons";
 import { cn } from "@/lib/utils";
-import type { Platoon, Role } from "@/generated/prisma/enums";
+import type { Role } from "@/generated/prisma/enums";
 import { createUser, resetPassword, setUserActive, updateUser } from "./actions";
 
 function submitWith(action: (fd: FormData) => void) {
@@ -60,11 +61,13 @@ function UserFields({
   values,
   errors,
   withUsername,
+  platoons,
 }: {
   idPrefix: string;
-  values?: { name?: string; role?: Role; platoon?: Platoon | null };
+  values?: { name?: string; role?: Role; platoon?: PlatoonRef | null };
   errors: Record<string, string>;
   withUsername?: boolean;
+  platoons: PlatoonRef[];
 }) {
   const id = (k: string) => `${idPrefix}-${k}`;
   return (
@@ -93,11 +96,11 @@ function UserFields({
         </Select>
       </Field>
       <Field id={id("platoon")} label="מחלקה" error={errors.platoon} hint='למ"מ — המחלקה שלו. ריק = כל הפלוגה.'>
-        <Select id={id("platoon")} name="platoon" defaultValue={values?.platoon ?? ""}>
+        <Select id={id("platoon")} name="platoon" defaultValue={values?.platoon?.id ?? ""}>
           <option value="">כל הפלוגה</option>
-          {PLATOONS.map((p) => (
-            <option key={p} value={p}>
-              {PLATOON_LABELS[p]}
+          {(values?.platoon && !platoons.some((p) => p.id === values.platoon!.id) ? [values.platoon, ...platoons] : platoons).map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
             </option>
           ))}
         </Select>
@@ -106,7 +109,7 @@ function UserFields({
   );
 }
 
-export function AddUserForm() {
+export function AddUserForm({ platoons }: { platoons: PlatoonRef[] }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(createUser, undefined);
 
@@ -120,7 +123,7 @@ export function AddUserForm() {
         </Button>
       ) : (
         <form key={state?.at ?? 0} onSubmit={submitWith(action)} className="bg-card flex flex-col gap-4 rounded-xl border p-4" noValidate>
-          <UserFields idPrefix="new" errors={state?.errors ?? {}} withUsername />
+          <UserFields idPrefix="new" errors={state?.errors ?? {}} withUsername platoons={platoons} />
           {state?.error && <p className="text-danger text-sm">{state.error}</p>}
           <div className="flex gap-2">
             <Button type="submit" disabled={pending}>
@@ -140,8 +143,10 @@ export function AddUserForm() {
 export function UserRow({
   user,
   isMe,
+  platoons,
 }: {
-  user: { id: string; name: string; username: string; role: Role; platoon: Platoon | null; isActive: boolean };
+  user: { id: string; name: string; username: string; role: Role; platoon: PlatoonRef | null; isActive: boolean };
+  platoons: PlatoonRef[];
   isMe: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -189,7 +194,7 @@ export function UserRow({
       {open && (
         <div className="flex flex-col gap-4 px-4 pb-4">
           <form onSubmit={submitWith(action)} className="flex flex-col gap-4" noValidate>
-            <UserFields idPrefix={user.id} values={user} errors={state?.errors ?? {}} />
+            <UserFields idPrefix={user.id} values={user} errors={state?.errors ?? {}} platoons={platoons} />
             {state?.error && <p className="text-danger text-sm">{state.error}</p>}
             <Button type="submit" size="sm" className="w-fit" disabled={pending}>
               {pending ? "שומר…" : "שמירה"}

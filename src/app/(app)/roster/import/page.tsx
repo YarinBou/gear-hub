@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { requireUser } from "@/lib/auth";
+import { getActivePlatoons } from "@/lib/queries/platoons";
 import { BackLink } from "@/components/layout/back-link";
 import { ImportForm } from "./import-form";
 
@@ -7,6 +8,7 @@ export const metadata: Metadata = { title: "ייבוא מרוכז לסד\"כ" };
 
 export default async function ImportPage() {
   await requireUser();
+  const platoons = await getActivePlatoons();
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4">
       <BackLink href="/roster" label='חזרה לסד"כ' />
@@ -16,7 +18,7 @@ export default async function ImportPage() {
           העתיקו שורות מאקסל או מגוגל שיטס והדביקו כאן. לוחמים עם מספר אישי שכבר קיים יידלגו.
         </p>
       </div>
-      <ImportForm />
+      <ImportForm platoons={platoons} />
     </div>
   );
 }

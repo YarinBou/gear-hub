@@ -12,7 +12,8 @@ import {
   SESSION_TTL_SECONDS,
   type SessionPayload,
 } from "@/lib/session";
-import type { Platoon, Role } from "@/generated/prisma/enums";
+import type { Role } from "@/generated/prisma/enums";
+import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
 
 // Data Access Layer: the real authorization checks live here (not in the proxy).
 //
@@ -30,7 +31,7 @@ export type SessionUser = {
   name: string;
   username: string;
   role: Role;
-  platoon: Platoon | null;
+  platoon: PlatoonRef | null;
   companyId: string | null;
 };
 
@@ -70,7 +71,7 @@ export const requireSessionUser = cache(async (): Promise<SessionUser> => {
       name: true,
       username: true,
       role: true,
-      platoon: true,
+      platoon: platoonSelect,
       isActive: true,
       companyId: true,
       company: { select: { isActive: true } },

@@ -7,7 +7,9 @@ import { staleWhere } from "@/lib/equipment-rules";
 import { flattenState, inState, NO_ITEMS, stateSelect } from "@/lib/equipment-state";
 import { missingSummary, setStatus } from "@/lib/equipment-sets";
 import { slotSelect } from "@/lib/queries/sets";
-import type { EquipmentStatus, Platoon } from "@/generated/prisma/enums";
+import type { EquipmentStatus } from "@/generated/prisma/enums";
+import { platoonSelect } from "@/lib/platoons";
+import { getPlatoons } from "@/lib/queries/platoons";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 
 // Items are company-level; their holder / status / platoon come from the deployment being viewed.
@@ -25,7 +27,8 @@ export type EquipmentFilters = {
   q?: string;
   status?: EquipmentStatus;
   categoryId?: string;
-  platoon?: Platoon | "NONE";
+  /** A platoon id, or "NONE" for items with no platoon. */
+  platoonId?: string | "NONE";
   stale?: boolean;
   /** Only main items whose set (מארז) is missing required components. */
   setMissing?: boolean;
@@ -41,8 +44,8 @@ function buildWhere(f: EquipmentFilters, now: Date, deploymentId: string | null)
 
   if (f.status) and.push(state({ status: f.status }, f.status === "IN_ARMORY"));
   if (f.categoryId) and.push({ categoryId: f.categoryId });
-  if (f.platoon === "NONE") and.push(state({ platoon: null }, true));
-  else if (f.platoon) and.push(state({ platoon: f.platoon }, false));
+  if (f.platoonId === "NONE") and.push(state({ platoonId: null }, true));
+  else if (f.platoonId) and.push(state({ platoonId: f.platoonId }, false));
   if (f.stale) and.push(state(staleWhere(now), false));
   if (f.noSerial) and.push({ serialNumber: null });
   if (f.q) {
@@ -167,9 +170,10 @@ export async function getEquipmentItem(id: string) {
           toSoldier: { select: { id: true, name: true } },
           performedBy: { select: { name: true } },
           deployment: { select: { name: true } },
+          platoon: { select: { name: true } },
         },
       },
-      ...stateSelect(deploymentId, { id: true, name: true, platoon: true }),
+      ...stateSelect(deploymentId, { id: true, name: true, platoon: platoonSelect }),
     },
   });
   if (!item) return null;
@@ -217,7 +221,7 @@ export type ComponentCandidate = Awaited<ReturnType<typeof getComponentCandidate
  * The company equipment report (דוח צל"ם פלוגתי) for the viewed deployment: every type with its
  * items, holders and held-vs-תקן totals. "Held" excludes items marked missing.
  */
-export async function getEquipmentReport(platoon?: Platoon) {
+export async function getEquipmentReport(platoonId?: string) {
   await connection();
   const { db, deployment } = await companyContext();
   const deploymentId = deployment?.id ?? null;
@@ -229,7 +233,7 @@ export async function getEquipmentReport(platoon?: Platoon) {
       name: true,
       targetQuantity: true,
       equipmentItems: {
-        where: platoon ? (deploymentId ? inState(deploymentId, { platoon }) : NO_ITEMS) : {},
+        where: platoonId ? (deploymentId ? inState(deploymentId, { platoonId }) : NO_ITEMS) : {},
         orderBy: [{ serialNumber: { sort: "asc", nulls: "last" } }],
         select: {
           id: true,
@@ -242,7 +246,8 @@ export async function getEquipmentReport(platoon?: Platoon) {
       },
     },
   });
-  const platoonOrder = (p: Platoon | null) => (p ? ["PLATOON_1", "PLATOON_2", "PLATOON_3", "HQ"].indexOf(p) : 99);
+  const order = (await getPlatoons()).map((p) => p.id);
+  const platoonOrder = (p: { id: string } | null) => (p ? order.indexOf(p.id) : 99);
   return categories.map((c) => {
     const equipmentItems = c.equipmentItems
       .map(flattenState)
@@ -256,7 +261,7 @@ export async function getEquipmentReport(platoon?: Platoon) {
       missing,
       noSerial: equipmentItems.filter((i) => !i.serialNumber).length,
       // Gap vs תקן only makes sense company-wide, not when filtered to one platoon.
-      gap: !platoon && c.targetQuantity != null ? c.targetQuantity - held : null,
+      gap: !platoonId && c.targetQuantity != null ? c.targetQuantity - held : null,
     };
   });
 }

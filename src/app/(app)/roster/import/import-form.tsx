@@ -10,17 +10,16 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { PlatoonBadge } from "@/components/platoon-badge";
-import { PLATOONS, PLATOON_LABELS } from "@/lib/constants";
+import type { PlatoonRef } from "@/lib/platoons";
 import { IMPORT_COLUMNS, MAX_IMPORT_ROWS, parseRosterText } from "@/lib/roster-import";
-import type { Platoon } from "@/generated/prisma/enums";
 import { importSoldiers } from "../actions";
 
 const EXAMPLE = ["ישראל ישראלי\t8123456\t050-1234567\tמטול\t1", "דוד כהן\t8234567\t\tקשר\tחפ\"ק"].join("\n");
 
-export function ImportForm() {
+export function ImportForm({ platoons }: { platoons: PlatoonRef[] }) {
   const [state, action, pending] = useActionState(importSoldiers, undefined);
   const [text, setText] = useState("");
-  const [defaultPlatoon, setDefaultPlatoon] = useState<Platoon | "">("");
+  const [defaultPlatoon, setDefaultPlatoon] = useState("");
   const deferredText = useDeferredValue(text);
 
   // Clear the paste after a successful import (so it can't be submitted twice), keep it on error.
@@ -31,8 +30,8 @@ export function ImportForm() {
   }
 
   const rows = useMemo(
-    () => parseRosterText(deferredText, defaultPlatoon || null),
-    [deferredText, defaultPlatoon],
+    () => parseRosterText(deferredText, defaultPlatoon || null, platoons),
+    [deferredText, defaultPlatoon, platoons],
   );
   const valid = rows.filter((r) => r.ok);
   const invalid = rows.filter((r) => !r.ok);
@@ -83,12 +82,12 @@ export function ImportForm() {
                 id="defaultPlatoon"
                 name="defaultPlatoon"
                 value={defaultPlatoon}
-                onChange={(e) => setDefaultPlatoon(e.target.value as Platoon | "")}
+                onChange={(e) => setDefaultPlatoon(e.target.value)}
               >
                 <option value="">ללא — המחלקה תילקח מהעמודה החמישית</option>
-                {PLATOONS.map((p) => (
-                  <option key={p} value={p}>
-                    {PLATOON_LABELS[p]}
+                {platoons.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
                   </option>
                 ))}
               </Select>
@@ -147,7 +146,7 @@ export function ImportForm() {
                           <td className="text-muted-foreground py-2 tabular-nums">{r.line}</td>
                           <td className="py-2 font-medium">{r.data.name}</td>
                           <td className="py-2">
-                            <PlatoonBadge platoon={r.data.platoon as Platoon} />
+                            <PlatoonBadge platoon={platoons.find((p) => p.id === r.data.platoon)} />
                           </td>
                           <td className="py-2">{r.data.position ?? "—"}</td>
                           <td className="py-2">

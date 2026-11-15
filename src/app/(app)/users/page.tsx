@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { adminContext } from "@/lib/context";
+import { platoonSelect } from "@/lib/platoons";
+import { getActivePlatoons } from "@/lib/queries/platoons";
 import { Card } from "@/components/ui/card";
 import { AddUserForm, UserRow } from "./user-forms";
 
@@ -9,8 +11,9 @@ export default async function UsersPage() {
   const { user: me, db } = await adminContext();
   const users = await db.user.findMany({
     orderBy: [{ isActive: "desc" }, { role: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, username: true, role: true, platoon: true, isActive: true },
+    select: { id: true, name: true, username: true, role: true, platoon: platoonSelect, isActive: true },
   });
+  const platoons = await getActivePlatoons();
   const active = users.filter((u) => u.isActive);
 
   return (
@@ -31,12 +34,12 @@ export default async function UsersPage() {
         </p>
       </Card>
 
-      <AddUserForm />
+      <AddUserForm platoons={platoons} />
 
       <Card className="gap-0 py-0">
         <ul className="divide-y">
           {users.map((u) => (
-            <UserRow key={u.id} user={u} isMe={u.id === me.id} />
+            <UserRow key={u.id} user={u} isMe={u.id === me.id} platoons={platoons} />
           ))}
         </ul>
       </Card>

@@ -13,7 +13,7 @@ import {
   verifyEquipment,
 } from "@/app/(app)/equipment/actions";
 import { assignKit, updateWeapon } from "@/app/(app)/kits/actions";
-import { setSoldierActive, updateSoldier } from "@/app/(app)/roster/actions";
+import { createSoldier, setSoldierActive, updateSoldier } from "@/app/(app)/roster/actions";
 import { setUserActive } from "@/app/(app)/users/actions";
 import { getDashboardData } from "@/lib/queries/dashboard";
 import { getEquipmentCounts, getEquipmentReport, listEquipment } from "@/lib/queries/equipment";
@@ -25,6 +25,7 @@ import { getActiveCategories } from "@/lib/queries/catalog";
 import {
   form,
   loginAs,
+  platoonId,
   loginAsSuperAdmin,
   makeAmmoStock,
   makeCategory,
@@ -94,7 +95,7 @@ describe("scopedDb", () => {
   it("rejects writes that name another company", async () => {
     const db = scopedDb(w.a.id);
     await expect(
-      db.soldier.create({ data: { companyId: w.b.id, name: "x", platoon: "HQ" } }),
+      db.soldier.create({ data: { companyId: w.b.id, name: "x", platoonId: await platoonId("HQ", w.b.id) } }),
     ).rejects.toBeInstanceOf(CrossCompanyError);
     await expect(
       db.soldier.update({ where: { id: w.a.soldier.id }, data: { companyId: w.b.id } }),
@@ -159,7 +160,7 @@ describe("actions refuse another company's records", () => {
   it("equipment: bulk actions skip B's ids", async () => {
     await verifyEquipment([w.b.item.id]);
     await bulkSetStatus([w.b.item.id], "MISSING");
-    await bulkSetPlatoon([w.b.item.id], "HQ");
+    await bulkSetPlatoon([w.b.item.id], await platoonId("HQ", w.a.id));
     expect(await bItem()).toMatchObject({ status: "IN_ARMORY", platoon: null, lastVerifiedAt: null });
   });
 
@@ -179,14 +180,25 @@ describe("actions refuse another company's records", () => {
   });
 
   it("roster: can't edit or remove B's soldier", async () => {
-    await expect(
-      updateSoldier(w.b.soldier.id, undefined, form({ name: "שונה", platoon: "HQ" })),
-    ).rejects.toThrow();
+    expect(
+      await updateSoldier(w.b.soldier.id, undefined, form({ name: "שונה", platoon: await platoonId("HQ", w.a.id) })),
+    ).toHaveProperty("errors");
     expect(await setSoldierActive(w.b.soldier.id, false, undefined, form({}))).toHaveProperty("error");
     expect(await prisma.soldier.findUniqueOrThrow({ where: { id: w.b.soldier.id } })).toMatchObject({
       name: "ישראל ישראלי",
       isActive: true,
     });
+  });
+
+  it("platoons: A can't put its soldiers or equipment in B's platoon", async () => {
+    const bHq = await platoonId("HQ", w.b.id);
+    expect(await createSoldier(undefined, form({ name: "חדש", platoon: bHq }))).toHaveProperty("errors.platoon");
+    expect(await updateSoldier(w.a.soldier.id, undefined, form({ name: "ישראל ישראלי", platoon: bHq }))).toHaveProperty("errors.platoon");
+    expect((await prisma.soldier.findUniqueOrThrow({ where: { id: w.a.soldier.id } })).platoonId).toBe(await platoonId("PLATOON_2", w.a.id));
+
+    expect(await bulkSetPlatoon([w.a.item.id], bHq)).toMatchObject({ ok: false });
+    expect(await assignEquipment(w.a.item.id, undefined, form({ platoon: bHq }))).toHaveProperty("error");
+    expect(await prisma.equipmentAssignment.count({ where: { platoonId: bHq, companyId: w.a.id } })).toBe(0);
   });
 
   it("catalog: can't edit or delete B's types", async () => {

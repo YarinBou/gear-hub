@@ -7,8 +7,8 @@ export const E2E = {
   superAdmin: "e2e-super",
   password: "E2e-password-123",
   soldiers: [
-    ["ישראל ישראלי", "PLATOON_1"],
-    ["דנה כהן", "PLATOON_2"],
+    ["ישראל ישראלי", "מחלקה 1"],
+    ["דנה כהן", "מחלקה 2"],
   ] as const,
   rifleSerial: "77001",
 };
@@ -43,6 +43,6 @@ export async function startDeployment(page: Page, name: string, mode: "copy" | "
   await page.getByLabel("שם ההפעלה").fill(name);
   await page.getByText(mode === "copy" ? /^להמשיך מ/ : "להתחיל נקי", { exact: mode !== "copy" }).click();
   await page.getByRole("button", { name: "פתיחת ההפעלה" }).click();
-  // Creates kits 1–98 with their checklists; slow from a laptop to the cloud test database.
+  // Creates the company's kits (98 by default) with their checklists; slow from a laptop to the cloud test database.
   await expect(page).toHaveURL(/\/$/, { timeout: 60_000 });
 }

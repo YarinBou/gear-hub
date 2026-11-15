@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { requireUser } from "@/lib/auth";
-import { PLATOON_LABELS, ROLE_LABELS } from "@/lib/constants";
+import { ROLE_LABELS } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChangePasswordForm } from "./change-password-form";
 
@@ -15,7 +15,7 @@ export default async function AccountPage() {
         <p className="text-base font-semibold">{user.name}</p>
         <p className="text-muted-foreground">
           <span className="ltr-text">{user.username}</span> · {ROLE_LABELS[user.role]} ·{" "}
-          {user.platoon ? PLATOON_LABELS[user.platoon] : "כל הפלוגה"}
+          {user.platoon ? user.platoon.name : "כל הפלוגה"}
         </p>
       </Card>
       <Card>

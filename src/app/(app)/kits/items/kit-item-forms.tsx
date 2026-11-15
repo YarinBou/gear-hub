@@ -11,6 +11,7 @@ import {
   createKitItem,
   moveKitItem,
   setKitDefaultPresent,
+  setKitCount,
   setKitItemActive,
   updateKitItem,
   type KitItemFormState,
@@ -189,5 +190,46 @@ export function KitDefaultSetting({ present }: { present: boolean }) {
       {option(true, "הכל קיים", "כל פריט מסומן כקיים (ופריטים עם כמות — בכמות המלאה), ומסמנים רק מה שחסר.")}
       <p className="text-muted-foreground text-xs">חל על ערכות של הפעלה חדשה שמתחילה &quot;נקי&quot;, ועל פריטים שמוסיפים לרשימה. ערכות קיימות לא משתנות.</p>
     </fieldset>
+  );
+}
+
+/** How many personal kits the company has (not always 98). */
+export function KitCountSetting({ count }: { count: number }) {
+  const [value, setValue] = useState(String(count));
+  const [result, setResult] = useState<{ ok: boolean; message?: string } | null>(null);
+  const [pending, start] = useTransition();
+  const n = Math.floor(Number(value));
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        start(async () => setResult(await setKitCount(n)));
+      }}
+    >
+      <label htmlFor="kit-count" className="font-medium">
+        מספר ערכות בפלוגה
+      </label>
+      <div className="flex gap-2">
+        <Input
+          id="kit-count"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={500}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="w-28"
+        />
+        <Button type="submit" variant="outline" disabled={pending || !Number.isFinite(n) || n === count}>
+          {pending ? "מעדכן…" : "עדכון"}
+        </Button>
+      </div>
+      <p className="text-muted-foreground text-xs">
+        חל מיד על ההפעלה הפעילה: ערכות חדשות נוספות בסוף הרשימה. הקטנה אפשרית רק אם הערכות שמעל המספר לא מונפקות. הפעלות שהסתיימו לא
+        משתנות.
+      </p>
+      {result?.message && <p className={cn("text-sm", result.ok ? "text-success font-medium" : "text-danger")}>{result.message}</p>}
+    </form>
   );
 }

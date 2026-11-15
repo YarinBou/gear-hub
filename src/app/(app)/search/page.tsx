@@ -3,9 +3,11 @@ import Link from "next/link";
 import { Backpack, Crosshair, User } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { flattenState, stateSelect } from "@/lib/equipment-state";
-import { EQUIPMENT_STATUS_LABELS, TOTAL_KITS } from "@/lib/constants";
+import { EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
+import { getKitSlots } from "@/lib/queries/kits";
 import { Serial } from "@/components/equipment/serial";
 import { PlatoonBadge } from "@/components/platoon-badge";
+import { platoonSelect } from "@/lib/platoons";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { GlobalSearch } from "@/components/layout/global-search";
@@ -17,7 +19,8 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
   const raw = (await searchParams).q;
   const q = (Array.isArray(raw) ? raw[0] : raw)?.trim() ?? "";
 
-  const kitNumber = /^\d{1,2}$/.test(q) ? Number(q) : null;
+  const kitSlots = q ? await getKitSlots() : 0;
+  const kitNumber = /^\d{1,3}$/.test(q) ? Number(q) : null;
   const [soldiers, items, kit] = q
     ? await Promise.all([
         db.soldier.findMany({
@@ -27,7 +30,7 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
           },
           take: 20,
           orderBy: { name: "asc" },
-          select: { id: true, name: true, personalNumber: true, platoon: true },
+          select: { id: true, name: true, personalNumber: true, platoon: platoonSelect },
         }),
         db.equipmentItem
           .findMany({
@@ -43,7 +46,7 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
             },
           })
           .then((rows) => rows.map(flattenState)),
-        kitNumber && kitNumber >= 1 && kitNumber <= TOTAL_KITS
+        kitNumber && kitNumber >= 1 && kitNumber <= kitSlots
           ? db.personalKit.findFirst({
               where: { kitNumber },
               select: { kitNumber: true, soldier: { select: { name: true } } },
@@ -62,7 +65,7 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
       {!q && <p className="text-muted-foreground text-sm">הקלידו מספר צ / מס&quot;ט, שם לוחם, מספר אישי או מספר ערכה.</p>}
       {empty && <p className="text-muted-foreground text-sm">לא נמצאו תוצאות עבור &quot;{q}&quot;.</p>}
 
-      {kitNumber !== null && kitNumber >= 1 && kitNumber <= TOTAL_KITS && (
+      {kitNumber !== null && kitNumber >= 1 && kitNumber <= kitSlots && (
         <Card className="gap-2">
           <CardContent>
             <Link href={`/kits/${kitNumber}`} className="flex items-center gap-3">

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { PLATOON_LABELS, TOTAL_KITS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { DashboardData, KitCell } from "@/lib/queries/dashboard";
 
@@ -25,7 +24,7 @@ export function KitReadinessGrid({ kits }: { kits: DashboardData["kits"] }) {
       <CardHeader>
         <CardTitle>כשירות ערכות אישיות</CardTitle>
         <CardDescription>
-          {kits.issued} מתוך {TOTAL_KITS} ערכות הונפקו · {kits.fullKits} מלאות · ממוצע {kits.avgReadiness}%
+          {kits.issued} מתוך {kits.total} ערכות הונפקו · {kits.fullKits} מלאות · ממוצע {kits.avgReadiness}%
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -33,7 +32,7 @@ export function KitReadinessGrid({ kits }: { kits: DashboardData["kits"] }) {
         <ul className="grid grid-cols-7 gap-1.5 sm:grid-cols-10 xl:grid-cols-14" aria-label="מפת ערכות">
           {kits.cells.map((k) => {
             const label = k.soldierName
-              ? `ערכה ${k.kitNumber} · ${k.soldierName}${k.platoon ? ` · ${PLATOON_LABELS[k.platoon]}` : ""} · ${k.readiness}%`
+              ? `ערכה ${k.kitNumber} · ${k.soldierName}${k.platoon ? ` · ${k.platoon.name}` : ""} · ${k.readiness}%`
               : `ערכה ${k.kitNumber} · לא הונפקה`;
             return (
               <li key={k.kitNumber}>
