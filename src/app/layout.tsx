@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Heebo } from "next/font/google";
 import "./globals.css";
+import { VercelInsights } from "@/components/vercel-insights";
 
 const heebo = Heebo({
   variable: "--font-heebo",
@@ -22,7 +23,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="he" dir="rtl" className={`${heebo.variable} h-full`}>
-      <body className="min-h-full font-sans">{children}</body>
+      <body className="min-h-full font-sans">
+        {children}
+        <VercelInsights />
+      </body>
     </html>
   );
 }
