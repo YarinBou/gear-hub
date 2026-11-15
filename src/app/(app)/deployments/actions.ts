@@ -1,6 +1,6 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
@@ -37,7 +37,9 @@ export async function startDeploymentAction(_prev: DeploymentFormState, fd: Form
     throw e;
   }
   await setViewedDeployment(null); // look at the new, active one
-  refresh();
+  // The whole app renders for a different company / deployment now: purge the client router cache,
+  // otherwise pages fetched before (e.g. a cached redirect) are reused. (Next docs: revalidatePath)
+  revalidatePath("/", "layout");
   redirect("/");
 }
 
@@ -51,7 +53,9 @@ export async function closeDeploymentAction(deploymentId: string): Promise<{ ok:
     throw e;
   }
   await setViewedDeployment(null);
-  refresh();
+  // The whole app renders for a different company / deployment now: purge the client router cache,
+  // otherwise pages fetched before (e.g. a cached redirect) are reused. (Next docs: revalidatePath)
+  revalidatePath("/", "layout");
   return { ok: true, message: "ההפעלה הסתיימה ונשמרה בהיסטוריה" };
 }
 
@@ -63,5 +67,7 @@ export async function viewDeployment(deploymentId: string | null) {
     if (!d) return;
   }
   await setViewedDeployment(deploymentId);
-  refresh();
+  // The whole app renders for a different company / deployment now: purge the client router cache,
+  // otherwise pages fetched before (e.g. a cached redirect) are reused. (Next docs: revalidatePath)
+  revalidatePath("/", "layout");
 }

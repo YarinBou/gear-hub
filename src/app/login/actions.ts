@@ -1,6 +1,7 @@
 "use server";
 
 import { randomBytes } from "node:crypto";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createSession, deleteSession } from "@/lib/auth";
@@ -48,11 +49,15 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   if (!ok || !user) return { error: INVALID };
 
   await createSession({ userId: user.id, role: user.role, name: user.name });
+  // A different user may have used this browser: don't reuse their cached pages.
+  revalidatePath("/", "layout");
   // Only allow same-site relative redirects.
   redirect(next && next.startsWith("/") && !next.startsWith("//") ? next : "/");
 }
 
 export async function logout() {
   await deleteSession();
+  // Shared phones: the next person must not get this user's cached pages.
+  revalidatePath("/", "layout");
   redirect("/login");
 }

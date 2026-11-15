@@ -19,7 +19,8 @@
     "test:all": "vitest run",
     "test:watch": "vitest --project unit",
     "test:mark-db": "tsx test/mark-test-db.ts",
-    "db:rehearse": "tsx test/rehearse-migration.ts"
+    "db:rehearse": "tsx test/rehearse-migration.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.1",
@@ -39,6 +40,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^20",
     "@types/pg": "^8.23.1",

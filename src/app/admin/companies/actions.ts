@@ -1,6 +1,6 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { refresh, revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma } from "@/generated/prisma/client";
 import { requireSuperAdmin, setActiveCompany } from "@/lib/auth";
@@ -76,16 +76,26 @@ export async function setCompanyActive(companyId: string, active: boolean): Prom
   return { ok: true };
 }
 
-/** Work inside a company (the whole app then shows that company only). */
-export async function enterCompany(companyId: string) {
+/**
+ * Work inside a company (the whole app then shows that company only). The caller then does a full
+ * page load of "/": a redirect from here would render "/" inside this same response, with the
+ * request's old cookies (no company yet), and bounce straight back to /admin/companies.
+ */
+export async function enterCompany(companyId: string): Promise<{ ok: boolean }> {
   await requireSuperAdmin();
   const company = await prisma.company.findUnique({ where: { id: companyId }, select: { id: true } });
-  if (!company) return;
+  if (!company) return { ok: false };
   await setActiveCompany(company.id);
-  redirect("/");
+  // The whole app renders for a different company / deployment now: purge the client router cache,
+  // otherwise pages fetched before (e.g. a cached redirect) are reused. (Next docs: revalidatePath)
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 export async function leaveCompany() {
   await setActiveCompany(null);
+  // The whole app renders for a different company / deployment now: purge the client router cache,
+  // otherwise pages fetched before (e.g. a cached redirect) are reused. (Next docs: revalidatePath)
+  revalidatePath("/", "layout");
   redirect("/admin/companies");
 }

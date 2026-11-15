@@ -34,6 +34,8 @@ If `SEED_ADMIN_PASSWORD` is empty, the seed generates a password and prints it o
 | `npm run db:seed` | Seed the super-admin, a first company (catalog, storage lines) and its admin; `SEED_DEMO=1` adds a demo deployment (safe to re-run) |
 | `npm test` / `npm run test:integration` | Unit tests / integration tests against `TEST_DATABASE_URL` (see `.env.test.example`) |
 | `npm run test:mark-db` | One-time: mark a throwaway database as safe for integration tests to wipe |
+| `npm run test:e2e` | Browser tests (Playwright, mobile Chrome) against a production build on the test database |
+| `npm run db:rehearse` | Run pending migrations + seed on a Neon branch copied from production and verify nothing was lost |
 | `npm run db:studio` | Prisma Studio |
 
 ## Project layout
@@ -92,6 +94,16 @@ src/
 - **Soft delete.** Soldiers are never hard-deleted (history logs reference them). Removing one from the roster sets `isActive = false` and is blocked while they still hold equipment or a kit.
 - **Kit checklist.** To add an item to the sign-out form, add a boolean column to `PersonalKit` and an entry to `KIT_ITEMS` in `src/lib/kit.ts`. Readiness percentages update automatically.
 - **Mobile first.** Default tap targets are 44px (`h-11`). The bottom nav is visible below `lg`.
+
+## Testing
+
+Three layers, all run in CI (`.github/workflows/ci.yml`, with a throwaway Postgres 17 container):
+
+- **Unit** (`test/unit`, `npm test`): pure rules — equipment status, ammo movements, storage flags, kit readiness, roster import.
+- **Integration** (`test/integration`, `npm run test:integration`): server actions and queries against a real Postgres, running the real auth layer (only Next's cookie / redirect APIs are faked). Covers company isolation (two companies with colliding data: nothing leaks either way), deployments (copy / empty start, read-only history, one active per company, no deployment), and the core equipment / kit / ammo flows.
+- **End-to-end** (`e2e`, `npm run test:e2e`): a production build in mobile Chrome. Open a deployment, issue and sign a kit, continue into the next deployment, browse the read-only history; super-admin creates a company whose admin signs in to an empty company.
+
+Integration and e2e tests **delete all data** in `TEST_DATABASE_URL` (`.env.test`, see `.env.test.example`). Use a throwaway Neon branch (direct URL) and mark it once with `npm run test:mark-db -- --yes`; tests refuse any database without that marker or equal to the app's own URL. The local `prisma dev` server (PGlite) is not reliable enough for these tests.
 
 ## Deploying to Vercel
 

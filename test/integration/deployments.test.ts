@@ -192,7 +192,7 @@ describe("a closed deployment is read-only", () => {
 
 describe("no active deployment", () => {
   it("everything reads as in the armory, kits and ammo are empty, and deployment writes are refused", async () => {
-    const admin = await loginAs("ADMIN");
+    await loginAs("ADMIN");
     const d = await activeDeployment();
     const soldier = await makeSoldier();
     const rifle = await makeItem();
@@ -208,7 +208,6 @@ describe("no active deployment", () => {
 
     expect(await assignEquipment(rifle.id, undefined, form({ soldierId: soldier.id }))).toHaveProperty("error");
     expect(await assignKit(1, undefined, form({ soldierId: soldier.id }))).toHaveProperty("error");
-    expect(admin.role).toBe("ADMIN");
   });
 
   it("items can still be added to the armory, but not handed out", async () => {

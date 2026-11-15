@@ -107,7 +107,18 @@ export function CompanyRow({ company }: { company: CompanyRowData }) {
         <Power />
         {company.isActive ? "השבתה" : "הפעלה"}
       </Button>
-      <Button size="sm" disabled={pending} onClick={() => start(() => enterCompany(company.id))}>
+      <Button
+        size="sm"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            // Full page load on purpose: the client router keeps its prefetched "/" (a redirect back
+            // here, from before a company was chosen) even after revalidatePath — verified in e2e.
+            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+            if ((await enterCompany(company.id)).ok) window.location.assign("/");
+          })
+        }
+      >
         <LogIn className="rtl:-scale-x-100" />
         כניסה לפלוגה
       </Button>
