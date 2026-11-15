@@ -93,6 +93,7 @@ model Company {
   kitInspections       KitInspection[]
   storageItems         StorageItem[]
   platoons             Platoon[]
+  deploymentAbsences   DeploymentAbsence[]
   equipmentSets        EquipmentSet[]
   equipmentSetSlots    EquipmentSetSlot[]
 }
@@ -118,6 +119,8 @@ model Deployment {
   personalKits  PersonalKit[]
   ammoStocks    AmmoStock[]
   equipmentLogs EquipmentLog[]
+  /// Roster soldiers who are NOT in this deployment (everyone else is).
+  absences      DeploymentAbsence[]
 
   @@unique([companyId, name])
   @@index([companyId, status])
@@ -187,6 +190,8 @@ model Soldier {
   assignments EquipmentAssignment[]
   /// One kit per deployment at most.
   kits        PersonalKit[]
+  /// Deployments this soldier is not part of.
+  absences    DeploymentAbsence[]
   logsFrom    EquipmentLog[]        @relation("LogFromSoldier")
   logsTo      EquipmentLog[]        @relation("LogToSoldier")
 
@@ -563,4 +568,22 @@ model StorageItem {
 
   @@index([companyId])
   @@index([expiryDate])
+}
+
+/// A roster soldier who is not part of a deployment (e.g. not called up this time). By default every
+/// active soldier is in every deployment; a row here takes them out of that one: they don't appear in
+/// the pickers and nothing can be signed out to them there. Managed on /roster/participation.
+model DeploymentAbsence {
+  id           String     @id @default(cuid())
+  companyId    String
+  company      Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  deploymentId String
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Restrict)
+  soldierId    String
+  soldier      Soldier    @relation(fields: [soldierId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([deploymentId, soldierId])
+  @@index([soldierId])
+  @@index([companyId])
 }

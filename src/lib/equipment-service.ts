@@ -124,6 +124,7 @@ export async function applyAssignment(tx: Tx, ctx: DeploymentCtx, itemId: string
     if (!soldier.isActive && soldierId !== row.soldierId) {
       throw new AssignmentError('לא ניתן לשייך ללוחם שהוצא מהסד"כ');
     }
+    if (soldierId !== row.soldierId) await assertInDeployment(tx, ctx.deploymentId, soldierId);
     platoonId = soldier.platoonId; // auto-filled from the holder
   } else {
     platoonId = input.platoonId === undefined ? row.platoonId : input.platoonId;
@@ -288,4 +289,12 @@ export async function signOutSet(tx: Tx, ctx: DeploymentCtx, input: SignOutSetIn
   for (const categoryId of input.newComponentCategoryIds) await createNoSerialComponent(tx, ctx, main.id, categoryId);
   await tx.equipmentItem.update({ where: { id: main.id }, data: { setId: set.id } });
   return { mainItemId: main.id };
+}
+
+export const NOT_IN_DEPLOYMENT_MESSAGE = "הלוחם לא משתתף בהפעלה הזו — ניתן לסמן אותו כמשתתף במסך המשתתפים";
+
+/** Refuse a soldier who is marked as not part of the deployment (DeploymentAbsence). */
+export async function assertInDeployment(tx: Tx, deploymentId: string, soldierId: string) {
+  const absent = await tx.deploymentAbsence.findFirst({ where: { deploymentId, soldierId }, select: { id: true } });
+  if (absent) throw new AssignmentError(NOT_IN_DEPLOYMENT_MESSAGE);
 }

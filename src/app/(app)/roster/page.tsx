@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Form from "next/form";
 import Link from "next/link";
-import { Backpack, ChevronLeft, Crosshair, FileSpreadsheet, Search, UserPlus } from "lucide-react";
-import { requireUser } from "@/lib/auth";
+import { Backpack, ChevronLeft, Crosshair, FileSpreadsheet, Search, UserCheck, UserPlus } from "lucide-react";
+import { companyContext } from "@/lib/context";
 import { getPlatoons } from "@/lib/queries/platoons";
 import type { PlatoonRef } from "@/lib/platoons";
 import { getRosterCounts, listSoldiers } from "@/lib/queries/soldiers";
@@ -20,24 +20,26 @@ function first(v: string | string[] | undefined) {
 }
 
 export default async function RosterPage({ searchParams }: PageProps<"/roster">) {
-  await requireUser();
+  const { deployment } = await companyContext();
   const sp = await searchParams;
   const q = first(sp.q)?.trim() || undefined;
   const platoonRaw = first(sp.platoon);
   const allPlatoons = await getPlatoons();
   const platoon = allPlatoons.some((p) => p.id === platoonRaw) ? platoonRaw : undefined;
   const includeInactive = first(sp.inactive) === "1";
+  const presence = deployment && first(sp.presence) === "out" ? "out" : undefined;
 
-  const [soldiers, counts] = await Promise.all([listSoldiers({ platoonId: platoon, q, includeInactive }), getRosterCounts()]);
+  const [soldiers, counts] = await Promise.all([listSoldiers({ platoonId: platoon, q, includeInactive, presence }), getRosterCounts()]);
   // Active platoons, plus inactive ones that still have soldiers or are being filtered on.
   const chipPlatoons = allPlatoons.filter((p) => p.isActive || counts.byPlatoon[p.id] || p.id === platoon);
 
-  const href = (next: { platoon?: string | null; inactive?: boolean }) => {
+  const href = (next: { platoon?: string | null; inactive?: boolean; presence?: "out" | null }) => {
     const params = new URLSearchParams();
     const p = next.platoon === undefined ? platoon : next.platoon;
     if (p) params.set("platoon", p);
     if (q) params.set("q", q);
     if (next.inactive ?? includeInactive) params.set("inactive", "1");
+    if ((next.presence === undefined ? presence : next.presence) === "out") params.set("presence", "out");
     const s = params.toString();
     return s ? `/roster?${s}` : "/roster";
   };
@@ -47,9 +49,20 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">ניהול סד&quot;כ פלוגתי</h1>
-          <p className="text-muted-foreground text-sm">{formatNumber(counts.total)} לוחמים פעילים</p>
+          <p className="text-muted-foreground text-sm">
+            {formatNumber(counts.total)} לוחמים פעילים
+            {deployment && ` · ${formatNumber(counts.total - counts.out)} משתתפים ב${deployment.name}`}
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {deployment && (
+            <Button asChild variant="outline">
+              <Link href="/roster/participation">
+                <UserCheck />
+                משתתפים בהפעלה
+              </Link>
+            </Button>
+          )}
           <Button asChild variant="outline">
             <Link href="/roster/import">
               <FileSpreadsheet />
@@ -79,6 +92,14 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
               dot={p}
             />
           ))}
+          {deployment && (counts.out > 0 || presence) && (
+            <Chip
+              href={href({ presence: presence ? null : "out" })}
+              active={!!presence}
+              label="לא בהפעלה"
+              count={counts.out}
+            />
+          )}
         </ul>
       </nav>
 
@@ -86,6 +107,7 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
         <Form action="/roster" className="relative flex-1">
           {platoon && <input type="hidden" name="platoon" value={platoon} />}
           {includeInactive && <input type="hidden" name="inactive" value="1" />}
+          {presence && <input type="hidden" name="presence" value={presence} />}
           <Search className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" />
           <Input
             name="q"
@@ -126,6 +148,7 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
                       <p className="flex items-center gap-2 font-medium">
                         <span className="truncate">{s.name}</span>
                         {!s.isActive && <Badge variant="secondary">לא פעיל</Badge>}
+                        {s.isActive && s.inDeployment === false && <Badge variant="outline">לא בהפעלה</Badge>}
                       </p>
                       <p className="text-muted-foreground flex items-center gap-1.5 truncate text-xs">
                         <PlatoonDot platoon={s.platoon} />
@@ -164,6 +187,11 @@ export default async function RosterPage({ searchParams }: PageProps<"/roster">)
                       {!s.isActive && (
                         <Badge variant="secondary" className="ms-2">
                           לא פעיל
+                        </Badge>
+                      )}
+                      {s.isActive && s.inDeployment === false && (
+                        <Badge variant="outline" className="ms-2">
+                          לא בהפעלה
                         </Badge>
                       )}
                     </td>

@@ -48,7 +48,7 @@ export function StartDeploymentForm({ activeName, previousName }: { activeName: 
           title={previousName ? `להמשיך מ"${previousName}"` : "להמשיך מהפעלה קודמת"}
           description={
             previousName
-              ? "החזקות הצל\"ם, שיוך הערכות לחיילים (כולל הצ'ק ליסט והנשק) ויתרות התחמושת עוברים להפעלה החדשה. החתימות לא עוברות — כל לוחם חותם מחדש."
+              ? "החזקות הצל\"ם, שיוך הערכות לחיילים (כולל הצ'ק ליסט והנשק) ויתרות התחמושת עוברים להפעלה החדשה, וגם מי שסומן כלא משתתף. החתימות לא עוברות — כל לוחם חותם מחדש."
               : "אין הפעלה קודמת להמשיך ממנה."
           }
         />
@@ -57,7 +57,7 @@ export function StartDeploymentForm({ activeName, previousName }: { activeName: 
           checked={mode === "empty"}
           onChange={setMode}
           title="להתחיל נקי"
-          description="אף אחד לא מחזיק ציוד, הערכות ריקות ואין תחמושת רשומה. פריטים חסרים / בתיקון / מאופסנים נשארים במצבם."
+          description={'כל הסד"כ משתתף, אף אחד לא מחזיק ציוד, הערכות ריקות ואין תחמושת רשומה. פריטים חסרים / בתיקון / מאופסנים נשארים במצבם.'}
         />
         <input type="hidden" name="mode" value={mode} />
       </fieldset>

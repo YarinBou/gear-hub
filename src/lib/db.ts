@@ -40,10 +40,11 @@ export const SCOPED_MODELS = new Set([
   "EquipmentSet",
   "EquipmentSetSlot",
   "Platoon",
+  "DeploymentAbsence",
 ]);
 
 /** Models that belong to one deployment (deploymentId NOT NULL). */
-export const DEPLOYMENT_MODELS = new Set(["EquipmentAssignment", "PersonalKit", "AmmoStock"]);
+export const DEPLOYMENT_MODELS = new Set(["EquipmentAssignment", "PersonalKit", "AmmoStock", "DeploymentAbsence"]);
 
 /** Matches no row: what a deployment-scoped read sees when there is no deployment. */
 const NO_DEPLOYMENT = "__no_deployment__";

@@ -38,7 +38,12 @@ export async function getDashboardData() {
     storageItems,
     platoons,
   ] = await Promise.all([
-    db.soldier.groupBy({ by: ["platoonId"], where: { isActive: true }, _count: { _all: true } }),
+    // Soldiers in the viewed deployment (everyone active, minus those marked as not participating).
+    db.soldier.groupBy({
+      by: ["platoonId"],
+      where: { isActive: true, ...(deployment ? { absences: { none: { deploymentId: deployment.id } } } : {}) },
+      _count: { _all: true },
+    }),
     countItemsByState(db, deployment?.id ?? null, "status"),
     countItemsByState(db, deployment?.id ?? null, "platoonId"),
     db.equipmentAssignment.findMany({
