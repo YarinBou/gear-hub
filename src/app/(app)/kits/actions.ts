@@ -2,11 +2,12 @@
 
 import { refresh } from "next/cache";
 import { z } from "zod";
-import { Prisma, type PrismaClient } from "@/generated/prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { writableContext } from "@/lib/context";
 import { TOTAL_KITS } from "@/lib/constants";
 import { AssignmentError, applyAssignment, ensureAssignment } from "@/lib/equipment-service";
-import { KIT_ITEM_KEYS, kitChecklistSelect, type KitBooleanKey } from "@/lib/kit";
+import { checklistLines, kitItemsSelect, missingDescriptions, WEAPON_ITEM } from "@/lib/kit";
+import { activeItemDefs, createKitStatuses } from "@/lib/kit-service";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
 
 export type KitFormState = { ok?: boolean; message?: string; error?: string; errors?: FieldErrors; at?: number } | undefined;
@@ -26,14 +27,42 @@ function kitKey(deploymentId: string, kitNumber: number) {
   return { deploymentId_kitNumber: { deploymentId, kitNumber } };
 }
 
-/** Kits 1–98 are created when a deployment starts, but create the row lazily if it's missing. */
-async function ensureKit(db: PrismaClient, ids: { companyId: string; deploymentId: string }, kitNumber: number) {
+/**
+ * Kits 1–98 (and their checklist rows) are created when a deployment starts; create anything
+ * missing lazily — e.g. a checklist item added since.
+ */
+async function ensureKit(db: Prisma.TransactionClient, ids: { companyId: string; deploymentId: string }, kitNumber: number) {
   if (!validKitNumber(kitNumber)) throw new Error("Invalid kit number");
-  return db.personalKit.upsert({
+  const kit = await db.personalKit.upsert({
     where: kitKey(ids.deploymentId, kitNumber),
     update: {},
     create: { ...ids, kitNumber },
   });
+  await createKitStatuses(db, { companyId: ids.companyId, kitIds: [kit.id] });
+  return kit;
+}
+
+/** Set one checklist line of a kit. The item must be one of the company's active items. */
+async function writeLine(
+  db: Prisma.TransactionClient,
+  ids: { companyId: string; deploymentId: string },
+  kitNumber: number,
+  itemId: string,
+  value: { present?: boolean; quantity?: number },
+) {
+  const kit = await ensureKit(db, ids, kitNumber);
+  const def = await db.kitItemDef.findFirst({ where: { id: itemId, isActive: true }, select: { id: true, targetQuantity: true } });
+  if (!def) return false;
+  const data =
+    def.targetQuantity != null
+      ? { quantity: value.quantity ?? (value.present ? def.targetQuantity : 0) }
+      : { present: value.present ?? (value.quantity ?? 0) > 0 };
+  await db.kitItemStatus.upsert({
+    where: { kitId_itemId: { kitId: kit.id, itemId } },
+    update: data,
+    create: { companyId: ids.companyId, kitId: kit.id, itemId, ...data },
+  });
+  return true;
 }
 
 // ───────────── Assignment to a soldier ─────────────
@@ -138,10 +167,13 @@ export async function updateWeapon(kitNumber: number, _prev: KitFormState, fd: F
           rifleType: rifleType ?? typeFromItem ?? null,
           magazineCount,
           ammoCount,
-          // Linking a rifle means the weapon line on the form is fulfilled.
-          ...(personalWeaponId ? { weaponIssued: true } : {}),
         },
       });
+      // Linking a rifle means the personal-weapon line of the checklist is fulfilled.
+      if (personalWeaponId) {
+        const weaponLine = await tx.kitItemDef.findFirst({ where: { systemKey: WEAPON_ITEM, isActive: true }, select: { id: true } });
+        if (weaponLine) await writeLine(tx, ids, kitNumber, weaponLine.id, { present: true, quantity: 1 });
+      }
     });
   } catch (e) {
     if (e instanceof AssignmentError) return { error: e.message };
@@ -153,47 +185,63 @@ export async function updateWeapon(kitNumber: number, _prev: KitFormState, fd: F
 
 // ───────────── Checklist / inspection ─────────────
 
-const KeySchema = z.enum(KIT_ITEM_KEYS as [KitBooleanKey, ...KitBooleanKey[]]);
+const Id = z.string().min(1).max(100);
+const Quantity = z.number().int().min(0).max(1000);
 
 /** Single quick toggle (present / missing). */
-export async function setKitItem(kitNumber: number, key: string, present: boolean): Promise<KitResult> {
+export async function setKitItem(kitNumber: number, itemId: string, present: boolean): Promise<KitResult> {
   const w = await writableContext();
   if (!w.ok) return { ok: false, message: w.message };
-  const { user, db, deployment } = w;
-  const parsedKey = KeySchema.safeParse(key);
-  if (!parsedKey.success || typeof present !== "boolean") return { ok: false, message: "פריט לא תקין" };
-  await ensureKit(db, { companyId: user.companyId, deploymentId: deployment.id }, kitNumber);
-  await db.personalKit.update({ where: kitKey(deployment.id, kitNumber), data: { [parsedKey.data]: present } });
+  if (!Id.safeParse(itemId).success || typeof present !== "boolean") return { ok: false, message: "פריט לא תקין" };
+  const ids = { companyId: w.user.companyId, deploymentId: w.deployment.id };
+  if (!(await writeLine(w.db, ids, kitNumber, itemId, { present }))) return { ok: false, message: "פריט לא תקין" };
   refresh();
   return { ok: true };
 }
 
-/** "הכל קיים" — mark every checklist item present. */
-export async function setAllKitItems(kitNumber: number, present: boolean): Promise<KitResult> {
+/** Counted items (e.g. magazines): set how many the soldier has. */
+export async function setKitItemQuantity(kitNumber: number, itemId: string, quantity: number): Promise<KitResult> {
   const w = await writableContext();
   if (!w.ok) return { ok: false, message: w.message };
-  const { user, db, deployment } = w;
-  await ensureKit(db, { companyId: user.companyId, deploymentId: deployment.id }, kitNumber);
-  await db.personalKit.update({
-    where: kitKey(deployment.id, kitNumber),
-    data: Object.fromEntries(KIT_ITEM_KEYS.map((k) => [k, present])),
-  });
+  if (!Id.safeParse(itemId).success || !Quantity.safeParse(quantity).success) return { ok: false, message: "כמות לא תקינה" };
+  const ids = { companyId: w.user.companyId, deploymentId: w.deployment.id };
+  if (!(await writeLine(w.db, ids, kitNumber, itemId, { quantity }))) return { ok: false, message: "פריט לא תקין" };
   refresh();
   return { ok: true };
 }
 
-/** Close a מסדר: snapshot what's missing right now. */
+/** "הכל קיים" — mark every checklist line complete (counted items at their expected quantity). */
+export async function setAllKitItems(kitNumber: number): Promise<KitResult> {
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  const { db } = w;
+  const ids = { companyId: w.user.companyId, deploymentId: w.deployment.id };
+  const kit = await ensureKit(db, ids, kitNumber); // also creates rows for items added since
+  const targets = [...new Set((await activeItemDefs(db)).map((d) => d.targetQuantity).filter((t): t is number => t != null))];
+  // A few bulk updates (plain items → present; counted items → their expected quantity).
+  await db.$transaction([
+    db.kitItemStatus.updateMany({ where: { kitId: kit.id, item: { isActive: true, targetQuantity: null } }, data: { present: true } }),
+    ...targets.map((t) =>
+      db.kitItemStatus.updateMany({ where: { kitId: kit.id, item: { isActive: true, targetQuantity: t } }, data: { quantity: t } }),
+    ),
+  ]);
+  refresh();
+  return { ok: true };
+}
+
+/** Close a מסדר: snapshot what's missing right now (by name, as items are called today). */
 export async function completeInspection(kitNumber: number, note: string): Promise<KitResult> {
   const w = await writableContext();
   if (!w.ok) return { ok: false, message: w.message };
   const { user, db, deployment } = w;
   const kit = await db.personalKit.findUnique({
     where: kitKey(deployment.id, kitNumber),
-    select: { id: true, soldierId: true, ...kitChecklistSelect },
+    select: { id: true, soldierId: true, ...kitItemsSelect },
   });
   if (!kit) return { ok: false, message: "הערכה לא נמצאה" };
   if (!kit.soldierId) return { ok: false, message: "לא ניתן לבצע מסדר לערכה שלא הונפקה" };
-  const missing = KIT_ITEM_KEYS.filter((k) => !kit[k]);
+  const lines = checklistLines(kit.items, { history: false, activeDefs: await activeItemDefs(db) });
+  const missing = missingDescriptions(lines);
   const cleanNote = note.trim().slice(0, 300) || null;
 
   await db.$transaction([

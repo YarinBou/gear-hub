@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Check, X } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { PLATOON_LABELS, TOTAL_KITS } from "@/lib/constants";
-import { KIT_GROUP_LABELS, KIT_ITEMS, type KitGroup } from "@/lib/kit";
+import { groupLines, lineComplete, WEAPON_ITEM, type ChecklistLine } from "@/lib/kit";
 import { getKit } from "@/lib/queries/kits";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
@@ -12,8 +12,6 @@ import { PrintButton } from "@/components/print-button";
 
 export const metadata: Metadata = { title: "טופס החתמת ציוד" };
 
-// The "weapon" checklist line is shown inside the weapon block, not as its own group.
-const GROUPS: KitGroup[] = ["accessories", "personal"];
 
 /** Printable soldier sign-out form (טופס החתמה). The app shell is hidden in print. */
 export default async function KitSheetPage({ params }: PageProps<"/kits/[kitNumber]/sheet">) {
@@ -22,6 +20,8 @@ export default async function KitSheetPage({ params }: PageProps<"/kits/[kitNumb
   if (!Number.isInteger(kitNumber) || kitNumber < 1 || kitNumber > TOTAL_KITS) notFound();
   const kit = await getKit(kitNumber);
   if (!kit?.soldier) notFound();
+  const weaponLine = kit.lines.find((l) => l.systemKey === WEAPON_ITEM);
+  const otherLines = kit.lines.filter((l) => l !== weaponLine);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -62,7 +62,7 @@ export default async function KitSheetPage({ params }: PageProps<"/kits/[kitNumb
           <h2 className="mb-1 font-semibold">נשק אישי ותחמושת</h2>
           <table className="w-full border-collapse">
             <tbody>
-              <SheetRow label="נשק אישי" value={<Issued yes={kit.weaponIssued} />} />
+              {weaponLine && <SheetRow label={weaponLine.label} value={<Issued yes={lineComplete(weaponLine)} />} />}
               <SheetRow label="סוג נשק" value={kit.rifleType ?? "—"} />
               <SheetRow
                 label='צ / מס"ט'
@@ -74,13 +74,14 @@ export default async function KitSheetPage({ params }: PageProps<"/kits/[kitNumb
           </table>
         </section>
 
-        {GROUPS.map((g) => (
-          <section key={g} className="mb-4 break-inside-avoid">
-            <h2 className="mb-1 font-semibold">{KIT_GROUP_LABELS[g]}</h2>
+        {/* The company's checklist; the personal-weapon line sits in the weapon block above. */}
+        {groupLines(otherLines).map((g) => (
+          <section key={g.groupName} className="mb-4 break-inside-avoid">
+            <h2 className="mb-1 font-semibold">{g.groupName}</h2>
             <table className="w-full border-collapse">
               <tbody>
-                {KIT_ITEMS.filter((i) => i.group === g).map((i) => (
-                  <SheetRow key={i.key} label={i.label} value={<Issued yes={kit[i.key]} />} />
+                {g.lines.map((l) => (
+                  <SheetRow key={l.itemId} label={l.label} value={<LineValue line={l} />} />
                 ))}
               </tbody>
             </table>
@@ -128,5 +129,19 @@ function SheetRow({ label, value }: { label: string; value: React.ReactNode }) {
       <td className="w-1/2 py-1.5">{label}</td>
       <td className="py-1.5">{value}</td>
     </tr>
+  );
+}
+
+/** A checklist line on paper: ✓ / ✗, plus "5/7" for counted items. */
+function LineValue({ line }: { line: ChecklistLine }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <Issued yes={lineComplete(line)} />
+      {line.targetQuantity != null && (
+        <span className="tabular-nums">
+          {line.quantity ?? 0}/{line.targetQuantity}
+        </span>
+      )}
+    </span>
   );
 }

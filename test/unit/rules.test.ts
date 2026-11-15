@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyMovement, ammoLevel, isLowStock } from "@/lib/ammo-rules";
 import { isStale, itemLabel, normalizeSerial, resolveStatus } from "@/lib/equipment-rules";
-import { KIT_ITEM_KEYS, kitReadiness } from "@/lib/kit";
+import { checklistLines, defaultStatus, groupLines, kitReadiness, lineComplete, missingDescriptions, type ChecklistLine } from "@/lib/kit";
 import { effectiveStatus, fillPercent, storageFlags } from "@/lib/storage-rules";
 
 describe("equipment: resolveStatus", () => {
@@ -77,10 +77,67 @@ describe("storage rules", () => {
   });
 });
 
-describe("kit readiness", () => {
-  const all = (v: boolean) => Object.fromEntries(KIT_ITEM_KEYS.map((k) => [k, v])) as Parameters<typeof kitReadiness>[0];
-  it("0 when empty, 100 when full", () => {
-    expect(kitReadiness(all(false))).toBe(0);
-    expect(kitReadiness(all(true))).toBe(100);
+describe("kit checklist", () => {
+  const line = (over: Partial<ChecklistLine> = {}): ChecklistLine => ({
+    itemId: "i",
+    label: "קסדה",
+    groupName: "ציוד אישי",
+    sortOrder: 10,
+    targetQuantity: null,
+    systemKey: null,
+    present: false,
+    quantity: null,
+    ...over,
+  });
+
+  it("a plain item is complete when present; a counted one when it reaches its target", () => {
+    expect(lineComplete(line({ present: true }))).toBe(true);
+    expect(lineComplete(line({ targetQuantity: 7, quantity: 6 }))).toBe(false);
+    expect(lineComplete(line({ targetQuantity: 7, quantity: 7 }))).toBe(true);
+    expect(lineComplete(line({ targetQuantity: 7, quantity: null }))).toBe(false);
+  });
+
+  it("readiness counts complete lines; an empty checklist has nothing missing", () => {
+    expect(kitReadiness([line({ present: true }), line(), line({ targetQuantity: 2, quantity: 2 }), line()])).toBe(50);
+    expect(kitReadiness([])).toBe(100);
+  });
+
+  it("missing lines are described for the inspection record", () => {
+    const lines = [line({ label: "קסדה" }), line({ label: "מחסניות", targetQuantity: 7, quantity: 5 }), line({ label: "שק שינה", present: true })];
+    expect(missingDescriptions(lines)).toEqual(["קסדה", "מחסניות (5/7)"]);
+  });
+
+  it("groups keep checklist order, each group where its first item is", () => {
+    const groups = groupLines([
+      line({ itemId: "c", groupName: "ב", sortOrder: 30 }),
+      line({ itemId: "a", groupName: "א", sortOrder: 10 }),
+      line({ itemId: "b", groupName: "ב", sortOrder: 20 }),
+      line({ itemId: "d", groupName: "א", sortOrder: 40 }),
+    ]);
+    expect(groups.map((g) => [g.groupName, g.lines.map((l) => l.itemId)])).toEqual([
+      ["א", ["a", "d"]],
+      ["ב", ["b", "c"]],
+    ]);
+  });
+
+  it("new lines start per the company setting", () => {
+    expect(defaultStatus({ targetQuantity: null }, false)).toEqual({ present: false, quantity: null });
+    expect(defaultStatus({ targetQuantity: null }, true)).toEqual({ present: true, quantity: null });
+    expect(defaultStatus({ targetQuantity: 7 }, true)).toEqual({ present: false, quantity: 7 });
+    expect(defaultStatus({ targetQuantity: 7 }, false)).toEqual({ present: false, quantity: 0 });
+  });
+
+  it("a live kit shows the active list; a closed deployment shows what was recorded", () => {
+    const def = (id: string, isActive = true) => ({ id, label: id, groupName: "g", sortOrder: 0, targetQuantity: null, systemKey: null, isActive });
+    const rows = [
+      { present: true, quantity: null, item: def("old", false) },
+      { present: true, quantity: null, item: def("kept") },
+    ];
+    const activeDefs = [def("kept"), def("added")];
+    expect(checklistLines(rows, { history: false, activeDefs }).map((l) => [l.itemId, l.present])).toEqual([
+      ["kept", true],
+      ["added", false],
+    ]);
+    expect(checklistLines(rows, { history: true }).map((l) => l.itemId).sort()).toEqual(["kept", "old"]);
   });
 });

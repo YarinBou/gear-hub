@@ -43,5 +43,6 @@ export async function startDeployment(page: Page, name: string, mode: "copy" | "
   await page.getByLabel("שם ההפעלה").fill(name);
   await page.getByText(mode === "copy" ? /^להמשיך מ/ : "להתחיל נקי", { exact: mode !== "copy" }).click();
   await page.getByRole("button", { name: "פתיחת ההפעלה" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  // Creates kits 1–98 with their checklists; slow from a laptop to the cloud test database.
+  await expect(page).toHaveURL(/\/$/, { timeout: 60_000 });
 }

@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, ClipboardList, Crosshair, History, PenLine, 
 import { companyContext } from "@/lib/context";
 import { NoDeploymentCard, ReadOnlyWhenClosed } from "@/components/deployment-gate";
 import { PLATOONS, TOTAL_KITS } from "@/lib/constants";
-import { KIT_ITEMS, KIT_ITEM_KEYS, kitReadiness, type KitBooleanKey } from "@/lib/kit";
+import { kitReadiness } from "@/lib/kit";
 import { getKit, getKitNeighbours, getSoldiersWithKit, getWeaponOptions } from "@/lib/queries/kits";
 import { getSoldierOptions } from "@/lib/queries/soldiers";
 import { formatDateTime, formatDaysAgo } from "@/lib/utils";
@@ -21,7 +21,6 @@ import { SignaturePad } from "./signature-pad";
 
 export const metadata: Metadata = { title: "ערכה אישית" };
 
-const LABEL_BY_KEY = new Map(KIT_ITEMS.map((i) => [i.key, i.label]));
 
 export default async function KitPage({ params, searchParams }: PageProps<"/kits/[kitNumber]">) {
   const { deployment } = await companyContext();
@@ -42,8 +41,8 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
   ]);
   const assignable = allSoldiers.filter((s) => !withKit.has(s.id));
 
-  const checklist = Object.fromEntries(KIT_ITEM_KEYS.map((k) => [k, kit?.[k] ?? false])) as Record<KitBooleanKey, boolean>;
-  const readiness = kit ? kitReadiness(kit) : 0;
+  const lines = kit?.lines ?? [];
+  const readiness = kit ? kitReadiness(lines) : 0;
   const issued = !!kit?.soldier;
   const navHref = (n: number) => `/kits/${n}${platoon ? `?platoon=${platoon}` : ""}`;
 
@@ -128,7 +127,7 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
               <CardDescription>הקשה על פריט מחליפה בין קיים לחסר ונשמרת מיד</CardDescription>
             </CardHeader>
             <CardContent>
-              <KitChecklist key={kitNumber} kitNumber={kitNumber} checklist={checklist} issued={issued} />
+              <KitChecklist key={kitNumber} kitNumber={kitNumber} lines={lines} issued={issued} />
             </CardContent>
           </Card>
 
@@ -216,7 +215,7 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
                         ) : (
                           <p>
                             <span className="text-danger font-medium">חסרים: </span>
-                            {ins.missingItems.map((k) => LABEL_BY_KEY.get(k as KitBooleanKey) ?? k).join(", ")}
+                            {ins.missingItems.join(", ")}
                           </p>
                         )}
                         {ins.note && <p className="text-muted-foreground">&quot;{ins.note}&quot;</p>}

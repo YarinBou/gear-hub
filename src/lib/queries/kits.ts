@@ -3,14 +3,16 @@ import { connection } from "next/server";
 import { companyContext } from "@/lib/context";
 import { flattenState, inState, stateSelect } from "@/lib/equipment-state";
 import { TOTAL_KITS } from "@/lib/constants";
-import { KIT_ITEM_KEYS, kitChecklistSelect, kitReadiness, type KitBooleanKey } from "@/lib/kit";
+import { checklistLines, kitItemsSelect, kitReadiness, missingDescriptions, type ChecklistLine } from "@/lib/kit";
+import { activeItemDefs } from "@/lib/kit-service";
 import type { Platoon } from "@/generated/prisma/enums";
 
 export type KitTile = {
   kitNumber: number;
   soldier: { id: string; name: string; platoon: Platoon } | null;
   readiness: number;
-  missing: KitBooleanKey[];
+  /** Incomplete checklist lines ("קסדה", "מחסניות (5/7)"). */
+  missing: string[];
   signedAt: Date | null;
   lastInspectedAt: Date | null;
 };
@@ -18,24 +20,29 @@ export type KitTile = {
 /** All 98 slots, including kits whose DB row doesn't exist yet. */
 export async function listKits(): Promise<KitTile[]> {
   await connection();
-  const { db } = await companyContext();
-  const kits = await db.personalKit.findMany({
-    select: {
-      kitNumber: true,
-      signedAt: true,
-      lastInspectedAt: true,
-      soldier: { select: { id: true, name: true, platoon: true } },
-      ...kitChecklistSelect,
-    },
-  });
+  const { db, deployment } = await companyContext();
+  const [kits, activeDefs] = await Promise.all([
+    db.personalKit.findMany({
+      select: {
+        kitNumber: true,
+        signedAt: true,
+        lastInspectedAt: true,
+        soldier: { select: { id: true, name: true, platoon: true } },
+        ...kitItemsSelect,
+      },
+    }),
+    activeItemDefs(db),
+  ]);
+  const history = !!deployment?.readOnly;
   const byNumber = new Map(kits.map((k) => [k.kitNumber, k]));
   return Array.from({ length: TOTAL_KITS }, (_, i) => {
     const k = byNumber.get(i + 1);
+    const lines = k ? checklistLines(k.items, { history, activeDefs }) : [];
     return {
       kitNumber: i + 1,
       soldier: k?.soldier ?? null,
-      readiness: k ? kitReadiness(k) : 0,
-      missing: k ? KIT_ITEM_KEYS.filter((key) => !k[key]) : [...KIT_ITEM_KEYS],
+      readiness: k ? kitReadiness(lines) : 0,
+      missing: missingDescriptions(lines),
       signedAt: k?.signedAt ?? null,
       lastInspectedAt: k?.lastInspectedAt ?? null,
     };
@@ -44,6 +51,7 @@ export async function listKits(): Promise<KitTile[]> {
 
 export async function getKit(kitNumber: number) {
   const { db, deployment } = await companyContext();
+  const activeDefs = await activeItemDefs(db);
   // Kit numbers repeat across companies and deployments; the scoped client limits this to the
   // user's company and the viewed deployment.
   const kit = await db.personalKit.findFirst({
@@ -59,6 +67,7 @@ export async function getKit(kitNumber: number) {
         },
       },
       signedBy: { select: { name: true } },
+      ...kitItemsSelect,
       inspections: {
         orderBy: { createdAt: "desc" },
         take: 10,
@@ -67,7 +76,10 @@ export async function getKit(kitNumber: number) {
     },
   });
   if (!kit) return null;
-  return { ...kit, personalWeapon: kit.personalWeapon ? flattenState(kit.personalWeapon) : null };
+  const { items, ...rest } = kit;
+  // Live deployment: the company's current checklist. Closed one: exactly what was recorded.
+  const lines: ChecklistLine[] = checklistLines(items, { history: !!deployment?.readOnly, activeDefs });
+  return { ...rest, lines, personalWeapon: kit.personalWeapon ? flattenState(kit.personalWeapon) : null };
 }
 
 export type KitDetail = NonNullable<Awaited<ReturnType<typeof getKit>>>;

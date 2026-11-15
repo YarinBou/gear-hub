@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { recordMovement } from "@/app/(app)/ammo/actions";
 import { assignKit, completeInspection, setKitItem, signKit, updateWeapon } from "@/app/(app)/kits/actions";
-import { activeDeployment, form, loginAs, makeAmmoStock, makeItem, makeSoldier, stateOf } from "./factories";
+import { activeDeployment, form, kitItemId, kitLine, loginAs, makeAmmoStock, makeItem, makeSoldier, stateOf } from "./factories";
 
 const SIGNATURE = "data:image/png;base64,AAAA";
 
@@ -55,7 +55,9 @@ describe("personal kits", () => {
 
     expect(await signKit(7, SIGNATURE)).toMatchObject({ ok: true });
     let kit = await prisma.personalKit.findFirstOrThrow({ where: { kitNumber: 7 } });
-    expect(kit).toMatchObject({ soldierId: a.id, personalWeaponId: rifle.id, weaponIssued: true });
+    expect(kit).toMatchObject({ soldierId: a.id, personalWeaponId: rifle.id });
+    // Linking the rifle fulfils the checklist's personal-weapon line.
+    expect(await kitLine(kit.id, "נשק אישי")).toMatchObject({ present: true });
     expect(kit.signedAt).not.toBeNull();
 
     await assignKit(7, undefined, form({ soldierId: b.id }));
@@ -80,10 +82,11 @@ describe("personal kits", () => {
     await loginAs();
     const s = await makeSoldier();
     await assignKit(4, undefined, form({ soldierId: s.id }));
-    await setKitItem(4, "helmet", true);
+    await setKitItem(4, await kitItemId("קסדה"), true);
     expect(await completeInspection(4, "")).toMatchObject({ ok: true });
     const insp = await prisma.kitInspection.findFirstOrThrow();
-    expect(insp.missingItems).not.toContain("helmet");
-    expect(insp.missingItems).toContain("sleepingBag");
+    // Recorded by name, as items are called at the time.
+    expect(insp.missingItems).not.toContain("קסדה");
+    expect(insp.missingItems).toContain("שק שינה");
   });
 });

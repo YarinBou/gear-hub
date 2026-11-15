@@ -1,36 +1,28 @@
 "use client";
 
 import { useOptimistic, useState, useTransition } from "react";
-import { Check, CheckCheck, ClipboardCheck, X } from "lucide-react";
+import { Check, CheckCheck, ClipboardCheck, Minus, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { KIT_GROUP_LABELS, KIT_ITEMS, type KitBooleanKey, type KitGroup } from "@/lib/kit";
+import { groupLines, kitReadiness, lineComplete, type ChecklistLine } from "@/lib/kit";
 import { cn } from "@/lib/utils";
-import { completeInspection, setAllKitItems, setKitItem } from "../actions";
+import { completeInspection, setAllKitItems, setKitItem, setKitItemQuantity } from "../actions";
 
-type Checklist = Record<KitBooleanKey, boolean>;
-type Patch = { key: KitBooleanKey | "*"; value: boolean };
-
-const GROUPS: KitGroup[] = ["weapon", "accessories", "personal"];
+type Patch = { itemId: string | "*"; present?: boolean; quantity?: number };
 
 /**
- * Inspection checklist. Every tap saves immediately (optimistic), so an inspector can
- * walk down the list with one thumb and never press "save".
+ * Inspection checklist (the company's own list — see /kits/items). Every tap saves immediately
+ * (optimistic), so an inspector can walk down the list with one thumb and never press "save".
+ * Counted items (e.g. magazines) get − / + instead of a toggle.
  */
-export function KitChecklist({
-  kitNumber,
-  checklist,
-  issued,
-}: {
-  kitNumber: number;
-  checklist: Checklist;
-  issued: boolean;
-}) {
-  const [optimistic, apply] = useOptimistic(checklist, (state: Checklist, p: Patch) =>
-    p.key === "*"
-      ? (Object.fromEntries(Object.keys(state).map((k) => [k, p.value])) as Checklist)
-      : { ...state, [p.key]: p.value },
+export function KitChecklist({ kitNumber, lines, issued }: { kitNumber: number; lines: ChecklistLine[]; issued: boolean }) {
+  const [optimistic, apply] = useOptimistic(lines, (state: ChecklistLine[], p: Patch) =>
+    state.map((l) => {
+      if (p.itemId === "*") return { ...l, present: true, quantity: l.targetQuantity ?? l.quantity };
+      if (l.itemId !== p.itemId) return l;
+      return { ...l, ...(p.present !== undefined ? { present: p.present } : {}), ...(p.quantity !== undefined ? { quantity: p.quantity } : {}) };
+    }),
   );
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -38,25 +30,27 @@ export function KitChecklist({
   const [inspecting, startInspection] = useTransition();
   const [inspectionMsg, setInspectionMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const total = KIT_ITEMS.length;
-  const present = KIT_ITEMS.filter((i) => optimistic[i.key]).length;
-  const pct = Math.round((present / total) * 100);
+  const total = optimistic.length;
+  const complete = optimistic.filter(lineComplete).length;
+  const pct = kitReadiness(optimistic);
 
-  const toggle = (key: KitBooleanKey) => {
-    const value = !optimistic[key];
+  const save = (patch: Patch, run: () => Promise<{ ok: boolean; message?: string }>) => {
     setError(null);
     startTransition(async () => {
-      apply({ key, value });
-      const r = await setKitItem(kitNumber, key, value);
+      apply(patch);
+      const r = await run();
       if (!r.ok) setError(r.message ?? "השמירה נכשלה");
     });
   };
-  const allPresent = () =>
-    startTransition(async () => {
-      apply({ key: "*", value: true });
-      const r = await setAllKitItems(kitNumber, true);
-      if (!r.ok) setError(r.message ?? "השמירה נכשלה");
-    });
+  const toggle = (line: ChecklistLine) =>
+    save({ itemId: line.itemId, present: !line.present }, () => setKitItem(kitNumber, line.itemId, !line.present));
+  const setQuantity = (line: ChecklistLine, quantity: number) =>
+    save({ itemId: line.itemId, quantity }, () => setKitItemQuantity(kitNumber, line.itemId, quantity));
+  const allPresent = () => save({ itemId: "*" }, () => setAllKitItems(kitNumber));
+
+  if (!total) {
+    return <p className="text-muted-foreground text-sm">לפלוגה עדיין אין רשימת ציוד לערכה. מנהל יכול להגדיר אותה במסך &quot;תכולת ערכה&quot;.</p>;
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -67,49 +61,28 @@ export function KitChecklist({
           indicatorClassName={pct === 100 ? "bg-success" : pct >= 75 ? "bg-warning" : "bg-danger"}
         />
         <span className="shrink-0 text-sm font-semibold tabular-nums">
-          {present}/{total}
+          {complete}/{total}
         </span>
       </div>
 
-      {GROUPS.map((g) => {
-        const items = KIT_ITEMS.filter((i) => i.group === g);
-        return (
-          <section key={g}>
-            <h3 className="text-muted-foreground mb-1 text-xs font-semibold">
-              {KIT_GROUP_LABELS[g]} ({items.filter((i) => optimistic[i.key]).length}/{items.length})
-            </h3>
-            <ul className="divide-y rounded-lg border">
-              {items.map((item) => {
-                const on = optimistic[item.key];
-                return (
-                  <li key={item.key}>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={on}
-                      onClick={() => toggle(item.key)}
-                      className="active:bg-accent flex min-h-12 w-full items-center gap-3 px-3 text-start"
-                    >
-                      <span
-                        className={cn(
-                          "flex size-7 shrink-0 items-center justify-center rounded-full transition-colors",
-                          on ? "bg-success text-success-foreground" : "bg-danger/15 text-danger",
-                        )}
-                      >
-                        {on ? <Check className="size-4" /> : <X className="size-4" />}
-                      </span>
-                      <span className={cn("flex-1 font-medium", !on && "text-danger")}>{item.label}</span>
-                      <span className={cn("text-xs font-medium", on ? "text-success" : "text-danger")}>
-                        {on ? "קיים" : "חסר"}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        );
-      })}
+      {groupLines(optimistic).map((g) => (
+        <section key={g.groupName}>
+          <h3 className="text-muted-foreground mb-1 text-xs font-semibold">
+            {g.groupName} ({g.lines.filter(lineComplete).length}/{g.lines.length})
+          </h3>
+          <ul className="divide-y rounded-lg border">
+            {g.lines.map((line) => (
+              <li key={line.itemId}>
+                {line.targetQuantity != null ? (
+                  <QuantityRow line={line} onChange={(q) => setQuantity(line, q)} />
+                ) : (
+                  <ToggleRow line={line} onToggle={() => toggle(line)} />
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
 
       {error && (
         <p role="alert" className="text-danger text-sm">
@@ -118,7 +91,7 @@ export function KitChecklist({
       )}
 
       <div className="flex flex-col gap-3 rounded-lg border p-3">
-        <Button type="button" variant="outline" onClick={allPresent} disabled={present === total}>
+        <Button type="button" variant="outline" onClick={allPresent} disabled={complete === total}>
           <CheckCheck />
           סימון הכל כקיים
         </Button>
@@ -152,6 +125,59 @@ export function KitChecklist({
             )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function StatusDot({ on }: { on: boolean }) {
+  return (
+    <span
+      className={cn(
+        "flex size-7 shrink-0 items-center justify-center rounded-full transition-colors",
+        on ? "bg-success text-success-foreground" : "bg-danger/15 text-danger",
+      )}
+    >
+      {on ? <Check className="size-4" /> : <X className="size-4" />}
+    </span>
+  );
+}
+
+function ToggleRow({ line, onToggle }: { line: ChecklistLine; onToggle: () => void }) {
+  const on = line.present;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={onToggle}
+      className="active:bg-accent flex min-h-12 w-full items-center gap-3 px-3 text-start"
+    >
+      <StatusDot on={on} />
+      <span className={cn("flex-1 font-medium", !on && "text-danger")}>{line.label}</span>
+      <span className={cn("text-xs font-medium", on ? "text-success" : "text-danger")}>{on ? "קיים" : "חסר"}</span>
+    </button>
+  );
+}
+
+function QuantityRow({ line, onChange }: { line: ChecklistLine; onChange: (quantity: number) => void }) {
+  const qty = line.quantity ?? 0;
+  const target = line.targetQuantity ?? 0;
+  const ok = qty >= target;
+  return (
+    <div className="flex min-h-12 items-center gap-3 px-3" role="group" aria-label={line.label}>
+      <StatusDot on={ok} />
+      <span className={cn("flex-1 font-medium", !ok && "text-danger")}>{line.label}</span>
+      <div className="flex items-center gap-1">
+        <Button type="button" variant="outline" size="icon" aria-label={`פחות ${line.label}`} disabled={qty <= 0} onClick={() => onChange(qty - 1)}>
+          <Minus />
+        </Button>
+        <span className={cn("w-14 text-center text-sm font-semibold tabular-nums", ok ? "text-success" : "text-danger")}>
+          {qty}/{target}
+        </span>
+        <Button type="button" variant="outline" size="icon" aria-label={`עוד ${line.label}`} onClick={() => onChange(qty + 1)}>
+          <Plus />
+        </Button>
       </div>
     </div>
   );

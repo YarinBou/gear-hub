@@ -74,14 +74,18 @@ enum StorageStatus {
 
 /// A company (פלוגה). Created by a SUPER_ADMIN together with its first admin.
 model Company {
-  id        String   @id @default(cuid())
-  name      String   @unique
+  id                String   @id @default(cuid())
+  name              String   @unique
   /// Deactivated companies can't sign in.
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isActive          Boolean  @default(true)
+  /// New kits start with every checklist item present (true) or missing (false). Set on /kits/items.
+  kitDefaultPresent Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   users                User[]
+  kitItemDefs          KitItemDef[]
+  kitItemStatuses      KitItemStatus[]
   deployments          Deployment[]
   equipmentAssignments EquipmentAssignment[]
   soldiers             Soldier[]
@@ -359,7 +363,7 @@ model AmmoLog {
 // ───────────────────────────── Module D: ציוד אישי והחתמות ─────────────────────────────
 
 /// One of the 98 personal combat kits of a deployment — the digital sign-out form.
-/// Boolean fields are "present / signed for". Keep KIT_ITEMS in src/lib/kit.ts in sync.
+/// Its checklist is KitItemStatus rows against the company's KitItemDef list.
 model PersonalKit {
   id           String     @id @default(cuid())
   companyId    String
@@ -376,28 +380,11 @@ model PersonalKit {
   personalWeapon   EquipmentItem? @relation(fields: [personalWeaponId], references: [id], onDelete: SetNull)
   /// e.g. M16 / M4 (free text, kept even without a linked serial item)
   rifleType        String?
-  weaponIssued     Boolean        @default(false)
   magazineCount    Int            @default(0)
   ammoCount        Int            @default(0)
 
-  // כלי ניקוי ונשק
-  cleaningKit Boolean @default(false)
-  weaponSling Boolean @default(false)
-  weaponOil   Boolean @default(false)
-
-  // ציוד אישי ללוחם (כולל חורף)
-  uniform1        Boolean @default(false)
-  uniform2        Boolean @default(false)
-  workBelt        Boolean @default(false)
-  sleepingBag     Boolean @default(false)
-  tacticalEyewear Boolean @default(false)
-  kneePads        Boolean @default(false)
-  gearBag90L      Boolean @default(false)
-  tacticalVest    Boolean @default(false)
-  ceramicPlates   Boolean @default(false)
-  helmet          Boolean @default(false)
-  catTourniquet   Boolean @default(false)
-  headlamp        Boolean @default(false)
+  // The checklist (רשימת ציוד) lives in KitItemStatus — one row per checklist item.
+  items KitItemStatus[]
 
   // החתמה
   signedAt        DateTime?
@@ -425,7 +412,7 @@ model KitInspection {
   company       Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
   kitId         String
   kit           PersonalKit @relation(fields: [kitId], references: [id], onDelete: Cascade)
-  /// Keys of KIT_ITEMS found missing during this inspection.
+  /// Names of the checklist items found missing, as they were called at the time of the inspection.
   missingItems  String[]
   performedById String?
   performedBy   User?       @relation(fields: [performedById], references: [id], onDelete: SetNull)
@@ -433,6 +420,50 @@ model KitInspection {
   createdAt     DateTime    @default(now())
 
   @@index([kitId, createdAt])
+  @@index([companyId])
+}
+
+/// One line of a company's personal-kit checklist (רשימת ציוד), managed by admins on /kits/items.
+/// Never deleted once used — deactivate instead (closed deployments still show it).
+model KitItemDef {
+  id             String   @id @default(cuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  label          String
+  /// Section heading on the checklist, e.g. "כלי ניקוי ונשק".
+  groupName      String
+  sortOrder      Int      @default(0)
+  /// Expected quantity (e.g. 7 magazines). Null = just present / missing.
+  targetQuantity Int?
+  /// "WEAPON" marks the personal-weapon line: it is fulfilled automatically when a rifle is linked.
+  systemKey      String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  statuses KitItemStatus[]
+
+  @@unique([companyId, systemKey])
+  @@index([companyId, isActive, sortOrder])
+}
+
+/// One checklist line of one kit. Kits belong to a deployment, so this is per deployment too.
+model KitItemStatus {
+  id        String      @id @default(cuid())
+  companyId String
+  company   Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  kitId     String
+  kit       PersonalKit @relation(fields: [kitId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      KitItemDef  @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  /// For items without a target quantity.
+  present   Boolean     @default(false)
+  /// For items with a target quantity (complete when quantity >= target).
+  quantity  Int?
+  updatedAt DateTime    @updatedAt
+
+  @@unique([kitId, itemId])
+  @@index([itemId])
   @@index([companyId])
 }
 

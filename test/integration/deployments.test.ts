@@ -15,6 +15,8 @@ import {
   activeDeployment,
   form,
   homeCompany,
+  kitItemId,
+  kitLine,
   loginAs,
   makeAmmoStock,
   makeCategory,
@@ -51,7 +53,7 @@ describe("starting a deployment", () => {
     const stock = await makeAmmoStock({ quantity: 500, location: "בונקר" });
     await assignEquipment(rifle.id, undefined, form({ soldierId: soldier.id }));
     await assignKit(5, undefined, form({ soldierId: soldier.id }));
-    await setKitItem(5, "helmet", true);
+    await setKitItem(5, await kitItemId("קסדה"), true);
     await signKit(5, SIGNATURE);
 
     const { deployment: second, closed } = await start("שכם 2026", "copy", admin.id);
@@ -60,7 +62,9 @@ describe("starting a deployment", () => {
     // The rifle is still with the soldier, in the new deployment.
     expect(await stateOf(rifle.id, second.id)).toMatchObject({ assignedSoldierId: soldier.id, status: "WITH_SOLDIER", platoon: "PLATOON_3" });
     // Kit 5: same holder and checklist, but the soldier must sign again.
-    expect(await kit(second.id, 5)).toMatchObject({ soldierId: soldier.id, helmet: true, signedAt: null, signatureData: null });
+    const kit5 = await kit(second.id, 5);
+    expect(kit5).toMatchObject({ soldierId: soldier.id, signedAt: null, signatureData: null });
+    expect(await kitLine(kit5.id, "קסדה")).toMatchObject({ present: true });
     // Ammo: opening balance with a log entry.
     const stocks = await prisma.ammoStock.findMany({ where: { deploymentId: second.id }, include: { logs: true } });
     expect(stocks).toHaveLength(1);
@@ -149,7 +153,7 @@ describe("a closed deployment is read-only", () => {
     expect(await assignEquipment(rifle.id, undefined, form({ soldierId: "" }))).toHaveProperty("error");
     expect(await verifyEquipment([rifle.id])).toMatchObject({ ok: false });
     expect(await bulkSetStatus([rifle.id], "MISSING")).toMatchObject({ ok: false });
-    expect(await setKitItem(1, "helmet", true)).toMatchObject({ ok: false });
+    expect(await setKitItem(1, await kitItemId("קסדה"), true)).toMatchObject({ ok: false });
     expect(await assignKit(1, undefined, form({ soldierId: soldier.id }))).toHaveProperty("error");
     expect(await recordMovement(stock.id, undefined, form({ type: "ISSUE", amount: 1 }))).toHaveProperty("error");
 

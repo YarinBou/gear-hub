@@ -2,7 +2,7 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import type { EquipmentStatus } from "@/generated/prisma/enums";
 import { TOTAL_KITS } from "@/lib/constants";
-import { KIT_ITEM_KEYS } from "@/lib/kit";
+import { createKitStatuses } from "@/lib/kit-service";
 
 // Starting and closing deployments (הפעלות). Runs with a client scoped to the company but NOT to a
 // deployment (scopedDb(companyId)), because it reads one deployment and writes another.
@@ -13,7 +13,8 @@ import { KIT_ITEM_KEYS } from "@/lib/kit";
 //     who holds which item, kit holders + their checklist + weapon, and ammo quantities
 //     (as an opening count). Signatures are NOT copied — soldiers sign again for a new deployment.
 //     Soldiers who have since left the roster are dropped (their items return to the armory).
-//   - "empty": nobody holds anything, kits are blank, no ammo. Physical conditions that outlive a
+//   - "empty": nobody holds anything, kits are blank (checklist per the company's "new kits start
+//     full / empty" setting), no ammo. Physical conditions that outlive a
 //     deployment are kept: items that are missing / in repair / stored stay that way.
 
 type Tx = Prisma.TransactionClient;
@@ -98,12 +99,14 @@ export async function startDeployment(
           magazineCount: true,
           ammoCount: true,
           notes: true,
-          ...Object.fromEntries(KIT_ITEM_KEYS.map((k) => [k, true])),
+          items: { select: { itemId: true, present: true, quantity: true } },
         },
       })
     : [];
   const kitByNumber = new Map(prevKits.map((k) => [k.kitNumber, k]));
-  await tx.personalKit.createMany({
+  // Kits that carry over to the same soldier keep their checklist (by kit number).
+  const carried = new Map<number, (typeof prevKits)[number]>();
+  const newKits = await tx.personalKit.createManyAndReturn({
     data: Array.from({ length: TOTAL_KITS }, (_, i) => {
       const kitNumber = i + 1;
       const base = { companyId, deploymentId: deployment.id, kitNumber };
@@ -111,10 +114,20 @@ export async function startDeployment(
       if (!prev) return base;
       const soldierId = keepSoldier(prev.soldierId);
       if (!soldierId) return base; // the holder left — the kit starts blank
-      const { kitNumber: _n, soldierId: _s, ...rest } = prev;
+      carried.set(kitNumber, prev);
+      const { kitNumber: _n, soldierId: _s, items: _i, ...rest } = prev;
       return { ...base, ...rest, soldierId };
     }),
+    select: { id: true, kitNumber: true },
   });
+  // Checklist rows: carried kits copy theirs; the rest start per the company setting.
+  const copyFrom = new Map(
+    newKits.flatMap((k) => {
+      const prev = carried.get(k.kitNumber);
+      return prev ? [[k.id, new Map(prev.items.map((s) => [s.itemId, s]))] as const] : [];
+    }),
+  );
+  await createKitStatuses(tx, { companyId, kitIds: newKits.map((k) => k.id), copyFrom });
 
   // ── Ammo: opening balance from the previous deployment ──
   if (copy) {

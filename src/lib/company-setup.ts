@@ -1,8 +1,9 @@
 import type { Prisma } from "../generated/prisma/client";
 import type { AmmoCategory } from "../generated/prisma/enums";
+import { DEFAULT_KIT_ITEMS } from "./kit";
 
-// What a brand-new company starts with: a default catalog (editable afterwards on /catalog) and
-// its storage lines (תקן / מצאי). No deployment — kits 1–98 are created when the company starts
+// What a brand-new company starts with: a default catalog (editable afterwards on /catalog), its
+// storage lines (תקן / מצאי) and the personal-kit checklist (editable on /kits/items). No deployment — kits 1–98 are created when the company starts
 // its first deployment. Idempotent — safe to run again.
 // Shared by the super-admin "create company" action and prisma/seed.ts, so it uses relative
 // imports only (the seed runs outside Next.js).
@@ -42,7 +43,7 @@ export const DEFAULT_STORAGE_TYPES: { name: string; requiresExpiry?: boolean; ta
 
 type Tx = Prisma.TransactionClient;
 
-/** Give a company its default catalog and storage lines. Skips anything that exists. */
+/** Give a company its default catalog, storage lines and kit checklist. Skips anything that exists. */
 export async function provisionCompany(tx: Tx, companyId: string) {
   await tx.equipmentCategory.createMany({
     data: [
@@ -67,6 +68,13 @@ export async function provisionCompany(tx: Tx, companyId: string) {
   if (storageTypes.length) {
     await tx.storageItem.createMany({
       data: storageTypes.map((c) => ({ companyId, categoryId: c.id, targetQuantity: targets.get(c.name) ?? 0 })),
+    });
+  }
+
+  // Personal-kit checklist — only for a company that has none yet.
+  if (!(await tx.kitItemDef.count({ where: { companyId } }))) {
+    await tx.kitItemDef.createMany({
+      data: DEFAULT_KIT_ITEMS.map((item, i) => ({ companyId, sortOrder: (i + 1) * 10, ...item })),
     });
   }
 }

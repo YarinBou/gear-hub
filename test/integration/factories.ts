@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { CatalogDomain, EquipmentStatus, Platoon, Role } from "@/generated/prisma/enums";
 import { chooseCompany, signInAs } from "./auth-mock";
+import { DEFAULT_KIT_ITEMS } from "@/lib/kit";
 
 // Minimal builders for integration tests. Everything belongs to a company: by default the test's
 // "home" company (created on first use), or the one passed as `companyId`. Deployment-level rows
@@ -16,8 +17,29 @@ export function resetFactories() {
   homeCompanyId = null;
 }
 
-export async function makeCompany(opts: { name?: string; isActive?: boolean } = {}) {
-  return prisma.company.create({ data: { name: opts.name ?? `פלוגה ${next()}`, isActive: opts.isActive ?? true } });
+/** A company with the default personal-kit checklist (as a real new company gets). */
+export async function makeCompany(opts: { name?: string; isActive?: boolean; kitDefaultPresent?: boolean } = {}) {
+  const company = await prisma.company.create({
+    data: { name: opts.name ?? `פלוגה ${next()}`, isActive: opts.isActive ?? true, kitDefaultPresent: opts.kitDefaultPresent ?? false },
+  });
+  await prisma.kitItemDef.createMany({
+    data: DEFAULT_KIT_ITEMS.map((item, i) => ({ companyId: company.id, sortOrder: (i + 1) * 10, ...item })),
+  });
+  return company;
+}
+
+/** A checklist item of the company, by its name (e.g. "קסדה"). */
+export async function kitItemId(label: string, companyId?: string) {
+  const def = await prisma.kitItemDef.findFirstOrThrow({ where: { companyId: await companyOf(companyId), label } });
+  return def.id;
+}
+
+/** A kit's checklist row for one item (by name). */
+export async function kitLine(kitId: string, label: string) {
+  const kit = await prisma.personalKit.findUniqueOrThrow({ where: { id: kitId }, select: { companyId: true } });
+  return prisma.kitItemStatus.findUnique({
+    where: { kitId_itemId: { kitId, itemId: await kitItemId(label, kit.companyId) } },
+  });
 }
 
 /** The default company for factories that aren't given a companyId. */

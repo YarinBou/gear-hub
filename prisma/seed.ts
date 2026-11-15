@@ -63,11 +63,8 @@ async function seedDemo(companyId: string) {
   const lastNames = ["כהן", "לוי", "מזרחי", "פרץ", "ביטון", "אברהם", "פרידמן", "דהן", "אזולאי", "שפירא"];
 
   const m16 = await prisma.equipmentCategory.findFirstOrThrow({ where: { companyId, domain: "EQUIPMENT", name: "M16" } });
-  const kitKeys = [
-    "weaponIssued", "cleaningKit", "weaponSling", "weaponOil", "uniform1", "uniform2", "workBelt",
-    "sleepingBag", "tacticalEyewear", "kneePads", "gearBag90L", "tacticalVest", "ceramicPlates",
-    "helmet", "catTourniquet", "headlamp",
-  ] as const;
+  // The company's checklist (created by provisionCompany).
+  const kitItems = await prisma.kitItemDef.findMany({ where: { companyId, isActive: true }, orderBy: { sortOrder: "asc" } });
 
   // Demo data lives in an active deployment (kits, holders and ammo belong to one).
   const deployment =
@@ -108,10 +105,14 @@ async function seedDemo(companyId: string) {
         },
       },
     });
-    const flags = Object.fromEntries(kitKeys.map((k, j) => [k, (i + j) % 9 !== 0]));
-    await prisma.personalKit.update({
+    const kit = await prisma.personalKit.update({
       where: { deploymentId_kitNumber: { deploymentId, kitNumber: i + 1 } },
-      data: { soldierId: soldier.id, personalWeaponId: weapon.id, rifleType: "M16", magazineCount: 7, ammoCount: 210, ...flags },
+      data: { soldierId: soldier.id, personalWeaponId: weapon.id, rifleType: "M16", magazineCount: 7, ammoCount: 210 },
+    });
+    // A few gaps per kit, so the readiness grid has something to show.
+    await prisma.kitItemStatus.createMany({
+      data: kitItems.map((item, j) => ({ companyId, kitId: kit.id, itemId: item.id, present: (i + j) % 9 !== 0 })),
+      skipDuplicates: true,
     });
   }
 

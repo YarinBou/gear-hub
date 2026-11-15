@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { config } from "dotenv";
 import { Client } from "pg";
 import { describeUrl, hasMarker, MARKER_TABLE, rememberAppUrls, testDatabaseUrl } from "../test/integration/test-db";
+import { DEFAULT_KIT_ITEMS } from "../src/lib/kit";
 import { E2E } from "./fixtures";
 
 // Before the browser tests: same guards as the integration tests (the database must be the marked
@@ -47,6 +48,13 @@ export default async function globalSetup() {
       await db.query(
         `INSERT INTO "Soldier"(id, "companyId", name, platoon, "updatedAt") VALUES ($1, $2, $3, $4, now())`,
         [id(), companyId, name, platoon],
+      );
+    }
+    // The default personal-kit checklist (what provisionCompany gives a real company).
+    for (const [i, item] of DEFAULT_KIT_ITEMS.entries()) {
+      await db.query(
+        `INSERT INTO "KitItemDef"(id, "companyId", label, "groupName", "sortOrder", "systemKey", "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, now())`,
+        [id(), companyId, item.label, item.groupName, (i + 1) * 10, item.systemKey ?? null],
       );
     }
     const m16 = id();
