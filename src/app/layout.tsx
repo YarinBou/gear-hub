@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Heebo } from "next/font/google";
 import "./globals.css";
 import { VercelInsights } from "@/components/vercel-insights";
+import { THEME_SCRIPT } from "@/lib/theme";
 
 const heebo = Heebo({
   variable: "--font-heebo",
@@ -17,12 +18,20 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#4a5d32",
+  // Matches --background in globals.css for each theme.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f3f4ee" },
+    { media: "(prefers-color-scheme: dark)", color: "#11130d" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="he" dir="rtl" className={`${heebo.variable} h-full`}>
+    // suppressHydrationWarning: the theme script below may add "dark" to <html> before React hydrates.
+    <html lang="he" dir="rtl" className={`${heebo.variable} h-full`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="min-h-full font-sans">
         {children}
         <VercelInsights />

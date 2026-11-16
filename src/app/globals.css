@@ -10,59 +10,103 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Color tokens. Every pair used for text was checked against WCAG AA (4.5:1) in both themes.
+ * Status colors (success / warning / danger) mean "ok / needs attention / missing" and nothing else;
+ * platoon identity colors live elsewhere and never reuse these hues.
+ */
 :root {
-  --radius: 0.75rem;
-  --background: oklch(0.985 0.003 120);
-  --foreground: oklch(0.18 0.01 120);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.01 120);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.01 120);
+  color-scheme: light;
+  --radius: 0.625rem;
+  --background: #f3f4ee;
+  --foreground: #171a12;
+  --card: #ffffff;
+  --card-foreground: #171a12;
+  --popover: #ffffff;
+  --popover-foreground: #171a12;
   /* Olive-drab primary */
-  --primary: oklch(0.42 0.07 128);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.95 0.01 120);
-  --secondary-foreground: oklch(0.25 0.02 120);
-  --muted: oklch(0.955 0.006 120);
-  --muted-foreground: oklch(0.5 0.015 120);
-  --accent: oklch(0.94 0.02 125);
-  --accent-foreground: oklch(0.25 0.03 125);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.91 0.008 120);
-  --input: oklch(0.91 0.008 120);
-  --ring: oklch(0.55 0.07 128);
+  --primary: #3f5226;
+  --primary-foreground: #ffffff;
+  --secondary: #eceee6;
+  --secondary-foreground: #2b3022;
+  --muted: #eceee6;
+  --muted-foreground: #555c4c;
+  --accent: #e4ead6;
+  --accent-foreground: #26301a;
+  --destructive: #a1211a;
+  --border: #cfd3c4;
+  /* Form-control outlines need 3:1 against the surface, so they are darker than dividers. */
+  --input: #878d7b;
+  --ring: #5f7a3a;
 
-  /* Status tokens */
-  --success: oklch(0.6 0.15 150);
-  --success-foreground: oklch(0.985 0 0);
-  --warning: oklch(0.77 0.16 75);
-  --warning-foreground: oklch(0.25 0.05 75);
-  --danger: oklch(0.6 0.22 27);
-  --danger-foreground: oklch(0.985 0 0);
+  /* Status tokens: the plain token works both as a fill and as text on a light surface or its own tint. */
+  --success: #17612f;
+  --success-foreground: #ffffff;
+  --warning: #f2b01e;
+  --warning-foreground: #5c3800;
+  --danger: #a1211a;
+  --danger-foreground: #ffffff;
 }
 
 .dark {
-  --background: oklch(0.16 0.008 120);
-  --foreground: oklch(0.96 0.005 120);
-  --card: oklch(0.2 0.01 120);
-  --card-foreground: oklch(0.96 0.005 120);
-  --popover: oklch(0.2 0.01 120);
-  --popover-foreground: oklch(0.96 0.005 120);
-  --primary: oklch(0.7 0.1 128);
-  --primary-foreground: oklch(0.16 0.01 120);
-  --secondary: oklch(0.27 0.01 120);
-  --secondary-foreground: oklch(0.96 0.005 120);
-  --muted: oklch(0.27 0.01 120);
-  --muted-foreground: oklch(0.7 0.015 120);
-  --accent: oklch(0.3 0.02 125);
-  --accent-foreground: oklch(0.96 0.005 120);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.6 0.08 128);
-  --success: oklch(0.68 0.15 150);
-  --warning: oklch(0.8 0.15 75);
-  --danger: oklch(0.68 0.2 25);
+  color-scheme: dark;
+  --background: #11130d;
+  --foreground: #e9ecdf;
+  --card: #1a1d14;
+  --card-foreground: #e9ecdf;
+  --popover: #1a1d14;
+  --popover-foreground: #e9ecdf;
+  --primary: #a8c178;
+  --primary-foreground: #141a0a;
+  --secondary: #262a1f;
+  --secondary-foreground: #e9ecdf;
+  --muted: #262a1f;
+  --muted-foreground: #a1a895;
+  --accent: #2a3320;
+  --accent-foreground: #e9ecdf;
+  /* A fill that keeps white text readable; red text uses --danger. */
+  --destructive: #c13a30;
+  --border: #343a2b;
+  --input: #6b725f;
+  --ring: #8aa35f;
+  --success: #7fd39a;
+  --success-foreground: #0d2415;
+  --warning: #f0c060;
+  --warning-foreground: #2e2100;
+  --danger: #ff9c90;
+  --danger-foreground: #3a0d09;
+}
+
+/* Paper is white: printed pages use the light tokens even when the screen is in dark mode. */
+@media print {
+  :root,
+  .dark {
+    color-scheme: light;
+    --background: #ffffff;
+    --foreground: #000000;
+    --card: #ffffff;
+    --card-foreground: #000000;
+    --popover: #ffffff;
+    --popover-foreground: #000000;
+    --primary: #3f5226;
+    --primary-foreground: #ffffff;
+    --secondary: #eceee6;
+    --secondary-foreground: #2b3022;
+    --muted: #eceee6;
+    --muted-foreground: #555c4c;
+    --accent: #e4ead6;
+    --accent-foreground: #26301a;
+    --destructive: #a1211a;
+    --border: #cfd3c4;
+    --input: #878d7b;
+    --ring: #5f7a3a;
+    --success: #17612f;
+    --success-foreground: #ffffff;
+    --warning: #f2b01e;
+    --warning-foreground: #5c3800;
+    --danger: #a1211a;
+    --danger-foreground: #ffffff;
+  }
 }
 
 @theme inline {
@@ -104,6 +148,26 @@
   body {
     @apply bg-background text-foreground antialiased;
     -webkit-tap-highlight-color: transparent;
+  }
+  /* No double-tap zoom delay on anything tappable. */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  label {
+    touch-action: manipulation;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
