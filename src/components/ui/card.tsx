@@ -24,8 +24,9 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="card-title" className={cn("leading-none font-semibold", className)} {...props} />;
+// A real heading: screen readers get the page outline (h1 page title, h2 per card).
+function CardTitle({ className, ...props }: React.ComponentProps<"h2">) {
+  return <h2 data-slot="card-title" className={cn("leading-none font-semibold", className)} {...props} />;
 }
 
 function CardDescription({ className, ...props }: React.ComponentProps<"div">) {

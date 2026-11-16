@@ -46,6 +46,19 @@
   --warning-foreground: #5c3800;
   --danger: #a1211a;
   --danger-foreground: #ffffff;
+
+  /* Platoon identity: purple, blue, teal, slate, indigo, cyan, umber, navy, steel, lilac.
+     Deliberately no red, amber or green, so a platoon can never be read as a status. */
+  --platoon-1: #9b4fc0;
+  --platoon-2: #2f6fd0;
+  --platoon-3: #0f8c8c;
+  --platoon-4: #5b6470;
+  --platoon-5: #4f46b8;
+  --platoon-6: #0e7fa8;
+  --platoon-7: #7a5a3a;
+  --platoon-8: #27407a;
+  --platoon-9: #4f7a94;
+  --platoon-10: #8f7fd6;
 }
 
 .dark {
@@ -75,6 +88,16 @@
   --warning-foreground: #2e2100;
   --danger: #ff9c90;
   --danger-foreground: #3a0d09;
+  --platoon-1: #c58be6;
+  --platoon-2: #7fb0ff;
+  --platoon-3: #4fc7c7;
+  --platoon-4: #a3adba;
+  --platoon-5: #9d97f0;
+  --platoon-6: #5cc0e6;
+  --platoon-7: #c9a27e;
+  --platoon-8: #8ea6e0;
+  --platoon-9: #9cc3d9;
+  --platoon-10: #b9adf0;
 }
 
 /* Paper is white: printed pages use the light tokens even when the screen is in dark mode. */
@@ -106,6 +129,16 @@
     --warning-foreground: #5c3800;
     --danger: #a1211a;
     --danger-foreground: #ffffff;
+    --platoon-1: #9b4fc0;
+    --platoon-2: #2f6fd0;
+    --platoon-3: #0f8c8c;
+    --platoon-4: #5b6470;
+    --platoon-5: #4f46b8;
+    --platoon-6: #0e7fa8;
+    --platoon-7: #7a5a3a;
+    --platoon-8: #27407a;
+    --platoon-9: #4f7a94;
+    --platoon-10: #8f7fd6;
   }
 }
 
@@ -139,6 +172,16 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
+  --color-platoon-1: var(--platoon-1);
+  --color-platoon-2: var(--platoon-2);
+  --color-platoon-3: var(--platoon-3);
+  --color-platoon-4: var(--platoon-4);
+  --color-platoon-5: var(--platoon-5);
+  --color-platoon-6: var(--platoon-6);
+  --color-platoon-7: var(--platoon-7);
+  --color-platoon-8: var(--platoon-8);
+  --color-platoon-9: var(--platoon-9);
+  --color-platoon-10: var(--platoon-10);
 }
 
 @layer base {

@@ -7,21 +7,22 @@ export type PlatoonRef = { id: string; name: string; color: number };
 export const platoonSelect = { select: { id: true, name: true, color: true } } as const;
 
 /**
- * Badge palette. A platoon keeps the color it got when it was created (`Platoon.color`), so colors
- * don't shift when platoons are reordered. The first four match the company's old Excel report
- * (1 = pink, 2 = blue, 3 = green, HQ = amber). Full class strings so Tailwind sees them at build time.
+ * Identity palette. A platoon keeps the color it got when it was created (`Platoon.color`, an index
+ * into this list), so colors do not shift when platoons are reordered. The hues live in globals.css
+ * (`--platoon-1` … `--platoon-10`) and avoid red, amber and green on purpose: those mean
+ * "missing", "needs attention" and "ok" everywhere else. Full class strings so Tailwind sees them.
  */
 const PALETTE = [
-  { badge: "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200", dot: "bg-rose-500" },
-  { badge: "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200", dot: "bg-sky-500" },
-  { badge: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200", dot: "bg-emerald-500" },
-  { badge: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200", dot: "bg-amber-500" },
-  { badge: "border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-900 dark:bg-violet-950 dark:text-violet-200", dot: "bg-violet-500" },
-  { badge: "border-teal-200 bg-teal-50 text-teal-800 dark:border-teal-900 dark:bg-teal-950 dark:text-teal-200", dot: "bg-teal-500" },
-  { badge: "border-orange-200 bg-orange-50 text-orange-900 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200", dot: "bg-orange-500" },
-  { badge: "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-800 dark:border-fuchsia-900 dark:bg-fuchsia-950 dark:text-fuchsia-200", dot: "bg-fuchsia-500" },
-  { badge: "border-lime-200 bg-lime-50 text-lime-900 dark:border-lime-900 dark:bg-lime-950 dark:text-lime-200", dot: "bg-lime-500" },
-  { badge: "border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200", dot: "bg-indigo-500" },
+  { stripe: "bg-platoon-1" }, // purple
+  { stripe: "bg-platoon-2" }, // blue
+  { stripe: "bg-platoon-3" }, // teal
+  { stripe: "bg-platoon-4" }, // slate
+  { stripe: "bg-platoon-5" }, // indigo
+  { stripe: "bg-platoon-6" }, // cyan
+  { stripe: "bg-platoon-7" }, // umber
+  { stripe: "bg-platoon-8" }, // navy
+  { stripe: "bg-platoon-9" }, // steel
+  { stripe: "bg-platoon-10" }, // lilac
 ] as const;
 
 export const PALETTE_SIZE = PALETTE.length;
