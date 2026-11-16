@@ -33,7 +33,7 @@ export default async function KitSummaryPage({ searchParams }: PageProps<"/kits/
         href={to}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium whitespace-nowrap transition-colors",
+          "flex h-11 items-center gap-2 rounded-full border px-4 text-sm font-medium whitespace-nowrap transition-colors",
           active ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent",
         )}
       >

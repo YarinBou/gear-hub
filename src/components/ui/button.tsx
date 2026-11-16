@@ -18,7 +18,8 @@ const buttonVariants = cva(
       size: {
         // Mobile-first: default height is a comfortable 44px tap target.
         default: "h-11 px-4 py-2 has-[>svg]:px-3",
-        sm: "h-9 rounded-md gap-1.5 px-3",
+        // 44px on touch screens, compact from the desktop breakpoint up.
+        sm: "h-11 rounded-md gap-1.5 px-3 lg:h-9",
         lg: "h-12 rounded-md px-6 text-base",
         icon: "size-11",
       },
