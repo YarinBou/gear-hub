@@ -41,7 +41,7 @@ async function Companies() {
         </form>
       </div>
 
-      <AddCompanyForm />
+      <AddCompanyForm companies={companies.map((c) => ({ id: c.id, name: c.name }))} />
 
       <Card className="gap-0 py-0">
         {companies.length === 0 ? (
@@ -59,6 +59,7 @@ async function Companies() {
                   soldiers: c._count.soldiers,
                   items: c._count.equipmentItems,
                 }}
+                others={companies.filter((o) => o.id !== c.id).map((o) => ({ id: o.id, name: o.name }))}
               />
             ))}
           </ul>

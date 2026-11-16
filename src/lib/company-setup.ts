@@ -44,8 +44,19 @@ export const DEFAULT_STORAGE_TYPES: { name: string; requiresExpiry?: boolean; ta
 
 type Tx = Prisma.TransactionClient;
 
-/** Give a company its default catalog, storage lines and kit checklist. Skips anything that exists. */
-export async function provisionCompany(tx: Tx, companyId: string) {
+/**
+ * Give a company its default catalog, storage lines and kit checklist. Skips anything that exists.
+ * `defaults: false` (company created from another company's setup): only platoons — the catalog
+ * and kit checklist come from the template instead (see src/lib/company-template.ts).
+ */
+export async function provisionCompany(tx: Tx, companyId: string, { defaults = true }: { defaults?: boolean } = {}) {
+  if (!(await tx.platoon.count({ where: { companyId } }))) {
+    await tx.platoon.createMany({
+      data: DEFAULT_PLATOONS.map((name, i) => ({ companyId, name, sortOrder: (i + 1) * 10, color: i })),
+    });
+  }
+  if (!defaults) return;
+
   await tx.equipmentCategory.createMany({
     data: [
       ...DEFAULT_EQUIPMENT_TYPES.map((name) => ({ companyId, domain: "EQUIPMENT" as const, name })),
@@ -69,13 +80,6 @@ export async function provisionCompany(tx: Tx, companyId: string) {
   if (storageTypes.length) {
     await tx.storageItem.createMany({
       data: storageTypes.map((c) => ({ companyId, categoryId: c.id, targetQuantity: targets.get(c.name) ?? 0 })),
-    });
-  }
-
-  // Platoons (renamed / added on /platoons) — only for a company that has none yet.
-  if (!(await tx.platoon.count({ where: { companyId } }))) {
-    await tx.platoon.createMany({
-      data: DEFAULT_PLATOONS.map((name, i) => ({ companyId, name, sortOrder: (i + 1) * 10, color: i })),
     });
   }
 

@@ -1,15 +1,18 @@
 "use client";
 
 import { startTransition, useActionState, useState, useTransition } from "react";
-import { Building2, LogIn, Plus, Power } from "lucide-react";
+import { Building2, Copy, LogIn, Plus, Power } from "lucide-react";
 import { Field } from "@/components/form-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { TempPassword } from "@/app/(app)/users/user-forms";
-import { createCompany, enterCompany, setCompanyActive } from "./actions";
+import { copySetup, createCompany, enterCompany, setCompanyActive } from "./actions";
 
-export function AddCompanyForm() {
+type CompanyRef = { id: string; name: string };
+
+export function AddCompanyForm({ companies }: { companies: CompanyRef[] }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(createCompany, undefined);
   const errors = state?.errors ?? {};
@@ -57,8 +60,25 @@ export function AddCompanyForm() {
               />
             </Field>
           </div>
+          {companies.length > 0 && (
+            <Field
+              id="company-template"
+              label="נקודת התחלה"
+              error={errors.templateId}
+              hint="קטלוג הציוד, המארזים ותכולת הערכה יועתקו מהפלוגה שנבחרה — בלי פריטים, צ' או פרטים אישיים."
+            >
+              <Select id="company-template" name="templateId" defaultValue="">
+                <option value="">ברירת מחדל של המערכת</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    העתקה מ{c.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <p className="text-muted-foreground text-xs">
-            הפלוגה נפתחת עם קטלוג ציוד ברירת מחדל, 4 מחלקות ו-98 ערכות אישיות. את כולם ניתן לשנות לאחר הכניסה.
+            הפלוגה נפתחת עם 4 מחלקות ו-98 ערכות אישיות. את הכל ניתן לשנות לאחר הכניסה.
           </p>
           {state?.error && <p className="text-danger text-sm">{state.error}</p>}
           <div className="flex gap-2">
@@ -85,8 +105,9 @@ export type CompanyRowData = {
   items: number;
 };
 
-export function CompanyRow({ company }: { company: CompanyRowData }) {
+export function CompanyRow({ company, others }: { company: CompanyRowData; others: CompanyRef[] }) {
   const [pending, start] = useTransition();
+  const [copying, setCopying] = useState(false);
   return (
     <li className="flex flex-wrap items-center gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
@@ -98,6 +119,12 @@ export function CompanyRow({ company }: { company: CompanyRowData }) {
           {company.users} משתמשים · {company.soldiers} לוחמים · {company.items} פריטי צל&quot;ם
         </p>
       </div>
+      {others.length > 0 && (
+        <Button variant="ghost" size="sm" disabled={pending} onClick={() => setCopying((o) => !o)} aria-expanded={copying}>
+          <Copy />
+          העתקת הגדרות
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="sm"
@@ -122,6 +149,45 @@ export function CompanyRow({ company }: { company: CompanyRowData }) {
         <LogIn className="rtl:-scale-x-100" />
         כניסה לפלוגה
       </Button>
+      {copying && <CopySetupPanel target={company} others={others} onClose={() => setCopying(false)} />}
     </li>
+  );
+}
+
+/** Copy another company's catalog, sets and kit checklist into this one (merge — adds only what's missing). */
+function CopySetupPanel({ target, others, onClose }: { target: CompanyRef; others: CompanyRef[]; onClose: () => void }) {
+  const [sourceId, setSourceId] = useState(others[0]?.id ?? "");
+  const [pending, start] = useTransition();
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  return (
+    <div className="bg-muted/50 flex w-full flex-col gap-3 rounded-lg border p-3">
+      <Field id={`copy-from-${target.id}`} label={`העתקה אל "${target.name}" מ־`}>
+        <Select id={`copy-from-${target.id}`} value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
+          {others.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <p className="text-muted-foreground text-xs">
+        יועתקו קטלוג הציוד (צל&quot;ם, תחמושת, אפסנאות — כולל תקן וספי מינימום), המארזים ותכולת הערכה האישית. רק מה שחסר
+        יתווסף, לפי שם — מה שכבר קיים בפלוגה לא ישתנה. לא מועתקים פריטים, צ&apos;, לוחמים, מלאי או פרטים אישיים.
+      </p>
+      {result && <p className={result.ok ? "text-success text-sm font-medium" : "text-danger text-sm"}>{result.message}</p>}
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={pending || !sourceId}
+          onClick={() => start(async () => setResult(await copySetup(target.id, sourceId)))}
+        >
+          <Copy />
+          {pending ? "מעתיק…" : "העתקה"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onClose}>
+          סגירה
+        </Button>
+      </div>
+    </div>
   );
 }
