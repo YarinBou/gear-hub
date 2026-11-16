@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Backpack, Boxes, Crosshair, Users, Warehouse } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { getDashboardData } from "@/lib/queries/dashboard";
+import { getKitSummary } from "@/lib/queries/kits";
+import { KitSummaryCard } from "@/components/dashboard/kit-summary-card";
 import { formatNumber } from "@/lib/utils";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { AlertsPanel } from "@/components/dashboard/alerts-panel";
@@ -13,7 +15,7 @@ export const metadata: Metadata = { title: "לוח בקרה" };
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const data = await getDashboardData();
+  const [data, kitSummary] = await Promise.all([getDashboardData(), getKitSummary()]);
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:gap-6">
@@ -62,6 +64,7 @@ export default async function DashboardPage() {
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 lg:gap-6">
           <KitReadinessGrid kits={data.kits} />
           <PlatoonBreakdown data={data} />
+          <KitSummaryCard summary={kitSummary} />
         </div>
         <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
           <AlertsPanel data={data} />

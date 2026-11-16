@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Check, X } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { groupLines, lineComplete, WEAPON_ITEM, type ChecklistLine } from "@/lib/kit";
+import { expectedOf, groupLines, haveOf, lineApplies, lineComplete, WEAPON_ITEM, type ChecklistLine } from "@/lib/kit";
 import { getKit, getKitSlots } from "@/lib/queries/kits";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
@@ -20,7 +20,8 @@ export default async function KitSheetPage({ params }: PageProps<"/kits/[kitNumb
   const kit = await getKit(kitNumber);
   if (!kit?.soldier) notFound();
   const weaponLine = kit.lines.find((l) => l.systemKey === WEAPON_ITEM);
-  const otherLines = kit.lines.filter((l) => l !== weaponLine);
+  // Lines the soldier didn't sign for aren't part of their kit — left off the form.
+  const otherLines = kit.lines.filter((l) => l !== weaponLine && lineApplies(l));
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -138,7 +139,7 @@ function LineValue({ line }: { line: ChecklistLine }) {
       <Issued yes={lineComplete(line)} />
       {line.targetQuantity != null && (
         <span className="tabular-nums">
-          {line.quantity ?? 0}/{line.targetQuantity}
+          {haveOf(line)}/{expectedOf(line)}
         </span>
       )}
     </span>

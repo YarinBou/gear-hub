@@ -545,6 +545,9 @@ model KitItemStatus {
   present   Boolean     @default(false)
   /// For items with a target quantity (complete when quantity >= target).
   quantity  Int?
+  /// What the soldier signed for on this line: null = no personal baseline (the company default
+  /// applies), 0 = not part of this kit, n = signed quantity (1 for present / missing lines).
+  baseline  Int?
   updatedAt DateTime    @updatedAt
 
   @@unique([kitId, itemId])

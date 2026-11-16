@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { PenLine } from "lucide-react";
+import { ClipboardList, PenLine } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { NoDeploymentCard } from "@/components/deployment-gate";
 import { getPlatoons } from "@/lib/queries/platoons";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { PlatoonDot } from "@/components/platoon-badge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "ציוד אישי והחתמות" };
 
@@ -81,11 +82,19 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-bold">ציוד אישי והחתמות</h1>
-        <p className="text-muted-foreground text-sm">
-          {issued.length} מתוך {all.length} ערכות הונפקו · {full} מלאות · {signed} הוחתמו
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold">ציוד אישי והחתמות</h1>
+          <p className="text-muted-foreground text-sm">
+            {issued.length} מתוך {all.length} ערכות הונפקו · {full} מלאות · {signed} הוחתמו
+          </p>
+        </div>
+        <Button asChild variant="outline">
+          <Link href={platoon ? `/kits/summary?platoon=${platoon}` : "/kits/summary"}>
+            <ClipboardList />
+            סיכום ציוד
+          </Link>
+        </Button>
       </div>
 
       <Card className="gap-2 px-5 py-4">
