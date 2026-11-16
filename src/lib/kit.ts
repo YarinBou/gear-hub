@@ -15,24 +15,55 @@ export type ChecklistLine = {
   systemKey: string | null;
   present: boolean;
   quantity: number | null;
+  /**
+   * What this soldier signed for (captured when the kit is signed, editable afterwards):
+   * null = no personal baseline (the company's list applies), 0 = not part of this kit,
+   * n = the signed quantity (1 for present / missing lines).
+   */
+  baseline: number | null;
 };
 
-/** Complete = present, or (for counted items) at least the expected quantity. */
-export function lineComplete(line: Pick<ChecklistLine, "targetQuantity" | "present" | "quantity">) {
-  return line.targetQuantity != null ? (line.quantity ?? 0) >= line.targetQuantity : line.present;
+type LineState = Pick<ChecklistLine, "targetQuantity" | "present" | "quantity" | "baseline">;
+
+/** How many this kit should have on this line; null = the line isn't part of this kit. */
+export function expectedOf(line: Pick<ChecklistLine, "targetQuantity" | "baseline">): number | null {
+  if (line.baseline === 0) return null;
+  if (line.targetQuantity != null) return line.baseline ?? line.targetQuantity;
+  return 1;
 }
 
-/** Readiness 0–100. A kit with no checklist lines has nothing missing. */
-export function kitReadiness(lines: Pick<ChecklistLine, "targetQuantity" | "present" | "quantity">[]): number {
-  if (!lines.length) return 100;
-  return Math.round((lines.filter(lineComplete).length / lines.length) * 100);
+/** How many the soldier has right now (present = 1). */
+export function haveOf(line: Pick<ChecklistLine, "targetQuantity" | "present" | "quantity">): number {
+  return line.targetQuantity != null ? (line.quantity ?? 0) : line.present ? 1 : 0;
+}
+
+/** Whether the line is part of this kit (not excluded by what the soldier signed for). */
+export function lineApplies(line: Pick<ChecklistLine, "targetQuantity" | "baseline">) {
+  return expectedOf(line) != null;
+}
+
+
+/**
+ * Complete = has at least what's expected (present, or the expected quantity). A line that isn't
+ * part of this kit is never missing.
+ */
+export function lineComplete(line: LineState) {
+  const expected = expectedOf(line);
+  return expected == null || haveOf(line) >= expected;
+}
+
+/** Readiness 0–100, over the lines that are part of this kit. A kit with none has nothing missing. */
+export function kitReadiness(lines: LineState[]): number {
+  const applicable = lines.filter(lineApplies);
+  if (!applicable.length) return 100;
+  return Math.round((applicable.filter(lineComplete).length / applicable.length) * 100);
 }
 
 /** Lines that aren't complete, described for an inspection record ("מחסניות (5/7)"). */
 export function missingDescriptions(lines: ChecklistLine[]) {
   return lines
     .filter((l) => !lineComplete(l))
-    .map((l) => (l.targetQuantity != null ? `${l.label} (${l.quantity ?? 0}/${l.targetQuantity})` : l.label));
+    .map((l) => (l.targetQuantity != null ? `${l.label} (${haveOf(l)}/${expectedOf(l)})` : l.label));
 }
 
 /** Lines grouped by section, in checklist order (a section sits where its first item is). */
@@ -80,6 +111,7 @@ export const kitItemsSelect = {
     select: {
       present: true,
       quantity: true,
+      baseline: true,
       item: {
         select: {
           id: true,
@@ -98,7 +130,8 @@ export const kitItemsSelect = {
 type StatusRow = {
   present: boolean;
   quantity: number | null;
-  item: Omit<ChecklistLine, "itemId" | "present" | "quantity"> & { id: string; isActive: boolean };
+  baseline: number | null;
+  item: Omit<ChecklistLine, "itemId" | "present" | "quantity" | "baseline"> & { id: string; isActive: boolean };
 };
 
 /**
@@ -108,7 +141,7 @@ type StatusRow = {
  */
 export function checklistLines(
   rows: StatusRow[],
-  opts: { history: boolean; activeDefs?: (Omit<ChecklistLine, "itemId" | "present" | "quantity"> & { id: string })[] },
+  opts: { history: boolean; activeDefs?: (Omit<ChecklistLine, "itemId" | "present" | "quantity" | "baseline"> & { id: string })[] },
 ): ChecklistLine[] {
   const toLine = (r: StatusRow): ChecklistLine => ({
     itemId: r.item.id,
@@ -119,13 +152,50 @@ export function checklistLines(
     systemKey: r.item.systemKey,
     present: r.present,
     quantity: r.quantity,
+    baseline: r.baseline,
   });
   if (opts.history) return rows.map(toLine).sort((a, b) => a.sortOrder - b.sortOrder);
   const byItem = new Map(rows.map((r) => [r.item.id, r]));
   return (opts.activeDefs ?? rows.filter((r) => r.item.isActive).map((r) => r.item))
     .map((d) => {
       const r = byItem.get(d.id);
-      return r ? toLine(r) : { ...toLine({ present: false, quantity: null, item: { ...d, isActive: true } }) };
+      return r ? toLine(r) : { ...toLine({ present: false, quantity: null, baseline: null, item: { ...d, isActive: true } }) };
     })
     .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+/** One row of the company-wide kit summary (סיכום ציוד בערכות). */
+export type KitSummaryLine = {
+  itemId: string;
+  label: string;
+  groupName: string;
+  sortOrder: number;
+  /** Total the soldiers signed for (signed kits only). */
+  signed: number;
+  /** Total actually in the kits right now. */
+  have: number;
+  /** Total short, kit by kit (one soldier's extra doesn't cover another's shortage). */
+  missing: number;
+};
+
+/** Sum the checklist over kits, per line. */
+export function summarizeKits(kits: { signed: boolean; lines: ChecklistLine[] }[]): KitSummaryLine[] {
+  const rows = new Map<string, KitSummaryLine>();
+  for (const k of kits) {
+    for (const l of k.lines) {
+      let r = rows.get(l.itemId);
+      if (!r) {
+        r = { itemId: l.itemId, label: l.label, groupName: l.groupName, sortOrder: l.sortOrder, signed: 0, have: 0, missing: 0 };
+        rows.set(l.itemId, r);
+      }
+      const have = haveOf(l);
+      const expected = expectedOf(l);
+      r.have += have;
+      if (expected != null) {
+        if (k.signed) r.signed += expected;
+        r.missing += Math.max(0, expected - have);
+      }
+    }
+  }
+  return [...rows.values()].sort((a, b) => a.sortOrder - b.sortOrder);
 }

@@ -111,7 +111,7 @@ export async function startDeployment(
           magazineCount: true,
           ammoCount: true,
           notes: true,
-          items: { select: { itemId: true, present: true, quantity: true } },
+          items: { select: { itemId: true, present: true, quantity: true, baseline: true } },
         },
       })
     : [];

@@ -71,9 +71,12 @@ export async function updateKitItem(id: string, _prev: KitItemFormState, fd: For
     if (existing.targetQuantity == null && target != null) {
       await tx.kitItemStatus.updateMany({ where: { ...live, present: true }, data: { quantity: target } });
       await tx.kitItemStatus.updateMany({ where: { ...live, present: false }, data: { quantity: 0 } });
+      // Signed for the item → signed for the full quantity.
+      await tx.kitItemStatus.updateMany({ where: { ...live, baseline: { gt: 0 } }, data: { baseline: target } });
     } else if (existing.targetQuantity != null && target == null) {
       await tx.kitItemStatus.updateMany({ where: { ...live, quantity: { gte: existing.targetQuantity } }, data: { present: true } });
       await tx.kitItemStatus.updateMany({ where: { ...live, OR: [{ quantity: null }, { quantity: { lt: existing.targetQuantity } }] }, data: { present: false } });
+      await tx.kitItemStatus.updateMany({ where: { ...live, baseline: { gt: 0 } }, data: { baseline: 1 } });
     }
   });
   refresh();

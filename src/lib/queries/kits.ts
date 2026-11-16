@@ -2,7 +2,7 @@ import "server-only";
 import { connection } from "next/server";
 import { companyContext } from "@/lib/context";
 import { flattenState, inState, stateSelect } from "@/lib/equipment-state";
-import { checklistLines, kitItemsSelect, kitReadiness, missingDescriptions, type ChecklistLine } from "@/lib/kit";
+import { checklistLines, kitItemsSelect, kitReadiness, missingDescriptions, summarizeKits, type ChecklistLine } from "@/lib/kit";
 import { activeItemDefs } from "@/lib/kit-service";
 import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
 
@@ -167,3 +167,32 @@ export async function getKitSlots() {
   const last = await db.personalKit.findFirst({ orderBy: { kitNumber: "desc" }, select: { kitNumber: true } });
   return last?.kitNumber ?? count;
 }
+
+/**
+ * Company-wide totals per checklist line over the issued kits of the viewed deployment
+ * (optionally one platoon): signed for / in the kits / missing. Plus magazines and rounds from the
+ * weapon cards, which aren't checklist lines.
+ */
+export async function getKitSummary(platoonId?: string) {
+  await connection();
+  const { db, deployment } = await companyContext();
+  if (!deployment) return { kits: 0, signedKits: 0, lines: [], magazines: 0, rounds: 0, weapons: 0 };
+  const [kits, activeDefs] = await Promise.all([
+    db.personalKit.findMany({
+      where: { soldierId: { not: null }, ...(platoonId ? { soldier: { platoonId } } : {}) },
+      select: { signedAt: true, magazineCount: true, ammoCount: true, personalWeaponId: true, ...kitItemsSelect },
+    }),
+    activeItemDefs(db),
+  ]);
+  const history = !!deployment.readOnly;
+  return {
+    kits: kits.length,
+    signedKits: kits.filter((k) => k.signedAt).length,
+    lines: summarizeKits(kits.map((k) => ({ signed: !!k.signedAt, lines: checklistLines(k.items, { history, activeDefs }) }))),
+    magazines: kits.reduce((a, k) => a + k.magazineCount, 0),
+    rounds: kits.reduce((a, k) => a + k.ammoCount, 0),
+    weapons: kits.filter((k) => k.personalWeaponId).length,
+  };
+}
+
+export type KitSummary = Awaited<ReturnType<typeof getKitSummary>>;

@@ -6,7 +6,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { writableContext } from "@/lib/context";
 import { AssignmentError, applyAssignment, ensureAssignment, NOT_IN_DEPLOYMENT_MESSAGE } from "@/lib/equipment-service";
 import { checklistLines, kitItemsSelect, missingDescriptions, WEAPON_ITEM } from "@/lib/kit";
-import { activeItemDefs, createKitStatuses } from "@/lib/kit-service";
+import { activeItemDefs, captureBaseline, createKitStatuses, fillKit } from "@/lib/kit-service";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
 
 export type KitFormState = { ok?: boolean; message?: string; error?: string; errors?: FieldErrors; at?: number } | undefined;
@@ -97,6 +97,8 @@ export async function assignKit(kitNumber: number, _prev: KitFormState, fd: Form
         personalWeaponId: null,
       },
     });
+    // What the previous holder signed for doesn't apply to the new one.
+    await db.kitItemStatus.updateMany({ where: { kitId: kit.id }, data: { baseline: null } });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       return { error: "ללוחם כבר מונפקת ערכה אחרת" };
@@ -212,21 +214,37 @@ export async function setKitItemQuantity(kitNumber: number, itemId: string, quan
   return { ok: true };
 }
 
-/** "הכל קיים" — mark every checklist line complete (counted items at their expected quantity). */
+/**
+ * "הכל קיים" — mark every line that is part of this kit complete (counted items at the quantity the
+ * soldier signed for, or the list's quantity). Lines the soldier didn't sign for are left alone.
+ */
 export async function setAllKitItems(kitNumber: number): Promise<KitResult> {
   const w = await writableContext();
   if (!w.ok) return { ok: false, message: w.message };
   const { db } = w;
   const ids = { companyId: w.user.companyId, deploymentId: w.deployment.id };
   const kit = await ensureKit(db, ids, kitNumber); // also creates rows for items added since
-  const targets = [...new Set((await activeItemDefs(db)).map((d) => d.targetQuantity).filter((t): t is number => t != null))];
-  // A few bulk updates (plain items → present; counted items → their expected quantity).
-  await db.$transaction([
-    db.kitItemStatus.updateMany({ where: { kitId: kit.id, item: { isActive: true, targetQuantity: null } }, data: { present: true } }),
-    ...targets.map((t) =>
-      db.kitItemStatus.updateMany({ where: { kitId: kit.id, item: { isActive: true, targetQuantity: t } }, data: { quantity: t } }),
-    ),
-  ]);
+  await db.$transaction((tx) => fillKit(tx, kit.id));
+  refresh();
+  return { ok: true };
+}
+
+/**
+ * Correct what the soldier signed for on one line: 0 = not part of this kit, n = the signed
+ * quantity (plain lines: 1 = signed for).
+ */
+export async function setKitBaseline(kitNumber: number, itemId: string, baseline: number): Promise<KitResult> {
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  if (!Id.safeParse(itemId).success || !Quantity.safeParse(baseline).success) return { ok: false, message: "כמות לא תקינה" };
+  const { db } = w;
+  const ids = { companyId: w.user.companyId, deploymentId: w.deployment.id };
+  const kit = await ensureKit(db, ids, kitNumber);
+  if (!kit.soldierId) return { ok: false, message: "הערכה לא הונפקה ללוחם" };
+  const def = await db.kitItemDef.findFirst({ where: { id: itemId, isActive: true }, select: { targetQuantity: true } });
+  if (!def) return { ok: false, message: "פריט לא תקין" };
+  const value = def.targetQuantity == null ? Math.min(baseline, 1) : baseline;
+  await db.kitItemStatus.update({ where: { kitId_itemId: { kitId: kit.id, itemId } }, data: { baseline: value } });
   refresh();
   return { ok: true };
 }
@@ -281,9 +299,12 @@ export async function signKit(kitNumber: number, signatureData: string): Promise
   }
   const kit = await db.personalKit.findUnique({ where: kitKey(deployment.id, kitNumber), select: { soldierId: true } });
   if (!kit?.soldierId) return { ok: false, message: "יש לשייך את הערכה ללוחם לפני החתמה" };
-  await db.personalKit.update({
-    where: kitKey(deployment.id, kitNumber),
-    data: { signatureData, signedAt: new Date(), signedById: user.id },
+  const ids = { companyId: user.companyId, deploymentId: deployment.id };
+  await db.$transaction(async (tx) => {
+    const k = await ensureKit(tx, ids, kitNumber); // rows for items added since
+    await tx.personalKit.update({ where: { id: k.id }, data: { signatureData, signedAt: new Date(), signedById: user.id } });
+    // What is marked now is what the soldier signs for.
+    await captureBaseline(tx, k.id);
   });
   refresh();
   return { ok: true, message: "הלוחם הוחתם על הערכה" };

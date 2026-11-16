@@ -1,37 +1,53 @@
 "use client";
 
 import { useOptimistic, useState, useTransition } from "react";
-import { Check, CheckCheck, ClipboardCheck, Minus, Plus, X } from "lucide-react";
+import { Check, CheckCheck, ClipboardCheck, Minus, PenLine, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { groupLines, kitReadiness, lineComplete, type ChecklistLine } from "@/lib/kit";
+import { expectedOf, groupLines, haveOf, kitReadiness, lineApplies, lineComplete, type ChecklistLine } from "@/lib/kit";
 import { cn } from "@/lib/utils";
-import { completeInspection, setAllKitItems, setKitItem, setKitItemQuantity } from "../actions";
+import { completeInspection, setAllKitItems, setKitBaseline, setKitItem, setKitItemQuantity } from "../actions";
 
-type Patch = { itemId: string | "*"; present?: boolean; quantity?: number };
+type Patch = { itemId: string | "*"; present?: boolean; quantity?: number; baseline?: number };
 
 /**
  * Inspection checklist (the company's own list — see /kits/items). Every tap saves immediately
  * (optimistic), so an inspector can walk down the list with one thumb and never press "save".
  * Counted items (e.g. magazines) get − / + instead of a toggle.
+ *
+ * Once the soldier has signed, only what they signed for counts: lines they didn't sign for sit in
+ * a separate "not part of this kit" list and are never missing. "עריכת מה שנחתם" corrects that.
  */
 export function KitChecklist({ kitNumber, lines, issued }: { kitNumber: number; lines: ChecklistLine[]; issued: boolean }) {
   const [optimistic, apply] = useOptimistic(lines, (state: ChecklistLine[], p: Patch) =>
     state.map((l) => {
-      if (p.itemId === "*") return { ...l, present: true, quantity: l.targetQuantity ?? l.quantity };
+      if (p.itemId === "*") {
+        const expected = expectedOf(l);
+        if (expected == null) return l;
+        return l.targetQuantity != null ? { ...l, quantity: expected } : { ...l, present: true };
+      }
       if (l.itemId !== p.itemId) return l;
-      return { ...l, ...(p.present !== undefined ? { present: p.present } : {}), ...(p.quantity !== undefined ? { quantity: p.quantity } : {}) };
+      return {
+        ...l,
+        ...(p.present !== undefined ? { present: p.present } : {}),
+        ...(p.quantity !== undefined ? { quantity: p.quantity } : {}),
+        ...(p.baseline !== undefined ? { baseline: p.baseline } : {}),
+      };
     }),
   );
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [editing, setEditing] = useState(false);
   const [inspecting, startInspection] = useTransition();
   const [inspectionMsg, setInspectionMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const total = optimistic.length;
-  const complete = optimistic.filter(lineComplete).length;
+  const applicable = optimistic.filter(lineApplies);
+  const notMine = optimistic.filter((l) => !lineApplies(l));
+  const hasBaseline = optimistic.some((l) => l.baseline != null);
+  const total = applicable.length;
+  const complete = applicable.filter(lineComplete).length;
   const pct = kitReadiness(optimistic);
 
   const save = (patch: Patch, run: () => Promise<{ ok: boolean; message?: string }>) => {
@@ -46,10 +62,46 @@ export function KitChecklist({ kitNumber, lines, issued }: { kitNumber: number; 
     save({ itemId: line.itemId, present: !line.present }, () => setKitItem(kitNumber, line.itemId, !line.present));
   const setQuantity = (line: ChecklistLine, quantity: number) =>
     save({ itemId: line.itemId, quantity }, () => setKitItemQuantity(kitNumber, line.itemId, quantity));
+  const setBaseline = (line: ChecklistLine, baseline: number) =>
+    save({ itemId: line.itemId, baseline }, () => setKitBaseline(kitNumber, line.itemId, baseline));
   const allPresent = () => save({ itemId: "*" }, () => setAllKitItems(kitNumber));
 
-  if (!total) {
+  if (!optimistic.length) {
     return <p className="text-muted-foreground text-sm">לפלוגה עדיין אין רשימת ציוד לערכה. מנהל יכול להגדיר אותה במסך &quot;תכולת ערכה&quot;.</p>;
+  }
+
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="bg-muted rounded-lg p-3 text-sm">
+          <p className="font-medium">עריכת מה שהלוחם חתם עליו</p>
+          <p className="text-muted-foreground">
+            פריט שלא נחתם לא ייחשב כחוסר. בפריטים לפי כמות, הכמות שנחתמה היא מה שנבדק במסדר (0 = לא שייך לתיק).
+          </p>
+        </div>
+        {groupLines(optimistic).map((g) => (
+          <section key={g.groupName}>
+            <h3 className="text-muted-foreground mb-1 text-xs font-semibold">{g.groupName}</h3>
+            <ul className="divide-y rounded-lg border">
+              {g.lines.map((line) => (
+                <li key={line.itemId}>
+                  <BaselineRow line={line} onChange={(b) => setBaseline(line, b)} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+        {error && (
+          <p role="alert" className="text-danger text-sm">
+            {error}
+          </p>
+        )}
+        <Button type="button" onClick={() => setEditing(false)}>
+          <Check />
+          סיום עריכה
+        </Button>
+      </div>
+    );
   }
 
   return (
@@ -64,8 +116,9 @@ export function KitChecklist({ kitNumber, lines, issued }: { kitNumber: number; 
           {complete}/{total}
         </span>
       </div>
+      {hasBaseline && <p className="text-muted-foreground -mt-2 text-xs">חוסרים נבדקים מול מה שהלוחם חתם עליו</p>}
 
-      {groupLines(optimistic).map((g) => (
+      {groupLines(applicable).map((g) => (
         <section key={g.groupName}>
           <h3 className="text-muted-foreground mb-1 text-xs font-semibold">
             {g.groupName} ({g.lines.filter(lineComplete).length}/{g.lines.length})
@@ -83,6 +136,22 @@ export function KitChecklist({ kitNumber, lines, issued }: { kitNumber: number; 
           </ul>
         </section>
       ))}
+
+      {notMine.length > 0 && (
+        <details className="rounded-lg border">
+          <summary className="text-muted-foreground cursor-pointer px-3 py-2 text-sm">
+            לא שייך לתיק הזה — לא נחתם ({notMine.length})
+          </summary>
+          <ul className="text-muted-foreground divide-y border-t text-sm">
+            {notMine.map((l) => (
+              <li key={l.itemId} className="flex items-center justify-between px-3 py-2">
+                <span>{l.label}</span>
+                {haveOf(l) > 0 && <span className="text-xs">יש בפועל {l.targetQuantity != null ? haveOf(l) : ""}</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {error && (
         <p role="alert" className="text-danger text-sm">
@@ -123,6 +192,10 @@ export function KitChecklist({ kitNumber, lines, issued }: { kitNumber: number; 
                 {inspectionMsg.text}
               </p>
             )}
+            <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(true)}>
+              <PenLine />
+              עריכת מה שהלוחם חתם עליו
+            </Button>
           </>
         )}
       </div>
@@ -162,23 +235,78 @@ function ToggleRow({ line, onToggle }: { line: ChecklistLine; onToggle: () => vo
 
 function QuantityRow({ line, onChange }: { line: ChecklistLine; onChange: (quantity: number) => void }) {
   const qty = line.quantity ?? 0;
-  const target = line.targetQuantity ?? 0;
+  const target = expectedOf(line) ?? 0;
   const ok = qty >= target;
   return (
     <div className="flex min-h-12 items-center gap-3 px-3" role="group" aria-label={line.label}>
       <StatusDot on={ok} />
       <span className={cn("flex-1 font-medium", !ok && "text-danger")}>{line.label}</span>
-      <div className="flex items-center gap-1">
-        <Button type="button" variant="outline" size="icon" aria-label={`פחות ${line.label}`} disabled={qty <= 0} onClick={() => onChange(qty - 1)}>
-          <Minus />
-        </Button>
-        <span className={cn("w-14 text-center text-sm font-semibold tabular-nums", ok ? "text-success" : "text-danger")}>
-          {qty}/{target}
+      <Stepper label={line.label} value={qty} onChange={onChange} display={`${qty}/${target}`} tone={ok ? "text-success" : "text-danger"} />
+    </div>
+  );
+}
+
+/** Edit mode: what the soldier signed for on this line. */
+function BaselineRow({ line, onChange }: { line: ChecklistLine; onChange: (baseline: number) => void }) {
+  const signed = expectedOf(line) ?? 0;
+  if (line.targetQuantity == null) {
+    return (
+      <button
+        type="button"
+        role="switch"
+        aria-checked={signed > 0}
+        onClick={() => onChange(signed > 0 ? 0 : 1)}
+        className="active:bg-accent flex min-h-12 w-full items-center gap-3 px-3 text-start"
+      >
+        <span
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-full",
+            signed > 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+          )}
+        >
+          {signed > 0 ? <Check className="size-4" /> : <Minus className="size-4" />}
         </span>
-        <Button type="button" variant="outline" size="icon" aria-label={`עוד ${line.label}`} onClick={() => onChange(qty + 1)}>
-          <Plus />
-        </Button>
-      </div>
+        <span className={cn("flex-1 font-medium", signed === 0 && "text-muted-foreground")}>{line.label}</span>
+        <span className="text-muted-foreground text-xs">{signed > 0 ? "חתום" : "לא שייך"}</span>
+      </button>
+    );
+  }
+  return (
+    <div className="flex min-h-12 items-center gap-3 px-3" role="group" aria-label={`${line.label} — כמות שנחתמה`}>
+      <span className={cn("flex-1 font-medium", signed === 0 && "text-muted-foreground")}>{line.label}</span>
+      <Stepper
+        label={`${line.label} שנחתמו`}
+        value={signed}
+        onChange={onChange}
+        display={signed === 0 ? "לא שייך" : String(signed)}
+        tone={signed === 0 ? "text-muted-foreground" : ""}
+      />
+    </div>
+  );
+}
+
+function Stepper({
+  label,
+  value,
+  onChange,
+  display,
+  tone,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  display: string;
+  tone: string;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <Button type="button" variant="outline" size="icon" aria-label={`פחות ${label}`} disabled={value <= 0} onClick={() => onChange(value - 1)}>
+        <Minus />
+      </Button>
+      <span className={cn("w-16 text-center text-sm font-semibold tabular-nums", tone)}>{display}</span>
+      <Button type="button" variant="outline" size="icon" aria-label={`עוד ${label}`} onClick={() => onChange(value + 1)}>
+        <Plus />
+      </Button>
     </div>
   );
 }
