@@ -42,6 +42,8 @@ export type FormState =
       values?: Record<string, string>;
       /** Set on success; forms use it as a key to reset their fields. */
       at?: number;
+      /** Delete only: the item has history; these warnings must be confirmed (force=1) to delete anyway. */
+      historyWarnings?: string[];
     }
   | undefined;
 
@@ -231,22 +233,29 @@ export async function assignEquipment(id: string, _prev: FormState, fd: FormData
 }
 
 /**
- * Admin only, for items entered by mistake. Refused once the item is part of a deployment's
- * record (a kit's personal weapon, or any history beyond its intake), so history stays intact.
+ * Admin only, for items entered by mistake. When the item already has history (assignment moves,
+ * or it is a kit's personal weapon), the first call returns warnings instead of deleting; the
+ * admin can then confirm with force=1, which deletes the item together with all its history.
  */
-export async function deleteEquipment(id: string, _prev: FormState, _fd: FormData): Promise<FormState> {
+export async function deleteEquipment(id: string, _prev: FormState, fd: FormData): Promise<FormState> {
   const { user } = await adminContext();
   const companyDb = scopedDb(user.companyId); // across all deployments
-  const kit = await companyDb.personalKit.findFirst({
-    where: { personalWeaponId: id },
-    select: { kitNumber: true, deployment: { select: { name: true } } },
-  });
-  if (kit) {
-    return { error: `הפריט רשום כנשק אישי בערכה ${kit.kitNumber} (${kit.deployment.name}). יש לנתק אותו מהערכה תחילה.` };
+  const force = fd.get("force") === "1";
+  if (!force) {
+    const [kits, moves] = await Promise.all([
+      companyDb.personalKit.findMany({
+        where: { personalWeaponId: id },
+        select: { kitNumber: true, deployment: { select: { name: true } } },
+      }),
+      companyDb.equipmentLog.count({ where: { itemId: id, fromStatus: { not: null } } }),
+    ]);
+    const historyWarnings = [
+      ...(moves ? [`לפריט יש ${moves} רשומות בהיסטוריית השיוכים — כולן יימחקו.`] : []),
+      ...kits.map((k) => `הפריט רשום כנשק אישי בערכה ${k.kitNumber} (${k.deployment.name}) — הוא ינותק מהערכה.`),
+    ];
+    if (historyWarnings.length) return { historyWarnings };
   }
-  const moves = await companyDb.equipmentLog.count({ where: { itemId: id, fromStatus: { not: null } } });
-  if (moves) return { error: "לפריט יש היסטוריית שיוכים בהפעלות, ולכן לא ניתן למחוק אותו." };
-  // Components are detached automatically (parentId → null).
+  // Logs and per-deployment states cascade; kits' personal weapon and components' parent are set to null.
   await companyDb.equipmentItem.delete({ where: { id } });
   redirect("/equipment");
 }

@@ -2,7 +2,7 @@
 
 import { startTransition, useActionState, useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckCircle2, Link2, Plus, ShieldCheck, Trash2, Unlink } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Link2, Plus, ShieldCheck, Trash2, Unlink } from "lucide-react";
 import { Field } from "@/components/form-field";
 import { Serial } from "@/components/equipment/serial";
 import { EquipmentStatusBadge } from "@/components/equipment/status-badge";
@@ -224,6 +224,37 @@ export function DeleteItem({ itemId, label, hasComponents }: { itemId: string; l
         <Trash2 />
         מחיקת פריט
       </Button>
+    );
+  const warnings = state?.historyWarnings;
+  if (warnings?.length)
+    return (
+      <form onSubmit={submitWith(action)} className="flex flex-col gap-3">
+        <input type="hidden" name="force" value="1" />
+        <div role="alert" className="border-danger/50 bg-danger/10 flex flex-col gap-2 rounded-lg border p-3 text-sm">
+          <p className="text-danger flex items-center gap-2 font-semibold">
+            <AlertTriangle className="size-4 shrink-0" />
+            לפריט יש היסטוריה
+          </p>
+          <ul className="list-disc ps-5">
+            {warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+          <p>
+            מחיקה מלאה מתאימה לפריט שהוזן בטעות. הפריט <span className="font-semibold">{label}</span> וכל ההיסטוריה שלו יימחקו
+            לצמיתות ולא ניתן יהיה לשחזר אותם. לפריט שאבד עדיף לסמן סטטוס &quot;חסר&quot;.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button type="submit" variant="destructive" disabled={pending}>
+            {pending ? "מוחק…" : "מחיקה מלאה כולל היסטוריה"}
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => setConfirming(false)}>
+            ביטול
+          </Button>
+        </div>
+        {state?.error && <p className="text-danger text-sm">{state.error}</p>}
+      </form>
     );
   return (
     <form onSubmit={submitWith(action)} className="flex flex-col gap-2">
