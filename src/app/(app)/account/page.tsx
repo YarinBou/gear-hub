@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { requireUser } from "@/lib/auth";
 import { ROLE_LABELS } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ThemeSwitch } from "@/components/theme-switch";
 import { ChangePasswordForm } from "./change-password-form";
 
 export const metadata: Metadata = { title: "החשבון שלי" };
@@ -25,6 +26,15 @@ export default async function AccountPage() {
         </CardHeader>
         <CardContent>
           <ChangePasswordForm />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>תצוגה</CardTitle>
+          <CardDescription>אוטומטי עוקב אחרי הגדרת המכשיר. הבחירה נשמרת במכשיר הזה.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ThemeSwitch />
         </CardContent>
       </Card>
     </div>
