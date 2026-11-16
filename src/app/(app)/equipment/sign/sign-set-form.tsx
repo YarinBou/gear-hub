@@ -38,6 +38,17 @@ export function SignSetForm({ sets, items, soldiers }: { sets: SignSet[]; items:
   }, [items]);
   const mainOptions = set ? (byType.get(set.mainCategoryId) ?? []) : [];
   const main = mainOptions.find((i) => i.id === mainItemId);
+  const soldierName = soldiers.find((s) => s.id === soldierId)?.name;
+
+  /** Options split by who holds them: free, already with this soldier, with other soldiers. */
+  const sections = (list: SignItem[]) =>
+    [
+      { label: "פנויים בנשקייה", items: list.filter((i) => !i.holder) },
+      { label: soldierName ? `כבר אצל ${soldierName}` : "", items: list.filter((i) => i.holder && i.holder.id === soldierId) },
+      { label: "אצל לוחמים אחרים (יועברו)", items: list.filter((i) => i.holder && i.holder.id !== soldierId) },
+    ].filter((s) => s.items.length);
+  const optionText = (i: SignItem) =>
+    `${itemLabel(i)}${i.holder && i.holder.id !== soldierId ? ` · אצל ${i.holder.name}` : ""}`;
 
   // One line per piece still needed: the set's quantity minus what the main item already carries.
   const lines: Line[] = [];
@@ -58,6 +69,8 @@ export function SignSetForm({ sets, items, soldiers }: { sets: SignSet[]; items:
     );
 
   const missing = lines.filter((l) => l.required && !picks[l.key]);
+  // Picked items currently signed out to someone other than the chosen soldier: they'll move.
+  const movedFromOthers = items.filter((i) => taken.has(i.id) && i.holder && i.holder.id !== soldierId);
   const reset = (keepSoldier: boolean) => {
     if (!keepSoldier) setSoldierId("");
     setMainItemId("");
@@ -142,7 +155,7 @@ export function SignSetForm({ sets, items, soldiers }: { sets: SignSet[]; items:
             id="mainItemId"
             label={`${set.mainCategory.name} (פריט ראשי)`}
             required
-            hint={mainOptions.length ? undefined : "אין פריטים פנויים מסוג זה בנשקייה"}
+            hint={mainOptions.length ? undefined : "אין פריטים מסוג זה"}
           >
             <Select
               id="mainItemId"
@@ -155,11 +168,15 @@ export function SignSetForm({ sets, items, soldiers }: { sets: SignSet[]; items:
               <option value="" disabled>
                 בחירת פריט…
               </option>
-              {mainOptions.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {itemLabel(i)}
-                  {i.components.length ? ` (+${i.components.length} רכיבים מחוברים)` : ""}
-                </option>
+              {sections(mainOptions).map((s) => (
+                <optgroup key={s.label} label={s.label}>
+                  {s.items.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {optionText(i)}
+                      {i.components.length ? ` (+${i.components.length} רכיבים מחוברים)` : ""}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </Select>
           </Field>
@@ -197,15 +214,15 @@ export function SignSetForm({ sets, items, soldiers }: { sets: SignSet[]; items:
                     >
                       <option value="">{l.required ? "לא נופק (יסומן כחסר)" : "ללא"}</option>
                       <option value={NEW_NO_SERIAL}>ללא צ — רישום פריט חדש</option>
-                      {options.length > 0 && (
-                        <optgroup label="פנויים בנשקייה">
-                          {options.map((i) => (
+                      {sections(options).map((s) => (
+                        <optgroup key={s.label} label={s.label}>
+                          {s.items.map((i) => (
                             <option key={i.id} value={i.id}>
-                              {itemLabel(i)}
+                              {optionText(i)}
                             </option>
                           ))}
                         </optgroup>
-                      )}
+                      ))}
                     </Select>
                   </div>
                 );
@@ -216,8 +233,6 @@ export function SignSetForm({ sets, items, soldiers }: { sets: SignSet[]; items:
 
               {extras.map((x, n) => {
                 const options = available(null, x.itemId);
-                const groups = new Map<string, SignItem[]>();
-                for (const i of options) groups.set(i.category.name, [...(groups.get(i.category.name) ?? []), i]);
                 return (
                   <div key={x.key} className="grid grid-cols-[1fr_auto] items-center gap-2 rounded-lg border border-dashed px-3 py-2 sm:grid-cols-[10rem_1fr_auto]">
                     <span className="text-sm font-medium max-sm:hidden">תוספת {n + 1}</span>
@@ -227,11 +242,11 @@ export function SignSetForm({ sets, items, soldiers }: { sets: SignSet[]; items:
                       onChange={(e) => setExtras((all) => all.map((y) => (y.key === x.key ? { ...y, itemId: e.target.value } : y)))}
                     >
                       <option value="">בחירת פריט…</option>
-                      {[...groups].map(([type, list]) => (
-                        <optgroup key={type} label={type}>
-                          {list.map((i) => (
+                      {sections(options).map((s) => (
+                        <optgroup key={s.label} label={s.label}>
+                          {s.items.map((i) => (
                             <option key={i.id} value={i.id}>
-                              {itemLabel(i)}
+                              {optionText(i)}
                             </option>
                           ))}
                         </optgroup>
@@ -266,6 +281,16 @@ export function SignSetForm({ sets, items, soldiers }: { sets: SignSet[]; items:
             <Field id="note" label="הערה ליומן">
               <Input id="note" value={note} onChange={(e) => setNote(e.target.value)} autoComplete="off" />
             </Field>
+          )}
+
+          {main && movedFromOthers.length > 0 && (
+            <p className="bg-warning/15 flex items-start gap-2 rounded-md px-3 py-2 text-sm">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <span>
+                יועברו אל {soldierName ?? "הלוחם שנבחר"}:{" "}
+                {movedFromOthers.map((i) => `${itemLabel(i)} (מ${i.holder!.name})`).join(", ")}.
+              </span>
+            </p>
           )}
 
           {main && missing.length > 0 && (

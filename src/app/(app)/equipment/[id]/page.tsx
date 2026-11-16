@@ -197,7 +197,12 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
                       )}
                     </div>
                   )}
-                  <ComponentsEditor itemId={item.id} components={item.components} candidates={candidates} />
+                  <ComponentsEditor
+                    itemId={item.id}
+                    parentHolder={item.assignedSoldier}
+                    components={item.components}
+                    candidates={candidates}
+                  />
                 </ReadOnlyWhenClosed>
               </CardContent>
             </Card>

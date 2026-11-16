@@ -188,29 +188,23 @@ export async function getEquipmentItem(id: string) {
 export type EquipmentDetail = NonNullable<Awaited<ReturnType<typeof getEquipmentItem>>>;
 
 /**
- * Items that can be attached as components of `parent`: not a component already, not a set
- * themselves, and either unassigned or held by the same soldier as the parent (in the viewed deployment).
+ * Items that can be attached as components of `parent`: not a component already and not a set
+ * themselves — including ones held by soldiers (the UI says who holds each, and attaching one
+ * held by someone else asks first; see attachComponentAction).
  */
-export async function getComponentCandidates(parent: { id: string; assignedSoldierId: string | null }) {
+export async function getComponentCandidates(parent: { id: string }) {
   const { db, deployment } = await companyContext();
   const deploymentId = deployment?.id ?? null;
   const items = await db.equipmentItem.findMany({
-    where: {
-      id: { not: parent.id },
-      parentId: null,
-      components: { none: {} },
-      ...(deploymentId
-        ? {
-            OR: [
-              inState(deploymentId, { soldierId: null }),
-              ...(parent.assignedSoldierId ? [inState(deploymentId, { soldierId: parent.assignedSoldierId })] : []),
-            ],
-          }
-        : {}),
-    },
+    where: { id: { not: parent.id }, parentId: null, components: { none: {} } },
     orderBy: [{ category: { name: "asc" } }, { serialNumber: { sort: "asc", nulls: "last" } }],
-    take: 300,
-    select: { id: true, serialNumber: true, category: { select: { name: true } }, ...stateSelect(deploymentId, { id: true }) },
+    take: 1000,
+    select: {
+      id: true,
+      serialNumber: true,
+      category: { select: { name: true } },
+      ...stateSelect(deploymentId, { id: true, name: true }),
+    },
   });
   return items.map(flattenState);
 }

@@ -10,6 +10,7 @@ import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
 import { resolveStatus } from "@/lib/equipment-rules";
 import {
   AssignmentError,
+  HolderConflictError,
   applyAssignment,
   attachComponent,
   createNoSerialComponent,
@@ -272,13 +273,38 @@ async function linkContext() {
   return { db, ctx, user } as const;
 }
 
-export async function attachComponentAction(parentId: string, childId: string): Promise<SimpleResult> {
+export type AttachResult = SimpleResult & { conflict?: HolderConflictError["conflict"] };
+
+/**
+ * Attach a component. If it is held by a different soldier than the main item, the first call
+ * returns `conflict` and the user picks:
+ *  - "takeOver": the component moves to the main item's holder (or the armory, if it has none);
+ *  - "moveSet": the main item (with everything attached) moves to the component's holder first.
+ */
+export async function attachComponentAction(
+  parentId: string,
+  childId: string,
+  mode?: "takeOver" | "moveSet",
+): Promise<AttachResult> {
   if (typeof childId !== "string" || !childId) return { ok: false, message: "יש לבחור פריט" };
   const l = await linkContext();
   if ("error" in l) return { ok: false, message: l.error };
+  const ctx = l.ctx;
   try {
-    await l.db.$transaction((tx) => attachComponent(tx, l.ctx, parentId, childId));
+    await l.db.$transaction(async (tx) => {
+      if (mode === "moveSet" && ctx) {
+        const childRow = await tx.equipmentAssignment.findUnique({
+          where: { deploymentId_itemId: { deploymentId: ctx.deploymentId, itemId: childId } },
+          select: { soldierId: true },
+        });
+        if (childRow?.soldierId) {
+          await applyAssignment(tx, ctx, parentId, { soldierId: childRow.soldierId, note: "הועבר כדי לצרף רכיב שמוחזק אצל הלוחם" });
+        }
+      }
+      await attachComponent(tx, ctx, parentId, childId, { takeOver: mode === "takeOver" });
+    });
   } catch (e) {
+    if (e instanceof HolderConflictError) return { ok: false, message: e.message, conflict: e.conflict };
     if (e instanceof AssignmentError) return { ok: false, message: e.message };
     throw e;
   }

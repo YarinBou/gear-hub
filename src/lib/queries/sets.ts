@@ -43,22 +43,28 @@ export async function getSetsForCategory(categoryId: string) {
 
 /**
  * What the sign-out form needs: the active sets, and the items that can be handed out in the
- * viewed deployment — not a component of anything, nobody holds them, in the armory or stored.
+ * viewed deployment — not a component of anything, and either free (in the armory or stored) or
+ * signed out to a soldier, with that soldier as `holder`.
  */
 export async function getSetSignData() {
   await connection();
   const { db, deployment } = await companyContext();
   if (!deployment) return { sets: [], items: [] };
-  const [sets, items] = await Promise.all([
+  const [sets, rows] = await Promise.all([
     db.equipmentSet.findMany({
       where: { isActive: true },
       orderBy: { name: "asc" },
       select: { id: true, name: true, notes: true, mainCategoryId: true, mainCategory: { select: { name: true } }, slots: slotSelect },
     }),
+    // Free items in the armory, plus items already signed out to a soldier (the form shows who
+    // holds each; picking one held by someone else moves it to the set's soldier).
     db.equipmentItem.findMany({
       where: {
         parentId: null,
-        ...inState(deployment.id, { soldierId: null, status: { in: ["IN_ARMORY", "STORED"] } }),
+        OR: [
+          inState(deployment.id, { soldierId: null, status: { in: ["IN_ARMORY", "STORED"] } }),
+          inState(deployment.id, { soldierId: { not: null } }),
+        ],
       },
       orderBy: [{ category: { name: "asc" } }, { serialNumber: { sort: "asc", nulls: "last" } }],
       take: 3000,
@@ -68,10 +74,14 @@ export async function getSetSignData() {
         categoryId: true,
         category: { select: { name: true } },
         components: { select: { id: true, serialNumber: true, categoryId: true, category: { select: { name: true } } } },
+        assignments: { where: { deploymentId: deployment.id }, take: 1, select: { soldier: { select: { id: true, name: true } } } },
       },
     }),
   ]);
-  return { sets, items };
+  return {
+    sets,
+    items: rows.map(({ assignments, ...i }) => ({ ...i, holder: assignments[0]?.soldier ?? null })),
+  };
 }
 
 export type SignSet = Awaited<ReturnType<typeof getSetSignData>>["sets"][number];
