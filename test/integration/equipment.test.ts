@@ -68,6 +68,34 @@ describe("linked sets", () => {
     expect(alone).toHaveProperty("error");
   });
 
+  it("attaching a piece held by another soldier asks first, then moves it per the choice", async () => {
+    await loginAs();
+    const [a, b] = [await makeSoldier({ name: "א" }), await makeSoldier({ name: "ב" })];
+    const negev = await makeItem({ assignedSoldierId: a.id, status: "WITH_SOLDIER" });
+    const sight = await makeItem({ assignedSoldierId: b.id, status: "WITH_SOLDIER" });
+
+    // First try: nothing moves, the conflict comes back.
+    const first = await attachComponentAction(negev.id, sight.id);
+    expect(first).toMatchObject({ ok: false, conflict: { holder: { id: b.id }, parentHolder: { id: a.id } } });
+    expect((await prisma.equipmentItem.findUniqueOrThrow({ where: { id: sight.id } })).parentId).toBeNull();
+
+    // "takeOver": the piece moves to the main item's holder.
+    expect(await attachComponentAction(negev.id, sight.id, "takeOver")).toMatchObject({ ok: true });
+    expect(await item(sight.id)).toMatchObject({ assignedSoldierId: a.id });
+  });
+
+  it("'moveSet' signs the main item (and the set) over to the piece's holder", async () => {
+    await loginAs();
+    const b = await makeSoldier();
+    const negev = await makeItem();
+    const sight = await makeItem({ assignedSoldierId: b.id, status: "WITH_SOLDIER" });
+
+    expect(await attachComponentAction(negev.id, sight.id)).toMatchObject({ ok: false, conflict: { parentHolder: null } });
+    expect(await attachComponentAction(negev.id, sight.id, "moveSet")).toMatchObject({ ok: true });
+    expect(await item(negev.id)).toMatchObject({ assignedSoldierId: b.id, status: "WITH_SOLDIER" });
+    expect(await item(sight.id)).toMatchObject({ assignedSoldierId: b.id });
+  });
+
   it("bulk status skips components but moves them with their parent", async () => {
     await loginAs();
     const negev = await makeItem();

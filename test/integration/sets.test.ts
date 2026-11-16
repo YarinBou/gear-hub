@@ -104,18 +104,34 @@ describe("signing a set out", () => {
     }
   });
 
-  it("is all or nothing: a component held by someone else stops the whole sign-out", async () => {
+  it("a component already signed out (to anyone) is moved into the set, with a log entry", async () => {
+    await loginAs("ADMIN");
+    const { set, negev, laser } = await negevSet();
+    const [soldier, other] = [await makeSoldier(), await makeSoldier({ name: "אחר" })];
+    const gun = await makeItem({ categoryId: negev.id, assignedSoldierId: soldier.id, status: "WITH_SOLDIER" });
+    const held = await makeItem({ categoryId: laser.id, assignedSoldierId: other.id, status: "WITH_SOLDIER" });
+
+    const r = await signSetAction({ setId: set.id, soldierId: soldier.id, mainItemId: gun.id, componentIds: [held.id], newComponentCategoryIds: [] });
+    expect(r).toMatchObject({ ok: true });
+    expect((await prisma.equipmentItem.findUniqueOrThrow({ where: { id: held.id } })).parentId).toBe(gun.id);
+    expect(await stateOf(held.id)).toMatchObject({ assignedSoldierId: soldier.id, status: "WITH_SOLDIER" });
+    const log = await prisma.equipmentLog.findFirstOrThrow({ where: { itemId: held.id }, orderBy: { createdAt: "desc" } });
+    expect(log.note).toContain("הועבר מאחר");
+  });
+
+  it("is all or nothing: a component that can't be attached stops the whole sign-out", async () => {
     await loginAs("ADMIN");
     const { set, negev, laser, kansap } = await negevSet();
-    const [soldier, other] = [await makeSoldier(), await makeSoldier()];
+    const soldier = await makeSoldier();
     const gun = await makeItem({ categoryId: negev.id });
-    const held = await makeItem({ categoryId: laser.id, assignedSoldierId: other.id, status: "WITH_SOLDIER" });
+    const otherGun = await makeItem({ categoryId: negev.id });
+    const taken = await makeItem({ categoryId: laser.id, parentId: otherGun.id });
 
     const r = await signSetAction({
       setId: set.id,
       soldierId: soldier.id,
       mainItemId: gun.id,
-      componentIds: [held.id],
+      componentIds: [taken.id],
       newComponentCategoryIds: [kansap.id],
     });
     expect(r.ok).toBe(false);

@@ -20,6 +20,7 @@ import {
   addNoSerialComponentAction,
   assignEquipment,
   attachComponentAction,
+  type AttachResult,
   deleteEquipment,
   detachComponentAction,
   setItemSetAction,
@@ -284,23 +285,50 @@ type ComponentRow = {
   category: { name: string };
 };
 
-/** Lists an item's components; attach more from unassigned / same-holder items, or detach. */
+type Candidate = {
+  id: string;
+  serialNumber: string | null;
+  category: { name: string };
+  assignedSoldier: { id: string; name: string } | null;
+};
+
+/**
+ * Lists an item's components; attach more, or detach. Any item can be picked, including one
+ * signed out to a soldier; if that's a different soldier than the main item's, the user chooses
+ * where the set ends up before anything moves.
+ */
 export function ComponentsEditor({
   itemId,
+  parentHolder,
   components,
   candidates,
 }: {
   itemId: string;
+  parentHolder: { id: string; name: string } | null;
   components: ComponentRow[];
-  candidates: { id: string; serialNumber: string | null; category: { name: string } }[];
+  candidates: Candidate[];
 }) {
   const [childId, setChildId] = useState("");
   const [pending, start] = useTransition();
-  const [result, setResult] = useState<{ ok: boolean; message?: string } | null>(null);
+  const [result, setResult] = useState<AttachResult | null>(null);
 
-  // Group candidates by type so a long armory list stays scannable.
-  const groups = new Map<string, typeof candidates>();
-  for (const c of candidates) groups.set(c.category.name, [...(groups.get(c.category.name) ?? []), c]);
+  // Free ones first, then the main item's holder's, then other soldiers'.
+  const sections: { label: string; items: Candidate[] }[] = [
+    { label: "פנויים", items: candidates.filter((c) => !c.assignedSoldier) },
+    ...(parentHolder
+      ? [{ label: `אצל ${parentHolder.name}`, items: candidates.filter((c) => c.assignedSoldier?.id === parentHolder.id) }]
+      : []),
+    { label: "אצל לוחמים אחרים", items: candidates.filter((c) => c.assignedSoldier && c.assignedSoldier.id !== parentHolder?.id) },
+  ].filter((s) => s.items.length);
+  const chosen = candidates.find((c) => c.id === childId);
+  const conflict = result?.conflict;
+
+  const attach = (mode?: "takeOver" | "moveSet") =>
+    start(async () => {
+      const r = await attachComponentAction(itemId, childId, mode);
+      setResult(r);
+      if (r.ok) setChildId("");
+    });
 
   return (
     <div className="flex flex-col gap-4">
@@ -326,39 +354,70 @@ export function ComponentsEditor({
           className="flex flex-col gap-2 sm:flex-row"
           onSubmit={(e) => {
             e.preventDefault();
-            start(async () => {
-              const r = await attachComponentAction(itemId, childId);
-              setResult(r);
-              if (r.ok) setChildId("");
-            });
+            attach();
           }}
         >
           <Select
             aria-label="פריט לצירוף"
             value={childId}
-            onChange={(e) => setChildId(e.target.value)}
+            onChange={(e) => {
+              setChildId(e.target.value);
+              setResult(null);
+            }}
             className="sm:min-w-64"
           >
             <option value="">בחירת פריט לצירוף…</option>
-            {[...groups].map(([type, items]) => (
-              <optgroup key={type} label={type}>
-                {items.map((c) => (
+            {sections.map((s) => (
+              <optgroup key={s.label} label={s.label}>
+                {s.items.map((c) => (
                   <option key={c.id} value={c.id}>
                     {itemLabel(c)}
+                    {c.assignedSoldier && c.assignedSoldier.id !== parentHolder?.id ? ` · אצל ${c.assignedSoldier.name}` : ""}
                   </option>
                 ))}
               </optgroup>
             ))}
           </Select>
-          <Button type="submit" variant="outline" disabled={!childId || pending}>
+          <Button type="submit" variant="outline" disabled={!childId || pending || !!conflict}>
             <Link2 />
             {pending ? "מצרף…" : "צירוף רכיב"}
           </Button>
         </form>
       ) : (
-        <p className="text-muted-foreground text-xs">אין פריטים פנויים לצירוף (פריטים ללא שיוך, או של אותו לוחם).</p>
+        <p className="text-muted-foreground text-xs">אין פריטים זמינים לצירוף.</p>
       )}
-      {result && <p className={result.ok ? "text-success text-sm" : "text-danger text-sm"}>{result.message}</p>}
+
+      {conflict && chosen && (
+        <div role="alert" className="border-warning/60 bg-warning/10 flex flex-col gap-3 rounded-lg border p-3 text-sm">
+          <p className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <span>
+              <span className="font-semibold">{itemLabel(chosen)}</span> חתום כרגע על{" "}
+              <span className="font-semibold">{conflict.holder.name}</span>
+              {conflict.parentHolder ? (
+                <>
+                  , והפריט הראשי חתום על <span className="font-semibold">{conflict.parentHolder.name}</span>
+                </>
+              ) : (
+                <>, והפריט הראשי לא חתום על אף לוחם</>
+              )}
+              . רכיב תמיד נמצא אצל מי שמחזיק את הפריט הראשי. איך להמשיך?
+            </span>
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" disabled={pending} onClick={() => attach("takeOver")}>
+              {conflict.parentHolder ? `להעביר את הרכיב אל ${conflict.parentHolder.name}` : "להחזיר את הרכיב ולצרף (בלי לוחם)"}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => attach("moveSet")}>
+              {`להחתים את המארז כולו על ${conflict.holder.name}`}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => setResult(null)}>
+              ביטול
+            </Button>
+          </div>
+        </div>
+      )}
+      {result && !conflict && <p className={result.ok ? "text-success text-sm" : "text-danger text-sm"}>{result.message}</p>}
     </div>
   );
 }

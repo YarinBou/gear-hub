@@ -31,6 +31,20 @@ export type AssignmentInput = {
 
 export class AssignmentError extends Error {}
 
+/**
+ * attachComponent: the component is held by a different soldier than the main item. The caller
+ * asks the user, then retries with `takeOver` (the component moves to the main item's holder) or
+ * moves the main item to `holder` first (the whole set goes to that soldier).
+ */
+export class HolderConflictError extends AssignmentError {
+  constructor(
+    message: string,
+    readonly conflict: { holder: { id: string; name: string }; parentHolder: { id: string; name: string } | null },
+  ) {
+    super(message);
+  }
+}
+
 type State = { soldierId: string | null; status: EquipmentStatus; platoonId: string | null };
 type Row = State & { id: string; itemId: string };
 
@@ -154,9 +168,16 @@ const linkSelect = {
 /**
  * Attach `childId` as a component of `parentId`. The child takes the parent's holder/status/platoon
  * in the given deployment (if any — without a deployment only the link is recorded).
- * Rules: one level only; the child may not be held by a different soldier than the parent.
+ * Rules: one level only. A child held by a different soldier than the parent is refused with a
+ * HolderConflictError unless `takeOver` — then it moves to the parent's holder (logged).
  */
-export async function attachComponent(tx: Tx, ctx: DeploymentCtx | null, parentId: string, childId: string) {
+export async function attachComponent(
+  tx: Tx,
+  ctx: DeploymentCtx | null,
+  parentId: string,
+  childId: string,
+  { takeOver = false }: { takeOver?: boolean } = {},
+) {
   if (parentId === childId) throw new AssignmentError("לא ניתן לצרף פריט לעצמו");
   const [parent, child] = await Promise.all([
     tx.equipmentItem.findUnique({ where: { id: parentId }, select: linkSelect }),
@@ -172,12 +193,24 @@ export async function attachComponent(tx: Tx, ctx: DeploymentCtx | null, parentI
     return;
   }
   const [parentRow, childRow] = [await ensureAssignment(tx, ctx, parent.id), await ensureAssignment(tx, ctx, child.id)];
+  let movedFrom: string | null = null;
   if (childRow.soldierId && childRow.soldierId !== parentRow.soldierId) {
-    const holder = await tx.soldier.findUnique({ where: { id: childRow.soldierId }, select: { name: true } });
-    throw new AssignmentError(`${itemLabel(child)} מוחזק ע"י ${holder?.name ?? "לוחם אחר"}`);
+    const [holder, parentHolder] = await Promise.all([
+      tx.soldier.findUnique({ where: { id: childRow.soldierId }, select: { id: true, name: true } }),
+      parentRow.soldierId ? tx.soldier.findUnique({ where: { id: parentRow.soldierId }, select: { id: true, name: true } }) : null,
+    ]);
+    const holderName = holder?.name ?? "לוחם אחר";
+    if (!takeOver) {
+      throw new HolderConflictError(`${itemLabel(child)} מוחזק ע"י ${holderName}`, {
+        holder: holder ?? { id: childRow.soldierId, name: holderName },
+        parentHolder,
+      });
+    }
+    movedFrom = holderName;
   }
   await tx.equipmentItem.update({ where: { id: childId }, data: { parentId } });
-  await writeState(tx, ctx, childRow, parentRow, { note: `צורף כרכיב של ${itemLabel(parent)}` });
+  const note = `צורף כרכיב של ${itemLabel(parent)}${movedFrom ? ` (הועבר מ${movedFrom})` : ""}`;
+  await writeState(tx, ctx, childRow, parentRow, { note });
 }
 
 /** Detach a component. It keeps its current holder/status; from now on it moves independently. */
@@ -285,7 +318,8 @@ export async function signOutSet(tx: Tx, ctx: DeploymentCtx, input: SignOutSetIn
 
   // The main item first, so the components take its new holder when they're attached.
   await applyAssignment(tx, ctx, main.id, { soldierId: input.soldierId, note: input.note ?? `הוחתם כמארז "${set.name}"` });
-  for (const childId of input.componentIds) await attachComponent(tx, ctx, main.id, childId);
+  // The form shows who holds each piece, so picking one held by another soldier moves it over.
+  for (const childId of input.componentIds) await attachComponent(tx, ctx, main.id, childId, { takeOver: true });
   for (const categoryId of input.newComponentCategoryIds) await createNoSerialComponent(tx, ctx, main.id, categoryId);
   await tx.equipmentItem.update({ where: { id: main.id }, data: { setId: set.id } });
   return { mainItemId: main.id };
