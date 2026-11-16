@@ -106,11 +106,12 @@ export async function copyCompanySetup(sourceId: string, targetId: string): Prom
         setCount++;
       }
 
-      // ── Personal-kit checklist ── matched by (section, label); system lines by their key.
+      // ── Personal-kit checklist ── matched by label (the same item in another section is still the
+      // same item — don't add it twice); system lines by their key.
       const haveDefs = await tx.kitItemDef.findMany({ select: { label: true, groupName: true, systemKey: true, sortOrder: true } });
-      const haveLines = new Set(haveDefs.map((d) => key(d.groupName, d.label)));
+      const haveLines = new Set(haveDefs.map((d) => d.label.trim()));
       const haveKeys = new Set(haveDefs.flatMap((d) => (d.systemKey ? [d.systemKey] : [])));
-      const newDefs = kitItems.filter((d) => !haveLines.has(key(d.groupName, d.label)) && !(d.systemKey && haveKeys.has(d.systemKey)));
+      const newDefs = kitItems.filter((d) => !haveLines.has(d.label.trim()) && !(d.systemKey && haveKeys.has(d.systemKey)));
       if (newDefs.length) {
         // Added after the target's own lines, in the source's order.
         const base = Math.max(0, ...haveDefs.map((d) => d.sortOrder));

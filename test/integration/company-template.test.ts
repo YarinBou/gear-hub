@@ -17,7 +17,9 @@ async function makeSource() {
       slots: { create: [{ companyId: source.id, categoryId: sight.id, quantity: 1, required: true }] },
     },
   });
-  await prisma.kitItemDef.create({ data: { companyId: source.id, label: "פנס ראש", groupName: "ציוד לילה", targetQuantity: 1 } });
+  await prisma.kitItemDef.create({ data: { companyId: source.id, label: "משקפת לילה", groupName: "ציוד לילה", targetQuantity: 1 } });
+  // Already on every company's default list, under another section: must not be added twice.
+  await prisma.kitItemDef.updateMany({ where: { companyId: source.id, label: "פנס ראש" }, data: { groupName: "ציוד לילה" } });
   await makeItem({ companyId: source.id, categoryId: rifle.id });
   return source;
 }
@@ -40,6 +42,7 @@ describe("copy company setup", () => {
     expect(set.name).toBe("M4 מלא");
     expect(set.mainCategory.companyId).toBe(target.id);
     expect(set.slots).toHaveLength(1);
+    expect(await prisma.kitItemDef.count({ where: { companyId: target.id, label: "משקפת לילה" } })).toBe(1);
     expect(await prisma.kitItemDef.count({ where: { companyId: target.id, label: "פנס ראש" } })).toBe(1);
     // No items (serials) cross over.
     expect(await prisma.equipmentItem.count({ where: { companyId: target.id } })).toBe(0);

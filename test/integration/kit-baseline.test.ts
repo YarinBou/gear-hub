@@ -26,8 +26,9 @@ async function kitId(kitNumber: number) {
 
 /** Issue kit n to a new soldier with exactly these plain lines present, and sign. */
 async function signedKit(n: number, present: string[]) {
+  await activeDeployment();
   const soldier = await makeSoldier();
-  await assignKit(n, undefined, form({ soldierId: soldier.id }));
+  expect(await assignKit(n, undefined, form({ soldierId: soldier.id }))).toMatchObject({ ok: true });
   for (const label of present) await setKitItem(n, await kitItemId(label), true);
   expect(await signKit(n, SIGNATURE)).toMatchObject({ ok: true });
   return { soldier, id: await kitId(n) };
