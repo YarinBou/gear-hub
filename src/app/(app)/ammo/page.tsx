@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AlertTriangle, MapPin, Plus } from "lucide-react";
+import { AlertTriangle, FileText, MapPin, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { companyContext } from "@/lib/context";
 import { NoDeploymentCard, ReadOnlyWhenClosed } from "@/components/deployment-gate";
 import { AMMO_LEVEL_LABELS, isLowStock, type AmmoLevel } from "@/lib/ammo-rules";
@@ -112,11 +113,19 @@ export default async function AmmoPage({ searchParams }: PageProps<"/ammo">) {
   return (
     <ReadOnlyWhenClosed>
       <div className="mx-auto flex max-w-5xl flex-col gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">ניהול תחמושת</h1>
-          <p className="text-muted-foreground text-sm">
-            {overview.length} סוגים · {low.length ? `${low.length} מתחת לסף המינימום` : "כל הסוגים מעל הסף"}
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-bold">ניהול תחמושת</h1>
+            <p className="text-muted-foreground text-sm">
+              {overview.length} סוגים · {low.length ? `${low.length} מתחת לסף המינימום` : "כל הסוגים מעל הסף"}
+            </p>
+          </div>
+          <Button asChild variant="outline">
+            <Link href="/ammo/report">
+              <FileText />
+              דוח תחמושת
+            </Link>
+          </Button>
         </div>
 
         <nav aria-label="סינון" className="no-scrollbar -mx-4 overflow-x-auto px-4">
