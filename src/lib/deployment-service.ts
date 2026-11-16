@@ -145,11 +145,12 @@ export async function startDeployment(
   if (copy) {
     const stocks = await tx.ammoStock.findMany({
       where: { deploymentId: copy.id },
-      select: { categoryId: true, location: true, quantity: true, lastCountedAt: true, notes: true },
+      select: { categoryId: true, location: true, soldierId: true, quantity: true, lastCountedAt: true, notes: true },
     });
     for (const s of stocks) {
+      // Ammo held by a soldier who left stays under their name as a plain location, so nothing is lost.
       const stock = await tx.ammoStock.create({
-        data: { companyId, deploymentId: deployment.id, ...s },
+        data: { companyId, deploymentId: deployment.id, ...s, soldierId: keepSoldier(s.soldierId) },
         select: { id: true },
       });
       await tx.ammoLog.create({

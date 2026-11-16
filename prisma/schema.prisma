@@ -192,6 +192,8 @@ model Soldier {
   kits        PersonalKit[]
   /// Deployments this soldier is not part of.
   absences    DeploymentAbsence[]
+  /// Ammo held personally by this soldier (AmmoStock rows whose "location" is the soldier).
+  ammoStocks  AmmoStock[]
   logsFrom    EquipmentLog[]        @relation("LogFromSoldier")
   logsTo      EquipmentLog[]        @relation("LogToSoldier")
 
@@ -398,8 +400,11 @@ model AmmoStock {
   deployment    Deployment        @relation(fields: [deploymentId], references: [id], onDelete: Restrict)
   categoryId    String
   category      EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  /// מיקום (e.g. בונקר פלוגתי, מחלקה 2, רכב מבצעי)
+  /// מיקום (e.g. בונקר פלוגתי, מחלקה 2, רכב מבצעי). For ammo held by a soldier: the soldier's name.
   location      String
+  /// Set when the ammo is held by a specific soldier rather than stored at a place.
+  soldierId     String?
+  soldier       Soldier?          @relation(fields: [soldierId], references: [id], onDelete: SetNull)
   quantity      Int               @default(0)
   lastCountedAt DateTime?
   notes         String?
@@ -410,6 +415,7 @@ model AmmoStock {
 
   @@unique([deploymentId, categoryId, location])
   @@index([companyId])
+  @@index([soldierId])
 }
 
 enum AmmoLogType {

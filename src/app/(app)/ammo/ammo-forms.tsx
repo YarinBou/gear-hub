@@ -1,7 +1,8 @@
 "use client";
 
 import { startTransition, useActionState, useState, useTransition } from "react";
-import { CheckCircle2, ChevronDown, Minus, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, ChevronDown, Minus, Plus, Trash2, User } from "lucide-react";
+import { PlatoonBadge } from "@/components/platoon-badge";
 import { Field } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +11,7 @@ import { AMMO_LOG_LABELS } from "@/lib/ammo-rules";
 import { cn, formatDateTime, formatDaysAgo, formatNumber } from "@/lib/utils";
 import type { AmmoLogType } from "@/generated/prisma/enums";
 import type { AmmoStockRow } from "@/lib/queries/ammo";
+import type { SoldierOption } from "@/lib/queries/soldiers";
 import { addStock, deleteStock, recordMovement } from "./actions";
 
 function submitWith(action: (fd: FormData) => void) {
@@ -34,13 +36,16 @@ function Success({ message }: { message?: string }) {
 export function AddStockForm({
   categories,
   locations,
+  soldiers,
   defaultCategoryId,
 }: {
   categories: { id: string; name: string }[];
   locations: string[];
+  soldiers: SoldierOption[];
   defaultCategoryId?: string;
 }) {
   const [open, setOpen] = useState(!!defaultCategoryId);
+  const [toSoldier, setToSoldier] = useState(false);
   const [state, action, pending] = useActionState(addStock, undefined);
   const err = state?.errors ?? {};
 
@@ -71,18 +76,40 @@ export function AddStockForm({
             ))}
           </Select>
         </Field>
-        <Field id="add-location" label="מיקום" error={err.location} required>
-          <Input id="add-location" name="location" list="ammo-locations" autoComplete="off" placeholder="למשל: בונקר פלוגתי" aria-invalid={!!err.location} />
-          <datalist id="ammo-locations">
-            {locations.map((l) => (
-              <option key={l} value={l} />
-            ))}
-          </datalist>
-        </Field>
+        <input type="hidden" name="holder" value={toSoldier ? "soldier" : "place"} />
+        {toSoldier ? (
+          <Field id="add-soldierId" label="חייל" error={err.soldierId} required>
+            <Select id="add-soldierId" name="soldierId" defaultValue="" aria-invalid={!!err.soldierId}>
+              <option value="" disabled>
+                בחירת חייל…
+              </option>
+              {soldiers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} · {s.platoon.name}
+                  {s.personalNumber ? ` · ${s.personalNumber}` : ""}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : (
+          <Field id="add-location" label="מיקום" error={err.location} required>
+            <Input id="add-location" name="location" list="ammo-locations" autoComplete="off" placeholder="למשל: בונקר פלוגתי" aria-invalid={!!err.location} />
+            <datalist id="ammo-locations">
+              {locations.map((l) => (
+                <option key={l} value={l} />
+              ))}
+            </datalist>
+          </Field>
+        )}
         <Field id="add-quantity" label="כמות שנספרה" error={err.quantity}>
           <Input id="add-quantity" name="quantity" inputMode="numeric" dir="ltr" className="text-start" placeholder="0" aria-invalid={!!err.quantity} />
         </Field>
       </div>
+      <label className="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium">
+        <input type="checkbox" className="accent-primary size-5" checked={toSoldier} onChange={(e) => setToSoldier(e.target.checked)} />
+        <User className="size-4" />
+        אצל חייל (במקום מיקום)
+      </label>
       {state?.error && <p className="text-danger text-sm">{state.error}</p>}
       <div className="flex gap-2">
         <Button type="submit" disabled={pending}>
@@ -122,7 +149,11 @@ export function StockRow({ stock, isAdmin }: { stock: AmmoStockRow; isAdmin: boo
         className="hover:bg-accent/50 flex min-h-14 w-full items-center gap-3 px-4 py-2 text-start"
       >
         <div className="min-w-0 flex-1">
-          <p className="font-medium">{stock.location}</p>
+          <p className="flex flex-wrap items-center gap-2 font-medium">
+            {stock.soldier && <User className="text-muted-foreground size-4" aria-label="אצל חייל" />}
+            {stock.location}
+            {stock.soldier && <PlatoonBadge platoon={stock.soldier.platoon} />}
+          </p>
           <p className="text-muted-foreground text-xs">נספר {formatDaysAgo(stock.lastCountedAt)}</p>
         </div>
         <span className="text-lg font-semibold tabular-nums">{formatNumber(stock.quantity)}</span>
