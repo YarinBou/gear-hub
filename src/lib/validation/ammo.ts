@@ -16,12 +16,17 @@ export const LocationSchema = z
   .transform((s) => s.trim().replace(/\s+/g, " "))
   .pipe(z.string().min(2, "יש להזין מיקום").max(40, "שם המיקום ארוך מדי"));
 
-export const AddStockSchema = z.object({
+const addStockBase = {
   categoryId: z.string().min(1, "יש לבחור סוג תחמושת"),
-  location: LocationSchema,
   quantity: z.preprocess((v) => (v === "" ? 0 : v), quantity),
   note: z.preprocess(emptyToUndef, z.string().trim().max(200, "ההערה ארוכה מדי").optional()),
-});
+};
+
+/** A stock is either at a place (free-text location) or held by a soldier. */
+export const AddStockSchema = z.discriminatedUnion("holder", [
+  z.object({ holder: z.literal("place"), location: LocationSchema, ...addStockBase }),
+  z.object({ holder: z.literal("soldier"), soldierId: z.string().min(1, "יש לבחור חייל"), ...addStockBase }),
+]);
 
 export const MovementSchema = z
   .object({

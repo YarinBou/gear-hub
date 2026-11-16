@@ -2,6 +2,7 @@ import "server-only";
 import { connection } from "next/server";
 import { companyContext } from "@/lib/context";
 import { ammoLevel, type AmmoLevel } from "@/lib/ammo-rules";
+import { platoonSelect } from "@/lib/platoons";
 import type { AmmoCategory } from "@/generated/prisma/enums";
 
 const RECENT_LOGS = 5;
@@ -35,6 +36,7 @@ export async function getAmmoOverview() {
         select: {
           id: true,
           location: true,
+          soldier: { select: { id: true, name: true, platoon: platoonSelect } },
           quantity: true,
           lastCountedAt: true,
           notes: true,
@@ -76,9 +78,14 @@ export async function getAmmoOverview() {
 export type AmmoTypeOverview = Awaited<ReturnType<typeof getAmmoOverview>>[number];
 export type AmmoStockRow = AmmoTypeOverview["ammoStocks"][number];
 
-/** Existing location names, for the location autocomplete. */
+/** Existing place names (not soldiers), for the location autocomplete and filter. */
 export async function getAmmoLocations() {
   const { db } = await companyContext();
-  const rows = await db.ammoStock.findMany({ distinct: ["location"], select: { location: true }, orderBy: { location: "asc" } });
+  const rows = await db.ammoStock.findMany({
+    where: { soldierId: null },
+    distinct: ["location"],
+    select: { location: true },
+    orderBy: { location: "asc" },
+  });
   return rows.map((r) => r.location);
 }

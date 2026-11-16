@@ -21,13 +21,15 @@ export async function addStock(_prev: AmmoFormState, fd: FormData): Promise<Ammo
   if (!w.ok) return { error: w.message };
   const { user, db, deployment } = w;
   const parsed = AddStockSchema.safeParse({
+    holder: fd.get("holder") === "soldier" ? "soldier" : "place",
     categoryId: fd.get("categoryId") ?? "",
     location: fd.get("location") ?? "",
+    soldierId: fd.get("soldierId") ?? "",
     quantity: fd.get("quantity") ?? "",
     note: fd.get("note") ?? "",
   });
   if (!parsed.success) return { errors: toFieldErrors(parsed.error) };
-  const { categoryId, location, quantity, note } = parsed.data;
+  const { categoryId, quantity, note } = parsed.data;
 
   const category = await db.equipmentCategory.findFirst({
     where: { id: categoryId, domain: "AMMUNITION", isActive: true },
@@ -35,10 +37,27 @@ export async function addStock(_prev: AmmoFormState, fd: FormData): Promise<Ammo
   });
   if (!category) return { errors: { categoryId: "סוג תחמושת לא תקין" } };
 
+  let location: string;
+  let soldierId: string | null = null;
+  if (parsed.data.holder === "soldier") {
+    // Must be an active soldier who is part of this deployment.
+    const soldier = await db.soldier.findFirst({
+      where: { id: parsed.data.soldierId, isActive: true, absences: { none: { deploymentId: deployment.id } } },
+      select: { id: true, name: true, personalNumber: true },
+    });
+    if (!soldier) return { errors: { soldierId: "חייל לא תקין" } };
+    soldierId = soldier.id;
+    // The soldier's name is the row's location; add the personal number if another soldier shares the name.
+    const namesake = await db.soldier.count({ where: { name: soldier.name, id: { not: soldier.id } } });
+    location = namesake && soldier.personalNumber ? `${soldier.name} (${soldier.personalNumber})` : soldier.name;
+  } else {
+    location = parsed.data.location;
+  }
+
   try {
     await db.$transaction(async (tx) => {
       const stock = await tx.ammoStock.create({
-        data: { companyId: user.companyId, deploymentId: deployment.id, categoryId, location, quantity, lastCountedAt: new Date() },
+        data: { companyId: user.companyId, deploymentId: deployment.id, categoryId, location, soldierId, quantity, lastCountedAt: new Date() },
       });
       await tx.ammoLog.create({
         data: {
@@ -48,19 +67,21 @@ export async function addStock(_prev: AmmoFormState, fd: FormData): Promise<Ammo
           amount: quantity,
           previousQuantity: 0,
           newQuantity: quantity,
-          note: note ?? "פתיחת מיקום",
+          note: note ?? (soldierId ? "מסירה לחייל" : "פתיחת מיקום"),
           performedById: user.id,
         },
       });
     });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      return { errors: { location: `כבר קיים מיקום "${location}" עבור ${category.name}` } };
+      const field = soldierId ? "soldierId" : "location";
+      return { errors: { [field]: `כבר קיים מיקום "${location}" עבור ${category.name}` } };
     }
     throw e;
   }
   refresh();
-  return { ok: true, message: `נפתח מיקום "${location}" עבור ${category.name}`, at: Date.now() };
+  const what = soldierId ? `נרשם ${category.name} אצל ${location}` : `נפתח מיקום "${location}" עבור ${category.name}`;
+  return { ok: true, message: what, at: Date.now() };
 }
 
 /** Count / receive / issue at one location. Row-locked so concurrent updates can't lose a movement. */

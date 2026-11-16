@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { recordMovement } from "@/app/(app)/ammo/actions";
+import { addStock, recordMovement } from "@/app/(app)/ammo/actions";
 import { assignKit, completeInspection, setKitItem, signKit, updateWeapon } from "@/app/(app)/kits/actions";
-import { activeDeployment, form, kitItemId, kitLine, loginAs, makeAmmoStock, makeItem, makeSoldier, stateOf } from "./factories";
+import { activeDeployment, form, kitItemId, kitLine, loginAs, makeAmmoStock, makeCategory, makeItem, makeSoldier, stateOf } from "./factories";
 
 const SIGNATURE = "data:image/png;base64,AAAA";
 
@@ -28,6 +28,44 @@ describe("ammo movements", () => {
     expect(await recordMovement(stock.id, undefined, form({ type: "ISSUE", amount: 11 }))).toHaveProperty("error");
     expect((await prisma.ammoStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity).toBe(10);
     expect(await prisma.ammoLog.count()).toBe(0);
+  });
+});
+
+describe("ammo held by a soldier", () => {
+  it("opens a stock under the soldier's name, linked to the soldier", async () => {
+    await loginAs();
+    await activeDeployment();
+    const cat = await makeCategory({ domain: "AMMUNITION" });
+    const soldier = await makeSoldier({ name: "דני כהן" });
+
+    const r = await addStock(undefined, form({ holder: "soldier", soldierId: soldier.id, categoryId: cat.id, quantity: 90 }));
+    expect(r).toMatchObject({ ok: true });
+    expect(await prisma.ammoStock.findFirstOrThrow({ where: { categoryId: cat.id } })).toMatchObject({
+      soldierId: soldier.id,
+      location: "דני כהן",
+      quantity: 90,
+    });
+  });
+
+  it("adds the personal number when two soldiers share a name", async () => {
+    await loginAs();
+    await activeDeployment();
+    const cat = await makeCategory({ domain: "AMMUNITION" });
+    await makeSoldier({ name: "יוסי לוי", personalNumber: "1111111" });
+    const b = await makeSoldier({ name: "יוסי לוי", personalNumber: "2222222" });
+
+    expect(await addStock(undefined, form({ holder: "soldier", soldierId: b.id, categoryId: cat.id, quantity: 10 }))).toMatchObject({ ok: true });
+    expect((await prisma.ammoStock.findFirstOrThrow({ where: { soldierId: b.id } })).location).toBe("יוסי לוי (2222222)");
+  });
+
+  it("refuses an inactive soldier", async () => {
+    await loginAs();
+    await activeDeployment();
+    const cat = await makeCategory({ domain: "AMMUNITION" });
+    const gone = await makeSoldier({ isActive: false });
+    const r = await addStock(undefined, form({ holder: "soldier", soldierId: gone.id, categoryId: cat.id, quantity: 10 }));
+    expect(r?.errors).toHaveProperty("soldierId");
+    expect(await prisma.ammoStock.count()).toBe(0);
   });
 });
 
