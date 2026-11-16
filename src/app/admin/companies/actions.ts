@@ -1,10 +1,12 @@
 "use server";
 
-import { refresh, revalidatePath } from "next/cache";
+import { refresh, revalidatePath, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma } from "@/generated/prisma/client";
 import { requireSuperAdmin, setActiveCompany } from "@/lib/auth";
 import { provisionCompany } from "@/lib/company-setup";
+import { copyCompanySetup, type CopySetupResult } from "@/lib/company-template";
+import { catalogTag } from "@/lib/queries/catalog";
 import { generateTempPassword, hashPassword } from "@/lib/passwords";
 import { prisma } from "@/lib/prisma";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
@@ -31,9 +33,14 @@ export async function createCompany(_prev: CompanyFormState, fd: FormData): Prom
     name: fd.get("name") ?? "",
     adminName: fd.get("adminName") ?? "",
     adminUsername: fd.get("adminUsername") ?? "",
+    templateId: fd.get("templateId") ?? "",
   });
   if (!parsed.success) return { errors: toFieldErrors(parsed.error) };
-  const { name, adminName, adminUsername } = parsed.data;
+  const { name, adminName, adminUsername, templateId } = parsed.data;
+  const template = templateId
+    ? await prisma.company.findUnique({ where: { id: templateId }, select: { id: true, name: true } })
+    : null;
+  if (templateId && !template) return { errors: { templateId: "פלוגה לא קיימת" } };
 
   const [nameTaken, usernameTaken] = await Promise.all([
     prisma.company.findUnique({ where: { name }, select: { id: true } }),
@@ -44,13 +51,15 @@ export async function createCompany(_prev: CompanyFormState, fd: FormData): Prom
 
   const password = generateTempPassword();
   const passwordHash = await hashPassword(password);
+  let companyId: string;
   try {
-    await prisma.$transaction(async (tx) => {
+    companyId = await prisma.$transaction(async (tx) => {
       const company = await tx.company.create({ data: { name } });
-      await provisionCompany(tx, company.id);
+      await provisionCompany(tx, company.id, { defaults: !template });
       await tx.user.create({
         data: { companyId: company.id, name: adminName, username: adminUsername, role: "ADMIN", passwordHash },
       });
+      return company.id;
     });
   } catch (e) {
     // Lost a race with a concurrent create of the same name / username.
@@ -59,12 +68,45 @@ export async function createCompany(_prev: CompanyFormState, fd: FormData): Prom
     }
     throw e;
   }
+  let copied = "";
+  if (template) {
+    const r = await copyCompanySetup(template.id, companyId);
+    copied = ` עם ההגדרות של "${template.name}" (${describeCopy(r)})`;
+  }
   refresh();
   return {
     ok: true,
-    message: `הפלוגה "${name}" נוצרה`,
+    message: `הפלוגה "${name}" נוצרה${copied}`,
     tempPassword: { username: adminUsername, password },
     at: Date.now(),
+  };
+}
+
+function describeCopy(r: CopySetupResult) {
+  return `${r.categories} סוגים בקטלוג, ${r.sets} מארזים, ${r.kitItems} שורות ערכה`;
+}
+
+/**
+ * Copy another company's catalog, sets (מארזים) and kit checklist into a company as a starting
+ * point. Merge: only what's missing is added (by name); no items, serials or personal data.
+ */
+export async function copySetup(targetId: string, sourceId: string): Promise<{ ok: boolean; message: string }> {
+  await requireSuperAdmin();
+  if (!sourceId || sourceId === targetId) return { ok: false, message: "יש לבחור פלוגת מקור אחרת" };
+  const [source, target] = await Promise.all([
+    prisma.company.findUnique({ where: { id: sourceId }, select: { id: true, name: true } }),
+    prisma.company.findUnique({ where: { id: targetId }, select: { id: true, name: true } }),
+  ]);
+  if (!source || !target) return { ok: false, message: "פלוגה לא קיימת" };
+  const r = await copyCompanySetup(source.id, target.id);
+  updateTag(catalogTag(target.id));
+  refresh();
+  const total = r.categories + r.sets + r.kitItems;
+  return {
+    ok: true,
+    message: total
+      ? `הועתקו מ"${source.name}" אל "${target.name}": ${describeCopy(r)}.`
+      : `לא נוסף דבר — כל מה שיש ב"${source.name}" כבר קיים ב"${target.name}".`,
   };
 }
 
