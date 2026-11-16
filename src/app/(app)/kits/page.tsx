@@ -7,7 +7,7 @@ import { getPlatoons } from "@/lib/queries/platoons";
 import type { PlatoonRef } from "@/lib/platoons";
 import { listKits, type KitTile } from "@/lib/queries/kits";
 import { cn } from "@/lib/utils";
-import { PlatoonDot } from "@/components/platoon-badge";
+import { PlatoonBadge, PlatoonDot } from "@/components/platoon-badge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
@@ -151,17 +151,20 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
                       <span className={cn("text-xs font-semibold tabular-nums", t.text)}>{k.readiness}%</span>
                     )}
                   </div>
-                  <p className={cn("flex items-center gap-1.5 truncate text-xs", k.soldier ? "font-medium" : "text-muted-foreground")}>
-                    {k.soldier && <PlatoonDot platoon={k.soldier.platoon} />}
-                    <span className="truncate">{k.soldier?.name ?? "לא הונפקה"}</span>
+                  {/* No colored dot here: a pink platoon dot next to the bar read as "missing items". */}
+                  <p className={cn("truncate text-xs", k.soldier ? "font-medium" : "text-muted-foreground")}>
+                    {k.soldier?.name ?? "לא הונפקה"}
                   </p>
                   <div className="bg-muted h-1.5 overflow-hidden rounded-full">
                     <div className={cn("h-full rounded-full", t.bar)} style={{ width: `${k.soldier ? k.readiness : 0}%` }} />
                   </div>
                   {k.soldier && (
-                    <p className="text-muted-foreground flex items-center justify-between text-[11px]">
-                      <span>{k.missing.length ? `${k.missing.length} חסרים` : "מלאה"}</span>
-                      {k.signedAt && <PenLine className="size-3" aria-label="הוחתם" />}
+                    <p className="text-muted-foreground flex items-center justify-between gap-1 text-[11px]">
+                      <span className="shrink-0">{k.missing.length ? `${k.missing.length} חסרים` : "מלאה"}</span>
+                      <span className="flex min-w-0 items-center gap-1">
+                        <PlatoonBadge platoon={k.soldier.platoon} className="min-w-0 truncate px-1 py-0 text-[10px]" />
+                        {k.signedAt && <PenLine className="size-3 shrink-0" aria-label="הוחתם" />}
+                      </span>
                     </p>
                   )}
                 </Link>
