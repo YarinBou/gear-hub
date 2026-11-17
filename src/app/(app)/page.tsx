@@ -1,74 +1,40 @@
 import type { Metadata } from "next";
-import { Backpack, Boxes, Crosshair, Users, Warehouse } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { getDashboardData } from "@/lib/queries/dashboard";
 import { getKitSummary } from "@/lib/queries/kits";
 import { KitSummaryCard } from "@/components/dashboard/kit-summary-card";
-import { formatNumber } from "@/lib/utils";
-import { StatCard } from "@/components/dashboard/stat-card";
 import { AlertsPanel } from "@/components/dashboard/alerts-panel";
+import { CompanyStatus } from "@/components/dashboard/company-status";
 import { KitReadinessGrid } from "@/components/dashboard/kit-readiness-grid";
 import { PlatoonBreakdown } from "@/components/dashboard/platoon-breakdown";
 import { EquipmentStatusCard } from "@/components/dashboard/equipment-status";
 
 export const metadata: Metadata = { title: "לוח בקרה" };
 
+/**
+ * "What needs my attention right now?" first. On a phone: what needs attention, then the company in
+ * five lines, then detail. The 98-kit map and the kit-totals table are desktop-only here; on a phone
+ * they are one tap away (/kits, /kits/summary).
+ */
 export default async function DashboardPage() {
-  const user = await requireUser();
+  await requireUser();
   const [data, kitSummary] = await Promise.all([getDashboardData(), getKitSummary()]);
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:gap-6">
-      <div>
-        <h1 className="text-2xl font-bold">שלום, {user.name}</h1>
-        <p className="text-muted-foreground text-sm">תמונת מצב לוגיסטית פלוגתית</p>
+    <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-3">
+      {/* Placed in the side column on desktop, but first in reading order everywhere. */}
+      <div className="flex min-w-0 flex-col gap-6 lg:col-start-3 lg:row-start-1">
+        <AlertsPanel data={data} />
+        <CompanyStatus data={data} />
+        <EquipmentStatusCard equipment={data.equipment} />
       </div>
-
-      <section aria-label="מדדים עיקריים" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        <StatCard href="/roster" title='סד"כ פעיל' value={formatNumber(data.roster.total)} hint="לוחמים" icon={Users} />
-        <StatCard
-          href="/equipment"
-          title='צל"ם'
-          value={formatNumber(data.equipment.total)}
-          hint={data.equipment.staleCount ? `${data.equipment.staleCount} לא אומתו` : "כולם אומתו"}
-          icon={Crosshair}
-          tone={data.equipment.staleCount ? "warning" : "default"}
-        />
-        <StatCard
-          href="/kits"
-          title="כשירות ערכות"
-          value={`${data.kits.avgReadiness}%`}
-          hint={`${data.kits.fullKits} ערכות מלאות`}
-          icon={Backpack}
-          tone={data.kits.avgReadiness < 75 && data.kits.issued > 0 ? "warning" : "default"}
-        />
-        <StatCard
-          href="/ammo"
-          title="תחמושת"
-          value={formatNumber(data.ammo.types.length)}
-          hint={data.ammo.low.length ? `${data.ammo.low.length} מתחת לסף` : "סוגי תחמושת"}
-          icon={Boxes}
-          tone={data.ammo.low.length ? "danger" : "default"}
-        />
-        <StatCard
-          href="/storage"
-          title='בימ"ח'
-          value={`${data.storage.fillRate}%`}
-          hint="מצאי מול תקן"
-          icon={Warehouse}
-          tone={data.storage.shortages.length || data.storage.expiring.length ? "warning" : "default"}
-        />
-      </section>
-
-      <div className="grid gap-4 lg:grid-cols-3 lg:gap-6">
-        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2 lg:gap-6">
+      <div className="flex min-w-0 flex-col gap-6 lg:col-span-2 lg:col-start-1 lg:row-start-1">
+        <div className="hidden lg:block">
           <KitReadinessGrid kits={data.kits} />
-          <PlatoonBreakdown data={data} />
-          <KitSummaryCard summary={kitSummary} />
         </div>
-        <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
-          <AlertsPanel data={data} />
-          <EquipmentStatusCard equipment={data.equipment} />
+        <PlatoonBreakdown data={data} />
+        <div className="hidden lg:block">
+          <KitSummaryCard summary={kitSummary} />
         </div>
       </div>
     </div>
