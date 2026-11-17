@@ -1,9 +1,9 @@
 import { NO_SERIAL_LABEL } from "@/lib/equipment-rules";
 import { cn } from "@/lib/utils";
 
-/** A serial number (LTR, monospace) — or a clear "ללא צ" marker when it hasn't been recorded yet. */
+/** A serial number (LTR, tabular figures in the app font) — or a clear "ללא צ" marker when it has not been recorded yet. */
 export function Serial({ value, className }: { value: string | null; className?: string }) {
-  if (value) return <span className={cn("ltr-text font-mono", className)}>{value}</span>;
+  if (value) return <span className={cn("ltr-text font-medium tracking-wide tabular-nums", className)}>{value}</span>;
   return (
     <span
       className={cn(

@@ -66,7 +66,7 @@ export default async function EquipmentReportPage({ searchParams }: PageProps<"/
                 href={p ? `/equipment/report?platoon=${p.id}` : "/equipment/report"}
                 aria-current={platoon === p?.id ? "page" : undefined}
                 className={cn(
-                  "flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium whitespace-nowrap",
+                  "flex h-11 items-center gap-2 rounded-full border px-4 text-sm font-medium whitespace-nowrap",
                   platoon === p?.id ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-accent",
                 )}
               >
