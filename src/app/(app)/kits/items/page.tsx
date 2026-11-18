@@ -14,7 +14,7 @@ export default async function KitItemsPage() {
   const [items, company] = await Promise.all([
     db.kitItemDef.findMany({
       orderBy: { sortOrder: "asc" },
-      select: { id: true, label: true, groupName: true, sortOrder: true, targetQuantity: true, systemKey: true, isActive: true },
+      select: { id: true, label: true, groupName: true, sortOrder: true, targetQuantity: true, systemKey: true, startPresent: true, isActive: true },
     }),
     db.company.findUnique({ where: { id: user.companyId }, select: { kitDefaultPresent: true, kitCount: true } }),
   ]);
@@ -43,11 +43,11 @@ export default async function KitItemsPage() {
 
       <Card>
         <CardContent>
-          <KitDefaultSetting present={company?.kitDefaultPresent ?? false} />
+          <KitDefaultSetting presentCount={active.filter((i) => i.startPresent).length} total={active.length} />
         </CardContent>
       </Card>
 
-      <AddKitItemForm groups={groupNames} />
+      <AddKitItemForm groups={groupNames} startPresent={company?.kitDefaultPresent ?? false} />
 
       {groups.map((g) => (
         <Card key={g.groupName} className="gap-0 py-0">

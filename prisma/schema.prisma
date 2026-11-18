@@ -71,7 +71,8 @@ model Company {
   name              String   @unique
   /// Deactivated companies can't sign in.
   isActive          Boolean  @default(true)
-  /// New kits start with every checklist item present (true) or missing (false). Set on /kits/items.
+  /// Start state for checklist items added from now on (present / missing). Setting it on /kits/items
+  /// ("הכל קיים" / "הכל חסר") also sets every item's own start state (KitItemDef.startPresent).
   kitDefaultPresent Boolean  @default(false)
   /// How many personal kits (ערכות) the company has: every deployment has kits 1..kitCount. Set on /kits/items.
   kitCount          Int      @default(98)
@@ -522,6 +523,8 @@ model KitItemDef {
   targetQuantity Int?
   /// "WEAPON" marks the personal-weapon line: it is fulfilled automatically when a rifle is linked.
   systemKey      String?
+  /// How this line starts on a new kit, or an unissued one: present (full quantity) or missing.
+  startPresent   Boolean  @default(false)
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

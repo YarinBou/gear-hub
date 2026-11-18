@@ -8,6 +8,7 @@ import {
   moveKitItem,
   setKitDefaultPresent,
   setKitItemActive,
+  setKitItemStartPresent,
   updateKitItem,
 } from "@/app/(app)/kits/items/actions";
 import { getKit } from "@/lib/queries/kits";
@@ -27,22 +28,25 @@ describe("managing the checklist", () => {
     await loginAs("REGULAR");
     await expect(createKitItem(undefined, form({ label: "x", groupName: "y" }))).rejects.toBeInstanceOf(RedirectSignal);
     await expect(setKitDefaultPresent(true)).rejects.toBeInstanceOf(RedirectSignal);
+    await expect(setKitItemStartPresent(await kitItemId("קסדה"), true)).rejects.toBeInstanceOf(RedirectSignal);
   });
 
-  it("an item added mid-deployment appears on every kit, starting per the company setting", async () => {
+  it("an item added mid-deployment appears on every kit, in its start state", async () => {
     await loginAs("ADMIN");
     const d = await activeDeployment();
     const kit = await makeKit({ kitNumber: 1 });
     await setKitDefaultPresent(true);
 
-    const res = await createKitItem(undefined, form({ label: "מחסניות", groupName: "נשק אישי", targetQuantity: 7 }));
+    const res = await createKitItem(undefined, form({ label: "מחסניות", groupName: "נשק אישי", targetQuantity: 7, startPresent: "on" }));
     expect(res).toMatchObject({ ok: true });
     expect(await kitLine(kit.id, "מחסניות")).toMatchObject({ quantity: 7 });
+    await createKitItem(undefined, form({ label: "כפפות", groupName: "נשק אישי" }));
+    expect(await kitLine(kit.id, "כפפות")).toMatchObject({ present: false });
 
     // A new item lands at the end of its group.
     const detail = await getKit(1);
     const weaponGroup = detail!.lines.filter((l) => l.groupName === "נשק אישי").map((l) => l.label);
-    expect(weaponGroup).toEqual(["נשק אישי", "מחסניות"]);
+    expect(weaponGroup).toEqual(["נשק אישי", "מחסניות", "כפפות"]);
     expect(d.status).toBe("ACTIVE");
   });
 
@@ -133,5 +137,65 @@ describe("history and deployments", () => {
     const other = await prisma.company.create({ data: { name: "פלוגה אחרת" } });
     expect(await prisma.kitItemDef.count({ where: { companyId: other.id, label: "רק אצלנו" } })).toBe(0);
     expect(await prisma.kitItemDef.count({ where: { companyId: await homeCompany(), label: "רק אצלנו" } })).toBe(1);
+  });
+});
+
+describe("start state (ערכה חדשה מתחילה כ…)", () => {
+  /** Kits 1..kitCount of a fresh deployment (rows created at start, like production). */
+  let n = 0;
+  async function freshDeployment(adminId: string) {
+    const companyId = await homeCompany();
+    await prisma.company.update({ where: { id: companyId }, data: { kitCount: 5 } });
+    const { deployment } = await start(`נקייה ${++n}`, "empty", adminId);
+    const kit = (n: number) =>
+      prisma.personalKit.findUniqueOrThrow({ where: { deploymentId_kitNumber: { deploymentId: deployment.id, kitNumber: n } } });
+    return { deployment, kit };
+  }
+
+  it("changing it reaches kits that already exist but aren't issued; issued kits keep their marks", async () => {
+    const admin = await loginAs("ADMIN");
+    await setKitDefaultPresent(true);
+    const { kit } = await freshDeployment(admin.id);
+    const soldier = await makeSoldier();
+    await assignKit(2, undefined, form({ soldierId: soldier.id }));
+
+    // The bug: the setting says "missing", but kits created before the change opened full.
+    const res = await setKitDefaultPresent(false);
+    expect(res).toMatchObject({ ok: true });
+    for (const label of ["קסדה", "שק שינה", "נשק אישי"]) {
+      expect(await kitLine((await kit(1)).id, label)).toMatchObject({ present: false });
+      expect(await kitLine((await kit(2)).id, label)).toMatchObject({ present: true });
+    }
+    expect((await getKit(3))!.lines.every((l) => !l.present)).toBe(true);
+  });
+
+  it("each item has its own start state, for unissued kits and new deployments", async () => {
+    const admin = await loginAs("ADMIN");
+    await setKitDefaultPresent(false);
+    const helmet = await kitItemId("קסדה");
+    const { kit } = await freshDeployment(admin.id);
+
+    await setKitItemStartPresent(helmet, true);
+    expect(await kitLine((await kit(1)).id, "קסדה")).toMatchObject({ present: true });
+    expect(await kitLine((await kit(1)).id, "שק שינה")).toMatchObject({ present: false });
+
+    const { kit: kit2 } = await freshDeployment(admin.id);
+    const lines = (await getKit(4))!.lines;
+    expect(lines.filter((l) => l.present).map((l) => l.label)).toEqual(["קסדה"]);
+    expect(await kitLine((await kit2(4)).id, "קסדה")).toMatchObject({ present: true });
+
+    // "הכל" overrides every item again.
+    await setKitDefaultPresent(false);
+    expect(await kitLine((await kit2(4)).id, "קסדה")).toMatchObject({ present: false });
+    expect(await prisma.kitItemDef.count({ where: { startPresent: true } })).toBe(0);
+  });
+
+  it("counted items start at the full quantity or zero", async () => {
+    const admin = await loginAs("ADMIN");
+    await createKitItem(undefined, form({ label: "מחסניות", groupName: "נשק אישי", targetQuantity: 7 }));
+    const { kit } = await freshDeployment(admin.id);
+    expect(await kitLine((await kit(1)).id, "מחסניות")).toMatchObject({ quantity: 0 });
+    await setKitItemStartPresent(await kitItemId("מחסניות"), true);
+    expect(await kitLine((await kit(1)).id, "מחסניות")).toMatchObject({ quantity: 7 });
   });
 });

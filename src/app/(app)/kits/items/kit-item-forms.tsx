@@ -6,6 +6,7 @@ import { Field } from "@/components/form-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import {
   createKitItem,
@@ -13,6 +14,7 @@ import {
   setKitDefaultPresent,
   setKitCount,
   setKitItemActive,
+  setKitItemStartPresent,
   updateKitItem,
   type KitItemFormState,
 } from "./actions";
@@ -23,6 +25,7 @@ export type KitItemRow = {
   groupName: string;
   targetQuantity: number | null;
   systemKey: string | null;
+  startPresent: boolean;
   isActive: boolean;
 };
 
@@ -71,7 +74,7 @@ function ItemFields({ idPrefix, groups, values, errors }: { idPrefix: string; gr
   );
 }
 
-export function AddKitItemForm({ groups }: { groups: string[] }) {
+export function AddKitItemForm({ groups, startPresent }: { groups: string[]; startPresent: boolean }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(createKitItem, undefined);
   return (
@@ -85,6 +88,10 @@ export function AddKitItemForm({ groups }: { groups: string[] }) {
       ) : (
         <form key={state?.at ?? 0} onSubmit={submitWith(action)} className="bg-card flex flex-col gap-3 rounded-xl border p-4" noValidate>
           <ItemFields idPrefix="new-item" groups={groups} errors={state?.errors ?? {}} />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="startPresent" defaultChecked={startPresent} className="size-4" />
+            מסומן כקיים בערכה חדשה
+          </label>
           <div className="flex gap-2">
             <Button type="submit" disabled={pending}>
               <Plus />
@@ -115,7 +122,7 @@ export function KitItemLine({ item, groups, first, last }: { item: KitItemRow; g
   return (
     <li className="flex flex-col gap-2 px-3 py-2">
       <div className="flex items-center gap-2">
-        <span className={cn("flex-1 font-medium", !item.isActive && "text-muted-foreground line-through")}>
+        <span className={cn("min-w-0 flex-1 font-medium", !item.isActive && "text-muted-foreground line-through")}>
           {item.label}
           {item.targetQuantity != null && <span className="text-muted-foreground ms-2 text-sm">× {item.targetQuantity}</span>}
           {item.systemKey === "WEAPON" && (
@@ -141,12 +148,15 @@ export function KitItemLine({ item, groups, first, last }: { item: KitItemRow; g
           variant="ghost"
           size="sm"
           disabled={pending}
+          aria-label={`${item.isActive ? "השבתת" : "הפעלת"} ${item.label}`}
           onClick={() => start(async () => void (await setKitItemActive(item.id, !item.isActive)))}
         >
           <Power />
-          {item.isActive ? "השבתה" : "הפעלה"}
+          <span className="hidden sm:inline">{item.isActive ? "השבתה" : "הפעלה"}</span>
         </Button>
       </div>
+      {/* Keyed by the saved value, so "הכל קיים / הכל חסר" resets it. */}
+      {item.isActive && <StartToggle key={String(item.startPresent)} item={item} />}
       {editing && (
         <form onSubmit={submitWith(action)} className="bg-muted/40 flex flex-col gap-3 rounded-lg border p-3" noValidate>
           <ItemFields idPrefix={`edit-${item.id}`} groups={groups} values={item} errors={state?.errors ?? {}} />
@@ -165,31 +175,85 @@ export function KitItemLine({ item, groups, first, last }: { item: KitItemRow; g
   );
 }
 
-export function KitDefaultSetting({ present }: { present: boolean }) {
+/** One item's start state on a new (or not yet issued) kit. */
+function StartToggle({ item }: { item: KitItemRow }) {
+  const [value, setValue] = useState(item.startPresent);
+  const [message, setMessage] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const option = (value: boolean, title: string, description: string) => (
-    <label className={cn("flex cursor-pointer items-start gap-3 rounded-lg border p-3", present === value && "border-primary bg-primary/5")}>
-      <input
-        type="radio"
-        name="kit-default"
-        className="mt-1 size-4"
-        checked={present === value}
-        disabled={pending}
-        onChange={() => start(async () => void (await setKitDefaultPresent(value)))}
-      />
-      <span>
-        <span className="block font-medium">{title}</span>
-        <span className="text-muted-foreground block text-sm">{description}</span>
-      </span>
-    </label>
-  );
   return (
-    <fieldset className="flex flex-col gap-2">
-      <legend className="mb-1 font-medium">ערכה חדשה מתחילה כ…</legend>
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-muted-foreground">בערכה חדשה:</span>
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        size="sm"
+        value={value ? "present" : "missing"}
+        disabled={pending}
+        aria-label={`מצב התחלתי של ${item.label}`}
+        onValueChange={(v) => {
+          if (!v) return;
+          const present = v === "present";
+          setValue(present);
+          start(async () => {
+            const r = await setKitItemStartPresent(item.id, present);
+            if (!r.ok) setValue(!present);
+            setMessage(r.message ?? null);
+          });
+        }}
+      >
+        <ToggleGroupItem value="present" className="data-[state=on]:bg-success/15 data-[state=on]:text-success px-3">
+          קיים
+        </ToggleGroupItem>
+        <ToggleGroupItem value="missing" className="data-[state=on]:bg-danger/15 data-[state=on]:text-danger px-3">
+          חסר
+        </ToggleGroupItem>
+      </ToggleGroup>
+      {message && <span className="text-muted-foreground text-xs">{message}</span>}
+    </div>
+  );
+}
+
+/** Every item's start state at once. */
+export function KitDefaultSetting({ presentCount, total }: { presentCount: number; total: number }) {
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const state = presentCount === 0 ? "missing" : presentCount === total ? "present" : "mixed";
+  const option = (value: boolean, title: string, description: string) => {
+    const selected = state === (value ? "present" : "missing");
+    return (
+      <button
+        type="button"
+        disabled={pending}
+        aria-pressed={selected}
+        onClick={() => start(async () => setMessage((await setKitDefaultPresent(value)).message ?? null))}
+        className={cn(
+          "flex min-h-11 items-start gap-3 rounded-lg border p-3 text-start disabled:opacity-60",
+          selected && "border-primary bg-primary/5",
+        )}
+      >
+        <span>
+          <span className="block font-medium">{title}</span>
+          <span className="text-muted-foreground block text-sm">{description}</span>
+        </span>
+      </button>
+    );
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="font-medium">ערכה חדשה מתחילה כ…</p>
       {option(false, "הכל חסר", "כל פריט מסומן כחסר עד שמסמנים אותו במסדר או בהחתמה. מומלץ — כך שום דבר לא נחשב כמונפק בטעות.")}
       {option(true, "הכל קיים", "כל פריט מסומן כקיים (ופריטים עם כמות — בכמות המלאה), ומסמנים רק מה שחסר.")}
-      <p className="text-muted-foreground text-xs">חל על ערכות של הפעלה חדשה שמתחילה &quot;נקי&quot;, ועל פריטים שמוסיפים לרשימה. ערכות קיימות לא משתנות.</p>
-    </fieldset>
+      {state === "mixed" && (
+        <p className="text-sm font-medium">
+          מעורב — {presentCount} מתוך {total} פריטים מתחילים כקיימים (נקבע לכל פריט ברשימה למטה).
+        </p>
+      )}
+      <p className="text-muted-foreground text-xs">
+        אפשר גם לקבוע לכל פריט בנפרד ברשימה למטה. חל מיד על ערכות בהפעלה הפעילה שעדיין לא הונפקו (בלי לוחם, נשק או חתימה), על
+        הפעלה חדשה שמתחילה &quot;נקי&quot; ועל פריטים שמוסיפים. ערכות מונפקות לא משתנות.
+      </p>
+      {message && <p className="text-success text-sm font-medium">{message}</p>}
+    </div>
   );
 }
 

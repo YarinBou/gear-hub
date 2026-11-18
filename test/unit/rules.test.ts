@@ -152,10 +152,10 @@ describe("kit checklist", () => {
   });
 
   it("new lines start per the company setting", () => {
-    expect(defaultStatus({ targetQuantity: null }, false)).toEqual({ present: false, quantity: null });
-    expect(defaultStatus({ targetQuantity: null }, true)).toEqual({ present: true, quantity: null });
-    expect(defaultStatus({ targetQuantity: 7 }, true)).toEqual({ present: false, quantity: 7 });
-    expect(defaultStatus({ targetQuantity: 7 }, false)).toEqual({ present: false, quantity: 0 });
+    expect(defaultStatus({ targetQuantity: null, startPresent: false })).toEqual({ present: false, quantity: null });
+    expect(defaultStatus({ targetQuantity: null, startPresent: true })).toEqual({ present: true, quantity: null });
+    expect(defaultStatus({ targetQuantity: 7, startPresent: true })).toEqual({ present: false, quantity: 7 });
+    expect(defaultStatus({ targetQuantity: 7, startPresent: false })).toEqual({ present: false, quantity: 0 });
   });
 
   it("a live kit shows the active list; a closed deployment shows what was recorded", () => {

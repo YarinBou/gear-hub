@@ -24,7 +24,12 @@ export async function makeCompany(opts: { name?: string; isActive?: boolean; kit
     data: { name: opts.name ?? `פלוגה ${next()}`, isActive: opts.isActive ?? true, kitDefaultPresent: opts.kitDefaultPresent ?? false },
   });
   await prisma.kitItemDef.createMany({
-    data: DEFAULT_KIT_ITEMS.map((item, i) => ({ companyId: company.id, sortOrder: (i + 1) * 10, ...item })),
+    data: DEFAULT_KIT_ITEMS.map((item, i) => ({
+      companyId: company.id,
+      sortOrder: (i + 1) * 10,
+      startPresent: company.kitDefaultPresent,
+      ...item,
+    })),
   });
   await prisma.platoon.createMany({
     data: DEFAULT_PLATOONS.map((name, i) => ({ companyId: company.id, name, sortOrder: (i + 1) * 10, color: i })),

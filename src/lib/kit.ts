@@ -78,11 +78,11 @@ export function groupLines<T extends Pick<ChecklistLine, "groupName" | "sortOrde
   return groups;
 }
 
-/** The state a new kit's line starts in, per the company's "new kits start full / empty" setting. */
-export function defaultStatus(def: { targetQuantity: number | null }, startPresent: boolean) {
+/** The state a new kit's line starts in, per the item's own start setting (present / missing). */
+export function defaultStatus(def: { targetQuantity: number | null; startPresent: boolean }) {
   return def.targetQuantity != null
-    ? { present: false, quantity: startPresent ? def.targetQuantity : 0 }
-    : { present: startPresent, quantity: null };
+    ? { present: false, quantity: def.startPresent ? def.targetQuantity : 0 }
+    : { present: def.startPresent, quantity: null };
 }
 
 /** The checklist every new company starts with (editable afterwards). */

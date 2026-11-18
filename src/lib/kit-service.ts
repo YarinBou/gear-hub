@@ -8,7 +8,7 @@ import { defaultStatus, expectedOf, haveOf } from "@/lib/kit";
 
 type Tx = Prisma.TransactionClient;
 
-const defSelect = { id: true, targetQuantity: true } as const;
+const defSelect = { id: true, targetQuantity: true, startPresent: true } as const;
 
 /** The company's active checklist items, in order. */
 export function activeItemDefs(tx: Tx) {
@@ -19,15 +19,9 @@ export function activeItemDefs(tx: Tx) {
   });
 }
 
-/** Whether new kits start with every item present (company setting). */
-export async function kitsStartPresent(tx: Tx, companyId: string) {
-  const c = await tx.company.findUnique({ where: { id: companyId }, select: { kitDefaultPresent: true } });
-  return c?.kitDefaultPresent ?? false;
-}
-
 /**
  * Give kits a row for each active checklist item they don't have yet. New rows start per the
- * company setting, or from `copyFrom` (the same kit's row in the previous deployment).
+ * item's start setting, or from `copyFrom` (the same kit's row in the previous deployment).
  */
 export async function createKitStatuses(
   tx: Tx,
@@ -39,10 +33,7 @@ export async function createKitStatuses(
   },
 ) {
   if (!opts.kitIds.length) return;
-  const [defs, startPresent] = await Promise.all([
-    tx.kitItemDef.findMany({ where: { isActive: true }, select: defSelect }),
-    kitsStartPresent(tx, opts.companyId),
-  ]);
+  const defs = await tx.kitItemDef.findMany({ where: { isActive: true }, select: defSelect });
   if (!defs.length) return;
   await tx.kitItemStatus.createMany({
     data: opts.kitIds.flatMap((kitId) =>
@@ -52,12 +43,50 @@ export async function createKitStatuses(
           companyId: opts.companyId,
           kitId,
           itemId: def.id,
-          ...(prev ? { present: prev.present, quantity: prev.quantity, baseline: prev.baseline } : defaultStatus(def, startPresent)),
+          ...(prev ? { present: prev.present, quantity: prev.quantity, baseline: prev.baseline } : defaultStatus(def)),
         };
       }),
     ),
     skipDuplicates: true,
   });
+}
+
+/**
+ * A kit that hasn't been issued yet in the active deployment: no soldier, no weapon, not signed.
+ * Its checklist is just the starting point, so it follows the start settings.
+ */
+export const unissuedKitWhere = {
+  deployment: { status: "ACTIVE" },
+  soldierId: null,
+  personalWeaponId: null,
+  signedAt: null,
+} satisfies Prisma.PersonalKitWhereInput;
+
+/**
+ * Re-apply the start settings to the unissued kits of the active deployment (all items, or just
+ * `itemIds`). Issued kits and closed deployments aren't touched. Returns how many kits changed.
+ */
+export async function applyStartToUnissuedKits(tx: Tx, itemIds?: string[]) {
+  const defs = await tx.kitItemDef.findMany({
+    where: { isActive: true, ...(itemIds ? { id: { in: itemIds } } : {}) },
+    select: defSelect,
+  });
+  const kits = new Set<string>();
+  for (const def of defs) {
+    const start = defaultStatus(def);
+    const rows = await tx.kitItemStatus.findMany({
+      where: {
+        itemId: def.id,
+        kit: unissuedKitWhere,
+        NOT: { present: start.present, quantity: start.quantity },
+      },
+      select: { id: true, kitId: true },
+    });
+    if (!rows.length) continue;
+    await tx.kitItemStatus.updateMany({ where: { id: { in: rows.map((r) => r.id) } }, data: { ...start, baseline: null } });
+    rows.forEach((r) => kits.add(r.kitId));
+  }
+  return kits.size;
 }
 
 /** Write per-row values with as few updates as possible (rows grouped by value). */
