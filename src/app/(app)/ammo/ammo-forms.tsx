@@ -7,6 +7,7 @@ import { Field } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { SoldierSelect } from "@/components/soldier-select";
 import { AMMO_LOG_LABELS } from "@/lib/ammo-rules";
 import { cn, formatDateTime, formatDaysAgo, formatNumber } from "@/lib/utils";
 import type { AmmoLogType } from "@/generated/prisma/enums";
@@ -79,17 +80,14 @@ export function AddStockForm({
         <input type="hidden" name="holder" value={toSoldier ? "soldier" : "place"} />
         {toSoldier ? (
           <Field id="add-soldierId" label="חייל" error={err.soldierId} required>
-            <Select id="add-soldierId" name="soldierId" defaultValue="" aria-invalid={!!err.soldierId}>
-              <option value="" disabled>
-                בחירת חייל…
-              </option>
-              {soldiers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} · {s.platoon.name}
-                  {s.personalNumber ? ` · ${s.personalNumber}` : ""}
-                </option>
-              ))}
-            </Select>
+            <SoldierSelect
+              id="add-soldierId"
+              name="soldierId"
+              options={soldiers}
+              allowEmpty={false}
+              placeholder="בחירת חייל…"
+              aria-invalid={!!err.soldierId}
+            />
           </Field>
         ) : (
           <Field id="add-location" label="מיקום" error={err.location} required>

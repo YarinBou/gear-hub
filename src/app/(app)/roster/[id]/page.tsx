@@ -5,6 +5,7 @@ import { Backpack, Crosshair, Phone } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { EQUIPMENT_STATUS_LABELS, VERIFICATION_STALE_DAYS } from "@/lib/constants";
 import { getSoldier } from "@/lib/queries/soldiers";
+import { getFreeKitNumbers } from "@/lib/queries/kits";
 import { getActivePlatoons } from "@/lib/queries/platoons";
 import { daysAgo, formatDate } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
@@ -15,6 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { updateSoldier } from "../actions";
 import { SoldierForm } from "../soldier-form";
 import { ActiveToggle, PresenceToggle } from "./active-toggle";
+import { IssueKitForm } from "./issue-kit-form";
 import { ReadOnlyWhenClosed } from "@/components/deployment-gate";
 
 export const metadata: Metadata = { title: "כרטיס לוחם" };
@@ -25,6 +27,9 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
   const [soldier, active] = await Promise.all([getSoldier(id), getActivePlatoons()]);
   if (!soldier) notFound();
   const staleBefore = daysAgo(VERIFICATION_STALE_DAYS);
+  // A kit can be issued here: an active soldier who is in the active deployment and has none.
+  const canIssueKit = !soldier.kit && soldier.isActive && soldier.inDeployment === true && !!deployment && !deployment.readOnly;
+  const freeKits = canIssueKit ? await getFreeKitNumbers() : [];
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4">
@@ -90,7 +95,10 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
                   </span>
                 </Link>
               ) : (
-                <p className="text-muted-foreground text-sm">לא הונפקה ערכה</p>
+                <div className="flex flex-col gap-3">
+                  <p className="text-muted-foreground text-sm">לא הונפקה ערכה</p>
+                  {canIssueKit && <IssueKitForm soldierId={soldier.id} freeKits={freeKits} />}
+                </div>
               )}
             </CardContent>
           </Card>

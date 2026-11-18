@@ -89,7 +89,7 @@ export function AssignForm({
             name="soldierId"
             options={options}
             value={soldierId}
-            onChange={(e) => setSoldierId(e.target.value)}
+            onValueChange={setSoldierId}
             emptyLabel="ללא — הוחזר לפלוגה"
           />
         </Field>
