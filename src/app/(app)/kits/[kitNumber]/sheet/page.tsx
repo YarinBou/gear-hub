@@ -70,6 +70,9 @@ export default async function KitSheetPage({ params }: PageProps<"/kits/[kitNumb
               />
               <SheetRow label="מחסניות" value={String(kit.magazineCount)} />
               <SheetRow label="כדורים" value={String(kit.ammoCount)} />
+              {kit.extraAmmo.map((a) => (
+                <SheetRow key={a.label} label={a.label} value={String(a.quantity)} />
+              ))}
             </tbody>
           </table>
         </section>

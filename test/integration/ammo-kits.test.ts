@@ -103,6 +103,34 @@ describe("personal kits", () => {
     expect(kit).toMatchObject({ soldierId: b.id, personalWeaponId: null, signedAt: null, signatureData: null });
   });
 
+  it("extra ammo (e.g. Negev belt boxes) is saved with the weapon card", async () => {
+    await loginAs();
+    const s = await makeSoldier();
+    await assignKit(8, undefined, form({ soldierId: s.id }));
+    const fd = form({ magazineCount: 6, ammoCount: 0 });
+    for (const [label, qty] of [["תופי נגב", "2"], ["", ""], ['תופי מא"ג', "1"], ["תופי נגב", "1"]]) {
+      fd.append("extraLabel", label);
+      fd.append("extraQty", qty);
+    }
+    expect(await updateWeapon(8, undefined, fd)).toMatchObject({ ok: true });
+    let kit = await prisma.personalKit.findFirstOrThrow({ where: { kitNumber: 8 } });
+    // Empty rows are ignored; the same type twice is merged.
+    expect(kit.extraAmmo).toEqual([
+      { label: "תופי נגב", quantity: 3 },
+      { label: 'תופי מא"ג', quantity: 1 },
+    ]);
+
+    const bad = form({ magazineCount: 6 });
+    bad.append("extraLabel", "תופי נגב");
+    bad.append("extraQty", "");
+    expect(await updateWeapon(8, undefined, bad)).toHaveProperty("errors.extraAmmo");
+
+    // Saving without rows clears them.
+    expect(await updateWeapon(8, undefined, form({ magazineCount: 6 }))).toMatchObject({ ok: true });
+    kit = await prisma.personalKit.findFirstOrThrow({ where: { kitNumber: 8 } });
+    expect(kit.extraAmmo).toEqual([]);
+  });
+
   it("a soldier can hold only one kit", async () => {
     await loginAs();
     const s = await makeSoldier();

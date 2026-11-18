@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { applyMovement, ammoLevel, isLowStock } from "@/lib/ammo-rules";
 import { isStale, itemLabel, normalizeSerial, resolveStatus } from "@/lib/equipment-rules";
-import { checklistLines, defaultStatus, groupLines, kitReadiness, lineComplete, missingDescriptions, summarizeKits, type ChecklistLine } from "@/lib/kit";
+import {
+  checklistLines,
+  defaultStatus,
+  groupLines,
+  kitReadiness,
+  lineComplete,
+  missingDescriptions,
+  parseExtraAmmo,
+  sumExtraAmmo,
+  summarizeKits,
+  type ChecklistLine,
+} from "@/lib/kit";
 import { effectiveStatus, fillPercent, storageFlags } from "@/lib/storage-rules";
 
 describe("equipment: resolveStatus", () => {
@@ -170,5 +181,23 @@ describe("kit checklist", () => {
       ["added", false],
     ]);
     expect(checklistLines(rows, { history: true }).map((l) => l.itemId).sort()).toEqual(["kept", "old"]);
+  });
+});
+
+describe("kit extra ammo", () => {
+  it("parses stored lines and drops malformed ones", () => {
+    expect(parseExtraAmmo(null)).toEqual([]);
+    expect(
+      parseExtraAmmo([{ label: " תופי נגב ", quantity: 2 }, { label: "", quantity: 1 }, { label: "x", quantity: -1 }, "junk"]),
+    ).toEqual([{ label: "תופי נגב", quantity: 2 }]);
+  });
+
+  it("sums per type over kits", () => {
+    expect(
+      sumExtraAmmo([[{ label: "תופי נגב", quantity: 2 }], [{ label: 'תופי מא"ג', quantity: 3 }, { label: "תופי נגב", quantity: 1 }]]),
+    ).toEqual([
+      { label: "תופי נגב", quantity: 3 },
+      { label: 'תופי מא"ג', quantity: 3 },
+    ]);
   });
 });
