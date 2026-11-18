@@ -118,7 +118,7 @@ export function NewEquipmentForm({
             name="soldierId"
             options={soldiers}
             value={soldierId}
-            onChange={(e) => setSoldierId(e.target.value)}
+            onValueChange={setSoldierId}
             emptyLabel="ללא — נשאר בפלוגה"
           />
         </Field>

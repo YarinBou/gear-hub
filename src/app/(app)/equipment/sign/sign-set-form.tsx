@@ -122,7 +122,7 @@ export function SignSetForm({ sets, items, soldiers }: { sets: SignSet[]; items:
             id="soldierId"
             options={soldiers}
             value={soldierId}
-            onChange={(e) => setSoldierId(e.target.value)}
+            onValueChange={setSoldierId}
             allowEmpty={false}
             placeholder="בחירת לוחם…"
           />

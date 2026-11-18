@@ -168,6 +168,18 @@ export async function getKitSlots() {
   return last?.kitNumber ?? count;
 }
 
+/** Kit numbers of the viewed deployment that no soldier holds, in order (for issuing a kit). */
+export async function getFreeKitNumbers() {
+  const { db, deployment } = await companyContext();
+  if (!deployment || deployment.readOnly) return [];
+  const [slots, taken] = await Promise.all([
+    getKitSlots(),
+    db.personalKit.findMany({ where: { soldierId: { not: null } }, select: { kitNumber: true } }),
+  ]);
+  const used = new Set(taken.map((k) => k.kitNumber));
+  return Array.from({ length: slots }, (_, i) => i + 1).filter((n) => !used.has(n));
+}
+
 /**
  * Company-wide totals per checklist line over the issued kits of the viewed deployment
  * (optionally one platoon): signed for / in the kits / missing. Plus magazines and rounds from the
