@@ -51,7 +51,7 @@ export async function copyCompanySetup(sourceId: string, targetId: string): Prom
     src.kitItemDef.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: "asc" },
-      select: { label: true, groupName: true, sortOrder: true, targetQuantity: true, systemKey: true },
+      select: { label: true, groupName: true, sortOrder: true, targetQuantity: true, systemKey: true, startPresent: true },
     }),
   ]);
 

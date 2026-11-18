@@ -4,12 +4,14 @@ import { refresh } from "next/cache";
 import { z } from "zod";
 import { adminContext } from "@/lib/context";
 import { scopedDb } from "@/lib/db";
-import { createKitStatuses } from "@/lib/kit-service";
+import { applyStartToUnissuedKits, createKitStatuses } from "@/lib/kit-service";
 import { MAX_KIT_COUNT } from "@/lib/constants";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
 
 // Admin: the company's personal-kit checklist (תכולת ערכה). Company-level — changes apply to the
 // active deployment's kits right away; closed deployments keep what was recorded then.
+// Each item has a start state (present / missing): new kits start that way, and kits not issued
+// yet follow it when it changes (issued kits keep what was marked on them).
 
 export type KitItemFormState = { ok?: boolean; message?: string; error?: string; errors?: FieldErrors; at?: number } | undefined;
 export type SimpleResult = { ok: boolean; message?: string };
@@ -29,6 +31,11 @@ function read(fd: FormData) {
   return { label: fd.get("label") ?? "", groupName: fd.get("groupName") ?? "", targetQuantity: fd.get("targetQuantity") ?? "" };
 }
 
+/** Readable "N ערכות" for result messages. */
+function kitsText(n: number) {
+  return n === 1 ? "ערכה אחת" : `${n} ערכות`;
+}
+
 /** Kits of the company's active deployment (if any). */
 async function activeKitIds(companyId: string) {
   const kits = await scopedDb(companyId).personalKit.findMany({
@@ -44,12 +51,21 @@ export async function createKitItem(_prev: KitItemFormState, fd: FormData): Prom
   if (!parsed.success) return { errors: toFieldErrors(parsed.error) };
   const { label, groupName, targetQuantity } = parsed.data;
 
+  const startPresent = fd.get("startPresent") === "on";
+
   const last = await db.kitItemDef.findFirst({ orderBy: { sortOrder: "desc" }, select: { sortOrder: true } });
   await scopedDb(user.companyId).$transaction(async (tx) => {
     await tx.kitItemDef.create({
-      data: { companyId: user.companyId, label, groupName, targetQuantity: targetQuantity ?? null, sortOrder: (last?.sortOrder ?? 0) + 10 },
+      data: {
+        companyId: user.companyId,
+        label,
+        groupName,
+        targetQuantity: targetQuantity ?? null,
+        startPresent,
+        sortOrder: (last?.sortOrder ?? 0) + 10,
+      },
     });
-    // Every kit of the active deployment gets the new line (per the "new kits start" setting).
+    // Every kit of the active deployment gets the new line, in the item's start state.
     await createKitStatuses(tx, { companyId: user.companyId, kitIds: await activeKitIds(user.companyId) });
   });
   refresh();
@@ -109,19 +125,50 @@ export async function setKitItemActive(id: string, active: boolean): Promise<Sim
   const { user } = await adminContext();
   await scopedDb(user.companyId).$transaction(async (tx) => {
     await tx.kitItemDef.update({ where: { id }, data: { isActive: active } });
-    if (active) await createKitStatuses(tx, { companyId: user.companyId, kitIds: await activeKitIds(user.companyId) });
+    if (active) {
+      await createKitStatuses(tx, { companyId: user.companyId, kitIds: await activeKitIds(user.companyId) });
+      // Rows kept from before it was switched off: unissued kits start over per its start state.
+      await applyStartToUnissuedKits(tx, [id]);
+    }
   });
   refresh();
   return { ok: true };
 }
 
-/** How new kits start: every item present, or every item missing. */
+/**
+ * "הכל קיים" / "הכל חסר": every item's start state at once (and the one offered for items added
+ * later). Unissued kits of the active deployment follow right away.
+ */
 export async function setKitDefaultPresent(present: boolean): Promise<SimpleResult> {
   const { user } = await adminContext();
   if (typeof present !== "boolean") return { ok: false };
-  await scopedDb(user.companyId).company.update({ where: { id: user.companyId }, data: { kitDefaultPresent: present } });
+  const changed = await scopedDb(user.companyId).$transaction(
+    async (tx) => {
+      await tx.company.update({ where: { id: user.companyId }, data: { kitDefaultPresent: present } });
+      await tx.kitItemDef.updateMany({ data: { startPresent: present } });
+      return applyStartToUnissuedKits(tx);
+    },
+    { timeout: 30_000 },
+  );
   refresh();
-  return { ok: true };
+  return { ok: true, message: changed ? `עודכנו ${kitsText(changed)} שטרם הונפקו` : "נשמר" };
+}
+
+/** One item's start state. Unissued kits of the active deployment follow right away. */
+export async function setKitItemStartPresent(id: string, present: boolean): Promise<SimpleResult> {
+  const { user } = await adminContext();
+  if (typeof present !== "boolean") return { ok: false };
+  const changed = await scopedDb(user.companyId).$transaction(
+    async (tx) => {
+      const { count } = await tx.kitItemDef.updateMany({ where: { id }, data: { startPresent: present } });
+      if (!count) return null;
+      return applyStartToUnissuedKits(tx, [id]);
+    },
+    { timeout: 30_000 },
+  );
+  if (changed == null) return { ok: false, message: "הפריט לא נמצא" };
+  refresh();
+  return { ok: true, message: changed ? `עודכנו ${kitsText(changed)} שטרם הונפקו` : "נשמר" };
 }
 
 /**
