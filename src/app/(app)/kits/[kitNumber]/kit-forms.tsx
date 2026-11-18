@@ -1,12 +1,13 @@
 "use client";
 
-import { startTransition, useActionState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { startTransition, useActionState, useState } from "react";
+import { CheckCircle2, Plus, X } from "lucide-react";
 import { Field } from "@/components/form-field";
 import { SoldierSelect } from "@/components/soldier-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { EXTRA_AMMO_SUGGESTIONS, MAX_EXTRA_AMMO, type ExtraAmmo } from "@/lib/kit";
 import type { SoldierOption } from "@/lib/queries/soldiers";
 import type { WeaponOption } from "@/lib/queries/kits";
 import { assignKit, updateWeapon, type KitFormState } from "../actions";
@@ -76,7 +77,13 @@ export function WeaponForm({
 }: {
   kitNumber: number;
   options: WeaponOption[];
-  current: { rifleType: string | null; personalWeaponId: string | null; magazineCount: number; ammoCount: number };
+  current: {
+    rifleType: string | null;
+    personalWeaponId: string | null;
+    magazineCount: number;
+    ammoCount: number;
+    extraAmmo: ExtraAmmo[];
+  };
   disabled: boolean;
 }) {
   const [state, action, pending] = useActionState(updateWeapon.bind(null, kitNumber), undefined);
@@ -147,9 +154,86 @@ export function WeaponForm({
           />
         </Field>
       </div>
+      <ExtraAmmoRows initial={current.extraAmmo} disabled={disabled} error={err.extraAmmo} />
       <Button type="submit" variant="outline" className="sm:w-fit" disabled={pending || disabled}>
         {pending ? "שומר…" : "שמירת פרטי נשק"}
       </Button>
     </form>
+  );
+}
+
+/**
+ * Extra ammunition on the weapon card — only some soldiers have it (e.g. machine gunners sign for
+ * Negev / MAG belt boxes). "+" adds a row: type (with suggestions) and quantity.
+ */
+function ExtraAmmoRows({ initial, disabled, error }: { initial: ExtraAmmo[]; disabled: boolean; error?: string }) {
+  const [rows, setRows] = useState(() => initial.map((a, i) => ({ key: i, label: a.label, quantity: String(a.quantity) })));
+  const [nextKey, setNextKey] = useState(initial.length);
+  const add = () => {
+    // Suggest a type not used yet.
+    const used = new Set(rows.map((r) => r.label));
+    const label = EXTRA_AMMO_SUGGESTIONS.find((l) => !used.has(l)) ?? "";
+    setRows([...rows, { key: nextKey, label, quantity: "" }]);
+    setNextKey(nextKey + 1);
+  };
+  const update = (key: number, patch: Partial<{ label: string; quantity: string }>) =>
+    setRows(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  return (
+    <div className="flex flex-col gap-2">
+      {rows.length > 0 && <p className="text-sm font-medium">תחמושת נוספת</p>}
+      <datalist id="extra-ammo-types">
+        {EXTRA_AMMO_SUGGESTIONS.map((t) => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
+      {rows.map((r, i) => (
+        <div key={r.key} className="flex items-center gap-2">
+          <Input
+            name="extraLabel"
+            list="extra-ammo-types"
+            aria-label={`סוג תחמושת נוספת ${i + 1}`}
+            placeholder="למשל: טופי נגב"
+            value={r.label}
+            onChange={(e) => update(r.key, { label: e.target.value })}
+            disabled={disabled}
+            autoComplete="off"
+            className="min-w-0 flex-1"
+          />
+          <Input
+            name="extraQty"
+            inputMode="numeric"
+            dir="ltr"
+            aria-label={`כמות ${r.label || "תחמושת נוספת"}`}
+            placeholder="כמות"
+            value={r.quantity}
+            onChange={(e) => update(r.key, { quantity: e.target.value })}
+            disabled={disabled}
+            className="w-20 shrink-0 text-start"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={`הסרת ${r.label || "שורה"}`}
+            disabled={disabled}
+            onClick={() => setRows(rows.filter((x) => x.key !== r.key))}
+          >
+            <X />
+          </Button>
+        </div>
+      ))}
+      {error && (
+        <p role="alert" className="text-danger text-sm">
+          {error}
+        </p>
+      )}
+      {rows.length < MAX_EXTRA_AMMO && (
+        <Button type="button" variant="ghost" size="sm" className="self-start" disabled={disabled} onClick={add}>
+          <Plus />
+          תחמושת נוספת (טופי נגב / מאג…)
+        </Button>
+      )}
+    </div>
   );
 }

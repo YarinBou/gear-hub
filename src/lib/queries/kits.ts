@@ -2,7 +2,16 @@ import "server-only";
 import { connection } from "next/server";
 import { companyContext } from "@/lib/context";
 import { flattenState, inState, stateSelect } from "@/lib/equipment-state";
-import { checklistLines, kitItemsSelect, kitReadiness, missingDescriptions, summarizeKits, type ChecklistLine } from "@/lib/kit";
+import {
+  checklistLines,
+  kitItemsSelect,
+  kitReadiness,
+  missingDescriptions,
+  parseExtraAmmo,
+  sumExtraAmmo,
+  summarizeKits,
+  type ChecklistLine,
+} from "@/lib/kit";
 import { activeItemDefs } from "@/lib/kit-service";
 import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
 
@@ -76,10 +85,15 @@ export async function getKit(kitNumber: number) {
     },
   });
   if (!kit) return null;
-  const { items, ...rest } = kit;
+  const { items, extraAmmo, ...rest } = kit;
   // Live deployment: the company's current checklist. Closed one: exactly what was recorded.
   const lines: ChecklistLine[] = checklistLines(items, { history: !!deployment?.readOnly, activeDefs });
-  return { ...rest, lines, personalWeapon: kit.personalWeapon ? flattenState(kit.personalWeapon) : null };
+  return {
+    ...rest,
+    lines,
+    extraAmmo: parseExtraAmmo(extraAmmo),
+    personalWeapon: kit.personalWeapon ? flattenState(kit.personalWeapon) : null,
+  };
 }
 
 export type KitDetail = NonNullable<Awaited<ReturnType<typeof getKit>>>;
@@ -188,11 +202,11 @@ export async function getFreeKitNumbers() {
 export async function getKitSummary(platoonId?: string) {
   await connection();
   const { db, deployment } = await companyContext();
-  if (!deployment) return { kits: 0, signedKits: 0, lines: [], magazines: 0, rounds: 0, weapons: 0 };
+  if (!deployment) return { kits: 0, signedKits: 0, lines: [], magazines: 0, rounds: 0, extraAmmo: [], weapons: 0 };
   const [kits, activeDefs] = await Promise.all([
     db.personalKit.findMany({
       where: { soldierId: { not: null }, ...(platoonId ? { soldier: { platoonId } } : {}) },
-      select: { signedAt: true, magazineCount: true, ammoCount: true, personalWeaponId: true, ...kitItemsSelect },
+      select: { signedAt: true, magazineCount: true, ammoCount: true, extraAmmo: true, personalWeaponId: true, ...kitItemsSelect },
     }),
     activeItemDefs(db),
   ]);
@@ -203,6 +217,7 @@ export async function getKitSummary(platoonId?: string) {
     lines: summarizeKits(kits.map((k) => ({ signed: !!k.signedAt, lines: checklistLines(k.items, { history, activeDefs }) }))),
     magazines: kits.reduce((a, k) => a + k.magazineCount, 0),
     rounds: kits.reduce((a, k) => a + k.ammoCount, 0),
+    extraAmmo: sumExtraAmmo(kits.map((k) => parseExtraAmmo(k.extraAmmo))),
     weapons: kits.filter((k) => k.personalWeaponId).length,
   };
 }

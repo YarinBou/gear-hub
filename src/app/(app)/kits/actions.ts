@@ -5,7 +5,7 @@ import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { writableContext } from "@/lib/context";
 import { AssignmentError, applyAssignment, ensureAssignment, NOT_IN_DEPLOYMENT_MESSAGE } from "@/lib/equipment-service";
-import { checklistLines, kitItemsSelect, missingDescriptions, WEAPON_ITEM } from "@/lib/kit";
+import { checklistLines, kitItemsSelect, MAX_EXTRA_AMMO, missingDescriptions, WEAPON_ITEM, type ExtraAmmo } from "@/lib/kit";
 import { activeItemDefs, captureBaseline, createKitStatuses, fillKit } from "@/lib/kit-service";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
 
@@ -124,6 +124,30 @@ const WeaponSchema = z.object({
   ),
 });
 
+/**
+ * Extra-ammo lines from the form (extraLabel[] / extraQty[] pairs). Rows left completely empty are
+ * ignored; a label needs a quantity and the other way round. The same label twice is merged.
+ */
+function readExtraAmmo(fd: FormData): { lines: ExtraAmmo[] } | { error: string } {
+  const labels = fd.getAll("extraLabel").map((v) => String(v).trim());
+  const qtys = fd.getAll("extraQty").map((v) => String(v).trim());
+  const merged = new Map<string, number>();
+  for (let i = 0; i < Math.max(labels.length, qtys.length); i++) {
+    const label = labels[i] ?? "";
+    const raw = qtys[i] ?? "";
+    if (!label && !raw) continue;
+    if (!label) return { error: "יש להזין סוג לכל שורת תחמושת נוספת" };
+    if (label.length > 30) return { error: "סוג התחמושת ארוך מדי" };
+    const quantity = Number(raw);
+    if (!raw || !Number.isInteger(quantity) || quantity < 1 || quantity > 200) {
+      return { error: `כמות ל"${label}": מספר שלם בין 1 ל-200` };
+    }
+    merged.set(label, (merged.get(label) ?? 0) + quantity);
+  }
+  if (merged.size > MAX_EXTRA_AMMO) return { error: `לכל היותר ${MAX_EXTRA_AMMO} שורות תחמושת נוספת` };
+  return { lines: [...merged].map(([label, quantity]) => ({ label, quantity })) };
+}
+
 export async function updateWeapon(kitNumber: number, _prev: KitFormState, fd: FormData): Promise<KitFormState> {
   const w = await writableContext();
   if (!w.ok) return { error: w.message };
@@ -138,6 +162,8 @@ export async function updateWeapon(kitNumber: number, _prev: KitFormState, fd: F
   });
   if (!parsed.success) return { errors: toFieldErrors(parsed.error) };
   const { rifleType, personalWeaponId, magazineCount, ammoCount } = parsed.data;
+  const extra = readExtraAmmo(fd);
+  if ("error" in extra) return { errors: { extraAmmo: extra.error } };
 
   try {
     await db.$transaction(async (tx) => {
@@ -171,6 +197,7 @@ export async function updateWeapon(kitNumber: number, _prev: KitFormState, fd: F
           rifleType: rifleType ?? typeFromItem ?? null,
           magazineCount,
           ammoCount,
+          extraAmmo: extra.lines,
         },
       });
       // Linking a rifle means the personal-weapon line of the checklist is fulfilled.

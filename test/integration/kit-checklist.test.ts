@@ -116,9 +116,12 @@ describe("history and deployments", () => {
     await assignKit(4, undefined, form({ soldierId: soldier.id }));
     await setAllKitItems(4);
 
+    await prisma.personalKit.updateMany({ where: { kitNumber: 4 }, data: { extraAmmo: [{ label: "טופי מאג", quantity: 2 }] } });
+
     const { deployment: copied } = await start("ממשיכה", "copy", admin.id);
     const k4 = await prisma.personalKit.findUniqueOrThrow({ where: { deploymentId_kitNumber: { deploymentId: copied.id, kitNumber: 4 } } });
     expect(await kitLine(k4.id, "קסדה")).toMatchObject({ present: true });
+    expect(k4.extraAmmo).toEqual([{ label: "טופי מאג", quantity: 2 }]);
 
     await setKitDefaultPresent(true);
     const { deployment: empty } = await start("נקייה", "empty", admin.id);

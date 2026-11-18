@@ -4,6 +4,33 @@
 /** systemKey of the personal-weapon line: fulfilled automatically when a rifle is linked. */
 export const WEAPON_ITEM = "WEAPON";
 
+/** Extra ammunition on a kit's weapon card (beyond magazines and rounds), e.g. "טופי נגב" × 2. */
+export type ExtraAmmo = { label: string; quantity: number };
+
+/** Common extra-ammo lines, offered as suggestions (free text is allowed). */
+export const EXTRA_AMMO_SUGGESTIONS = ["טופי נגב", "טופי מאג", "רימוני רסס", "רימוני עשן"];
+
+/** At most this many extra-ammo lines per kit. */
+export const MAX_EXTRA_AMMO = 6;
+
+/** PersonalKit.extraAmmo (JSON) as clean lines; anything malformed is dropped. */
+export function parseExtraAmmo(json: unknown): ExtraAmmo[] {
+  if (!Array.isArray(json)) return [];
+  return json.flatMap((x) => {
+    if (!x || typeof x !== "object") return [];
+    const { label, quantity } = x as Record<string, unknown>;
+    if (typeof label !== "string" || !label.trim() || typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 0) return [];
+    return [{ label: label.trim(), quantity }];
+  });
+}
+
+/** Totals per label over kits, in first-seen order ("טופי נגב" 6, "טופי מאג" 4). */
+export function sumExtraAmmo(lists: ExtraAmmo[][]): ExtraAmmo[] {
+  const totals = new Map<string, number>();
+  for (const list of lists) for (const a of list) totals.set(a.label, (totals.get(a.label) ?? 0) + a.quantity);
+  return [...totals].map(([label, quantity]) => ({ label, quantity }));
+}
+
 /** One checklist line of one kit, as pages and readiness calculations see it. */
 export type ChecklistLine = {
   itemId: string;

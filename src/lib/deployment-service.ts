@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import type { EquipmentStatus } from "@/generated/prisma/enums";
 import { createKitStatuses } from "@/lib/kit-service";
+import { parseExtraAmmo } from "@/lib/kit";
 
 // Starting and closing deployments (הפעלות). Runs with a client scoped to the company but NOT to a
 // deployment (scopedDb(companyId)), because it reads one deployment and writes another.
@@ -110,6 +111,7 @@ export async function startDeployment(
           rifleType: true,
           magazineCount: true,
           ammoCount: true,
+          extraAmmo: true,
           notes: true,
           items: { select: { itemId: true, present: true, quantity: true, baseline: true } },
         },
@@ -127,8 +129,8 @@ export async function startDeployment(
       const soldierId = keepSoldier(prev.soldierId);
       if (!soldierId) return base; // the holder left — the kit starts blank
       carried.set(kitNumber, prev);
-      const { kitNumber: _n, soldierId: _s, items: _i, ...rest } = prev;
-      return { ...base, ...rest, soldierId };
+      const { kitNumber: _n, soldierId: _s, items: _i, extraAmmo, ...rest } = prev;
+      return { ...base, ...rest, extraAmmo: parseExtraAmmo(extraAmmo), soldierId };
     }),
     select: { id: true, kitNumber: true },
   });

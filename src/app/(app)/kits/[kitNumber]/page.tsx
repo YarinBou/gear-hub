@@ -165,6 +165,7 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
                     personalWeaponId: kit?.personalWeaponId ?? null,
                     magazineCount: kit?.magazineCount ?? 0,
                     ammoCount: kit?.ammoCount ?? 0,
+                    extraAmmo: kit?.extraAmmo ?? [],
                   }}
                 />
               </CardContent>
