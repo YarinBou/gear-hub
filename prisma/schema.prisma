@@ -469,7 +469,7 @@ model PersonalKit {
   magazineCount    Int            @default(0)
   ammoCount        Int            @default(0)
   /// Extra ammunition signed on the weapon card, e.g. Negev / MAG belt boxes:
-  /// [{ "label": "טופי נגב", "quantity": 2 }]. Read through parseExtraAmmo().
+  /// [{ "label": "תופי נגב", "quantity": 2 }]. Read through parseExtraAmmo().
   extraAmmo        Json           @default("[]")
 
   // The checklist (רשימת ציוד) lives in KitItemStatus — one row per checklist item.

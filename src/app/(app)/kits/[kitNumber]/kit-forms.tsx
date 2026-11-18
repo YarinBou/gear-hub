@@ -193,7 +193,7 @@ function ExtraAmmoRows({ initial, disabled, error }: { initial: ExtraAmmo[]; dis
             name="extraLabel"
             list="extra-ammo-types"
             aria-label={`סוג תחמושת נוספת ${i + 1}`}
-            placeholder="למשל: טופי נגב"
+            placeholder="למשל: תופי נגב"
             value={r.label}
             onChange={(e) => update(r.key, { label: e.target.value })}
             disabled={disabled}
@@ -231,7 +231,7 @@ function ExtraAmmoRows({ initial, disabled, error }: { initial: ExtraAmmo[]; dis
       {rows.length < MAX_EXTRA_AMMO && (
         <Button type="button" variant="ghost" size="sm" className="self-start" disabled={disabled} onClick={add}>
           <Plus />
-          תחמושת נוספת (טופי נגב / מאג…)
+          תחמושת נוספת (תופי נגב / מא&quot;ג…)
         </Button>
       )}
     </div>

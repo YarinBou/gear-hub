@@ -4,11 +4,11 @@
 /** systemKey of the personal-weapon line: fulfilled automatically when a rifle is linked. */
 export const WEAPON_ITEM = "WEAPON";
 
-/** Extra ammunition on a kit's weapon card (beyond magazines and rounds), e.g. "טופי נגב" × 2. */
+/** Extra ammunition on a kit's weapon card (beyond magazines and rounds), e.g. "תופי נגב" × 2. */
 export type ExtraAmmo = { label: string; quantity: number };
 
 /** Common extra-ammo lines, offered as suggestions (free text is allowed). */
-export const EXTRA_AMMO_SUGGESTIONS = ["טופי נגב", "טופי מאג", "רימוני רסס", "רימוני עשן"];
+export const EXTRA_AMMO_SUGGESTIONS = ["תופי נגב", 'תופי מא"ג', "רימוני רסס", "רימוני עשן"];
 
 /** At most this many extra-ammo lines per kit. */
 export const MAX_EXTRA_AMMO = 6;
@@ -24,7 +24,7 @@ export function parseExtraAmmo(json: unknown): ExtraAmmo[] {
   });
 }
 
-/** Totals per label over kits, in first-seen order ("טופי נגב" 6, "טופי מאג" 4). */
+/** Totals per label over kits, in first-seen order ("תופי נגב" 6, 'תופי מא"ג' 4). */
 export function sumExtraAmmo(lists: ExtraAmmo[][]): ExtraAmmo[] {
   const totals = new Map<string, number>();
   for (const list of lists) for (const a of list) totals.set(a.label, (totals.get(a.label) ?? 0) + a.quantity);

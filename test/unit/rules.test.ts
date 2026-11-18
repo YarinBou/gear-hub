@@ -188,16 +188,16 @@ describe("kit extra ammo", () => {
   it("parses stored lines and drops malformed ones", () => {
     expect(parseExtraAmmo(null)).toEqual([]);
     expect(
-      parseExtraAmmo([{ label: " טופי נגב ", quantity: 2 }, { label: "", quantity: 1 }, { label: "x", quantity: -1 }, "junk"]),
-    ).toEqual([{ label: "טופי נגב", quantity: 2 }]);
+      parseExtraAmmo([{ label: " תופי נגב ", quantity: 2 }, { label: "", quantity: 1 }, { label: "x", quantity: -1 }, "junk"]),
+    ).toEqual([{ label: "תופי נגב", quantity: 2 }]);
   });
 
   it("sums per type over kits", () => {
     expect(
-      sumExtraAmmo([[{ label: "טופי נגב", quantity: 2 }], [{ label: "טופי מאג", quantity: 3 }, { label: "טופי נגב", quantity: 1 }]]),
+      sumExtraAmmo([[{ label: "תופי נגב", quantity: 2 }], [{ label: 'תופי מא"ג', quantity: 3 }, { label: "תופי נגב", quantity: 1 }]]),
     ).toEqual([
-      { label: "טופי נגב", quantity: 3 },
-      { label: "טופי מאג", quantity: 3 },
+      { label: "תופי נגב", quantity: 3 },
+      { label: 'תופי מא"ג', quantity: 3 },
     ]);
   });
 });

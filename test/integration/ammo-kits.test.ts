@@ -108,7 +108,7 @@ describe("personal kits", () => {
     const s = await makeSoldier();
     await assignKit(8, undefined, form({ soldierId: s.id }));
     const fd = form({ magazineCount: 6, ammoCount: 0 });
-    for (const [label, qty] of [["טופי נגב", "2"], ["", ""], ["טופי מאג", "1"], ["טופי נגב", "1"]]) {
+    for (const [label, qty] of [["תופי נגב", "2"], ["", ""], ['תופי מא"ג', "1"], ["תופי נגב", "1"]]) {
       fd.append("extraLabel", label);
       fd.append("extraQty", qty);
     }
@@ -116,12 +116,12 @@ describe("personal kits", () => {
     let kit = await prisma.personalKit.findFirstOrThrow({ where: { kitNumber: 8 } });
     // Empty rows are ignored; the same type twice is merged.
     expect(kit.extraAmmo).toEqual([
-      { label: "טופי נגב", quantity: 3 },
-      { label: "טופי מאג", quantity: 1 },
+      { label: "תופי נגב", quantity: 3 },
+      { label: 'תופי מא"ג', quantity: 1 },
     ]);
 
     const bad = form({ magazineCount: 6 });
-    bad.append("extraLabel", "טופי נגב");
+    bad.append("extraLabel", "תופי נגב");
     bad.append("extraQty", "");
     expect(await updateWeapon(8, undefined, bad)).toHaveProperty("errors.extraAmmo");
 
