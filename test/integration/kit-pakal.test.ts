@@ -106,4 +106,25 @@ describe('magazines, optional items and תיק פק"ל', () => {
     // The weapon line can't be made optional.
     expect(await setKitItemOptional(await kitItemId("נשק אישי"), true)).toMatchObject({ ok: false });
   });
+
+  it("marking an item outside the kit as there adds it to the kit (signed kit, optional item)", async () => {
+    const { vest, drums } = await setup();
+    const soldier = await makeSoldier();
+    await assignKit(6, undefined, form({ soldierId: soldier.id }));
+    await signKit(6, SIGNATURE);
+    const before = (await getKit(6))!;
+    expect(line(before.lines, "וסט נגב")).toMatchObject({ baseline: 0 });
+
+    // Found the vest and 2 drums in the bag.
+    expect(await setKitItem(6, vest, true)).toMatchObject({ ok: true });
+    expect(await setKitItemQuantity(6, drums, 2)).toMatchObject({ ok: true });
+    const after = (await getKit(6))!;
+    expect(line(after.lines, "וסט נגב")).toMatchObject({ present: true, baseline: 1 });
+    expect(line(after.lines, "תופי נגב")).toMatchObject({ quantity: 2, baseline: 2 });
+
+    // A line that is part of the kit keeps what was signed when its count changes.
+    const helmet = await kitItemId("קסדה");
+    await setKitItem(6, helmet, false);
+    expect(line((await getKit(6))!.lines, "קסדה")).toMatchObject({ present: false, baseline: 0 });
+  });
 });

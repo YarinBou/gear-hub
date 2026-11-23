@@ -59,12 +59,23 @@ async function writeLine(
   value: { present?: boolean; quantity?: number },
 ) {
   const kit = await ensureKit(db, ids, kitNumber);
-  const def = await db.kitItemDef.findFirst({ where: { id: itemId, isActive: true }, select: { id: true, targetQuantity: true } });
+  const def = await db.kitItemDef.findFirst({
+    where: { id: itemId, isActive: true },
+    select: { id: true, targetQuantity: true, optional: true },
+  });
   if (!def) return false;
-  const data =
+  const data: { quantity?: number; present?: boolean; baseline?: number } =
     def.targetQuantity != null
       ? { quantity: value.quantity ?? (value.present ? def.targetQuantity : 0) }
       : { present: value.present ?? (value.quantity ?? 0) > 0 };
+  // Marking something as there on a line that isn't part of this kit (not signed for, or an optional
+  // item) adds it to the kit: it now counts as signed for, at the amount found.
+  const have = def.targetQuantity != null ? data.quantity! : data.present ? 1 : 0;
+  if (have > 0) {
+    const row = await db.kitItemStatus.findUnique({ where: { kitId_itemId: { kitId: kit.id, itemId } }, select: { baseline: true } });
+    const baseline = row?.baseline ?? null;
+    if (baseline === 0 || (baseline === null && def.optional)) data.baseline = have;
+  }
   await db.kitItemStatus.upsert({
     where: { kitId_itemId: { kitId: kit.id, itemId } },
     update: data,

@@ -58,10 +58,18 @@ export function KitChecklist({ kitNumber, lines, issued }: { kitNumber: number; 
       if (!r.ok) setError(r.message ?? "השמירה נכשלה");
     });
   };
+  // A line that isn't part of the kit joins it when something is marked as there (the server records
+  // it as signed for at that amount); the optimistic patch moves it up right away.
+  const joins = (line: ChecklistLine, have: number) => (!lineApplies(line) && have > 0 ? { baseline: have } : {});
   const toggle = (line: ChecklistLine) =>
-    save({ itemId: line.itemId, present: !line.present }, () => setKitItem(kitNumber, line.itemId, !line.present));
+    save({ itemId: line.itemId, present: !line.present, ...joins(line, line.present ? 0 : 1) }, () =>
+      setKitItem(kitNumber, line.itemId, !line.present),
+    );
+  /** A present / missing line outside the kit: found in the bag → it joins the kit, as present. */
+  const addToKit = (line: ChecklistLine) =>
+    save({ itemId: line.itemId, present: true, baseline: 1 }, () => setKitItem(kitNumber, line.itemId, true));
   const setQuantity = (line: ChecklistLine, quantity: number) =>
-    save({ itemId: line.itemId, quantity }, () => setKitItemQuantity(kitNumber, line.itemId, quantity));
+    save({ itemId: line.itemId, quantity, ...joins(line, quantity) }, () => setKitItemQuantity(kitNumber, line.itemId, quantity));
   const setBaseline = (line: ChecklistLine, baseline: number) =>
     save({ itemId: line.itemId, baseline }, () => setKitBaseline(kitNumber, line.itemId, baseline));
   const allPresent = () => save({ itemId: "*" }, () => setAllKitItems(kitNumber));
@@ -140,13 +148,32 @@ export function KitChecklist({ kitNumber, lines, issued }: { kitNumber: number; 
       {notMine.length > 0 && (
         <details className="rounded-lg border">
           <summary className="text-muted-foreground cursor-pointer px-3 py-2 text-sm">
-            לא שייך לתיק הזה — לא נחתם ({notMine.length})
+            לא שייך לתיק הזה ({notMine.length})
           </summary>
-          <ul className="text-muted-foreground divide-y border-t text-sm">
+          <p className="text-muted-foreground border-t px-3 pt-2 text-xs">
+            פריטים אופציונליים או שהלוחם לא חתם עליהם. סימון כקיים מוסיף את הפריט לתיק.
+          </p>
+          <ul className="divide-y text-sm">
             {notMine.map((l) => (
-              <li key={l.itemId} className="flex items-center justify-between px-3 py-2">
-                <span>{l.label}</span>
-                {haveOf(l) > 0 && <span className="text-xs">יש בפועל {l.targetQuantity != null ? haveOf(l) : ""}</span>}
+              <li key={l.itemId}>
+                {l.targetQuantity != null ? (
+                  <div className="flex min-h-12 items-center gap-3 px-3" role="group" aria-label={l.label}>
+                    <span className="text-muted-foreground flex-1">{l.label}</span>
+                    <Stepper label={l.label} value={haveOf(l)} onChange={(q) => setQuantity(l, q)} display={String(haveOf(l))} tone="" />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => addToKit(l)}
+                    className="active:bg-accent flex min-h-12 w-full items-center gap-3 px-3 text-start"
+                  >
+                    <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center rounded-full">
+                      <Plus className="size-4" />
+                    </span>
+                    <span className="text-muted-foreground flex-1">{l.label}</span>
+                    <span className="text-muted-foreground text-xs">סימון כקיים</span>
+                  </button>
+                )}
               </li>
             ))}
           </ul>
