@@ -8,9 +8,9 @@ import { cn, formatNumber } from "@/lib/utils";
  */
 export function KitSummaryTable({ summary, compact = false }: { summary: KitSummary; compact?: boolean }) {
   const extra: KitSummaryLine[] = [
-    { itemId: "_weapons", label: "נשק אישי מקושר", groupName: "", sortOrder: 0, signed: 0, have: summary.weapons, missing: 0 },
-    { itemId: "_magazines", label: "מחסניות (כרטיס נשק)", groupName: "", sortOrder: 0, signed: 0, have: summary.magazines, missing: 0 },
-    { itemId: "_rounds", label: "כדורים (כרטיס נשק)", groupName: "", sortOrder: 0, signed: 0, have: summary.rounds, missing: 0 },
+    { itemId: "_weapons", label: "נשק אישי מקושר", groupName: "", sortOrder: 0, signed: 0, have: summary.weapons, missing: 0, stock: 0 },
+    { itemId: "_magazines", label: "מחסניות (כרטיס נשק)", groupName: "", sortOrder: 0, signed: 0, have: summary.magazines, missing: 0, stock: 0 },
+    { itemId: "_rounds", label: "כדורים (כרטיס נשק)", groupName: "", sortOrder: 0, signed: 0, have: summary.rounds, missing: 0, stock: 0 },
     ...summary.extraAmmo.map((a) => ({
       itemId: `_extra_${a.label}`,
       label: `${a.label} (כרטיס נשק)`,
@@ -19,8 +19,11 @@ export function KitSummaryTable({ summary, compact = false }: { summary: KitSumm
       signed: 0,
       have: a.quantity,
       missing: 0,
+      stock: 0,
     })),
   ].filter((r) => r.have > 0);
+  // "במלאי": what is in returned kits waiting in stock — shown only when there are any.
+  const showStock = summary.lines.some((l) => l.stock > 0);
 
   const head = (
     <thead className="text-muted-foreground border-b text-xs">
@@ -29,6 +32,7 @@ export function KitSummaryTable({ summary, compact = false }: { summary: KitSumm
         <th className={cn("w-20 text-center font-medium", compact ? "py-1.5" : "px-2 py-2")}>חתום</th>
         <th className={cn("w-20 text-center font-medium", compact ? "py-1.5" : "px-2 py-2")}>קיים</th>
         <th className={cn("w-20 text-center font-medium", compact ? "py-1.5" : "px-2 py-2")}>חסר</th>
+        {showStock && <th className={cn("w-20 text-center font-medium", compact ? "py-1.5" : "px-2 py-2")}>במלאי</th>}
       </tr>
     </thead>
   );
@@ -38,6 +42,7 @@ export function KitSummaryTable({ summary, compact = false }: { summary: KitSumm
       <td className="text-center">{weaponCard ? "—" : formatNumber(l.signed)}</td>
       <td className="text-center">{formatNumber(l.have)}</td>
       <td className={cn("text-center", l.missing > 0 && "text-danger font-semibold")}>{weaponCard ? "—" : l.missing ? formatNumber(l.missing) : "—"}</td>
+      {showStock && <td className="text-center">{weaponCard || !l.stock ? "—" : formatNumber(l.stock)}</td>}
     </tr>
   );
 

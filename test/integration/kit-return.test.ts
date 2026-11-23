@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { assignKit, returnKit, setKitItem, signKit, updateWeapon } from "@/app/(app)/kits/actions";
-import { getKit } from "@/lib/queries/kits";
+import { setKitDefaultPresent } from "@/app/(app)/kits/items/actions";
+import { getKit, getKitSummary } from "@/lib/queries/kits";
 import { parseReturnLines, returnCheckLines } from "@/lib/kit";
 import { activeDeployment, form, kitItemId, kitLine, loginAs, makeItem, makeSoldier, stateOf } from "./factories";
 
@@ -66,8 +67,8 @@ describe("kit return (זיכוי ערכה)", () => {
       ammoCount: 0,
       extraAmmo: [],
     });
-    // Checklist back to its start (the default company starts lines as missing), no baseline.
-    expect(await kitLine(id, "קסדה")).toMatchObject({ present: false, baseline: null });
+    // The checklist keeps what came back (no baseline — nobody has signed for it now).
+    expect(await kitLine(id, "קסדה")).toMatchObject({ present: true, baseline: null });
     // The weapon itself is still with the soldier on the צל"ם side — returned separately.
     expect(await stateOf(rifle.id)).toMatchObject({ assignedSoldierId: soldier.id, status: "WITH_SOLDIER" });
     // The soldier can be issued a kit again.
@@ -99,6 +100,35 @@ describe("kit return (זיכוי ערכה)", () => {
     ]);
     expect((await prisma.personalKit.findUniqueOrThrow({ where: { id } })).soldierId).toBeNull();
     expect((await getKit(6))!.returns).toHaveLength(1);
+  });
+
+  it("the returned kit keeps its real contents, and start settings don't overwrite it", async () => {
+    await loginAs("ADMIN");
+    const { soldier, id } = await issuedKit(9);
+    const helmet = await kitItemId("קסדה");
+    const bag = await kitItemId("שק שינה");
+    await returnKit(9, { soldierId: soldier.id, returned: { [helmet]: 1, [bag]: 0, mag: 7, ammo: 210 }, gapNotes: {} });
+
+    expect(await kitLine(id, "קסדה")).toMatchObject({ present: true });
+    expect(await kitLine(id, "שק שינה")).toMatchObject({ present: false });
+
+    // "הכל קיים" on the checklist settings applies to never-issued kits only.
+    await setKitItem(10, bag, false); // a never-issued kit, with its checklist rows
+    expect(await setKitDefaultPresent(true)).toMatchObject({ ok: true });
+    expect(await kitLine(id, "שק שינה")).toMatchObject({ present: false });
+    expect(await kitLine(await kitId(10), "שק שינה")).toMatchObject({ present: true });
+
+    // The totals count what is in the returned kit as stock.
+    const summary = await getKitSummary();
+    expect(summary.stockKits).toBe(1);
+    expect(summary.lines.find((l) => l.label === "קסדה")).toMatchObject({ stock: 1 });
+    expect(summary.lines.find((l) => l.label === "שק שינה")).toMatchObject({ stock: 0 });
+
+    // Issuing it again starts from what is really in it.
+    const next = await makeSoldier({ name: "הבא" });
+    expect(await assignKit(9, undefined, form({ soldierId: next.id }))).toMatchObject({ ok: true });
+    expect(await kitLine(id, "קסדה")).toMatchObject({ present: true });
+    expect(await kitLine(id, "שק שינה")).toMatchObject({ present: false });
   });
 
   it("refuses a kit that isn't issued, or was moved to another soldier since", async () => {

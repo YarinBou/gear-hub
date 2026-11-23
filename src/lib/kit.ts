@@ -203,19 +203,28 @@ export type KitSummaryLine = {
   have: number;
   /** Total short, kit by kit (one soldier's extra doesn't cover another's shortage). */
   missing: number;
+  /** Total in returned kits waiting in the company's stock (not counted in have / missing). */
+  stock: number;
 };
 
-/** Sum the checklist over kits, per line. */
-export function summarizeKits(kits: { signed: boolean; lines: ChecklistLine[] }[]): KitSummaryLine[] {
+/**
+ * Sum the checklist over kits, per line. Issued kits count as signed / have / missing; returned
+ * kits in stock (`inStock`) only add what is in them to `stock`.
+ */
+export function summarizeKits(kits: { signed: boolean; inStock?: boolean; lines: ChecklistLine[] }[]): KitSummaryLine[] {
   const rows = new Map<string, KitSummaryLine>();
   for (const k of kits) {
     for (const l of k.lines) {
       let r = rows.get(l.itemId);
       if (!r) {
-        r = { itemId: l.itemId, label: l.label, groupName: l.groupName, sortOrder: l.sortOrder, signed: 0, have: 0, missing: 0 };
+        r = { itemId: l.itemId, label: l.label, groupName: l.groupName, sortOrder: l.sortOrder, signed: 0, have: 0, missing: 0, stock: 0 };
         rows.set(l.itemId, r);
       }
       const have = haveOf(l);
+      if (k.inStock) {
+        r.stock += have;
+        continue;
+      }
       const expected = expectedOf(l);
       r.have += have;
       if (expected != null) {

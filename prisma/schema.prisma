@@ -520,7 +520,8 @@ model KitInspection {
 /// A kit return (זיכוי ערכה): the soldier hands the kit back. What they signed for ("לפני") is checked
 /// against what came back ("אחרי"); gaps are recorded with a free-text note (e.g. אובדן / נהרס) but
 /// never block the return. Afterwards the kit form is reset: no soldier, no signature, no weapon
-/// link (the weapon itself is returned separately, on the צל"ם side), checklist back to its start.
+/// link (the weapon itself is returned separately, on the צל"ם side). The checklist keeps what came
+/// back, and start-setting changes never overwrite a returned kit.
 model KitReturn {
   id            String      @id @default(cuid())
   companyId     String
