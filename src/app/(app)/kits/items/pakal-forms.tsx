@@ -12,7 +12,8 @@ import { Select } from "@/components/ui/select";
 import type { PakalDetail } from "@/lib/queries/kits";
 import { createPakal, renamePakal, setPakalActive, setPakalItem } from "./actions";
 
-type ItemOption = { id: string; label: string; counted: boolean };
+/** `target`: the item's company-wide quantity — the default when a פק"ל requires it. */
+type ItemOption = { id: string; label: string; counted: boolean; target: number | null };
 
 /**
  * פק"לים: role kits (נגביסט / מא"ג / חובש…) and the checklist items each one requires. A kit
@@ -169,7 +170,10 @@ function PakalCard({ pakal, items }: { pakal: PakalDetail; items: ItemOption[] }
           <Select
             aria-label={`פריט חובה ל${pakal.name}`}
             value={addId}
-            onChange={(e) => setAddId(e.target.value)}
+            onChange={(e) => {
+              setAddId(e.target.value);
+              setAddQty(String(items.find((i) => i.id === e.target.value)?.target ?? 1));
+            }}
             className="h-9 min-w-0 flex-1"
             disabled={pending}
           >

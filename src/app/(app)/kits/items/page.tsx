@@ -85,7 +85,9 @@ export default async function KitItemsPage() {
 
       <PakalSettings
         pakals={pakals}
-        items={active.filter((i) => !i.systemKey).map((i) => ({ id: i.id, label: i.label, counted: i.targetQuantity != null }))}
+        items={active
+          .filter((i) => !i.systemKey)
+          .map((i) => ({ id: i.id, label: i.label, counted: i.targetQuantity != null, target: i.targetQuantity }))}
       />
 
       {inactive.length > 0 && (
