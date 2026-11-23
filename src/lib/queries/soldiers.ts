@@ -2,6 +2,7 @@ import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { companyContext } from "@/lib/context";
 import { scopedDb } from "@/lib/db";
+import { parseReturnLines } from "@/lib/kit";
 import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -132,3 +133,52 @@ export async function getSoldier(id: string) {
 }
 
 export type SoldierDetail = NonNullable<Awaited<ReturnType<typeof getSoldier>>>;
+
+/**
+ * What the soldier returned over time, across all deployments: each kit return (what was signed
+ * for vs what came back, with gap notes) and each צל"ם item taken back from them. Lets the company
+ * see what someone held before and sign them out the same again.
+ */
+export async function getSoldierReturnHistory(soldierId: string) {
+  const { user } = await companyContext();
+  // Across deployments: company-scoped only (KitReturn / EquipmentLog aren't deployment models).
+  const db = scopedDb(user.companyId);
+  const [kitReturns, equipmentReturns] = await Promise.all([
+    db.kitReturn.findMany({
+      where: { soldierId },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        createdAt: true,
+        lines: true,
+        gapCount: true,
+        note: true,
+        performedBy: { select: { name: true } },
+        kit: { select: { kitNumber: true, deployment: { select: { name: true } } } },
+      },
+    }),
+    // Items that left this soldier (to nobody or to someone else). Components moving with their
+    // main item are left out — the main item stands for the set.
+    db.equipmentLog.findMany({
+      where: { fromSoldierId: soldierId, OR: [{ toSoldierId: null }, { toSoldierId: { not: soldierId } }], item: { parentId: null } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        createdAt: true,
+        note: true,
+        toStatus: true,
+        toSoldier: { select: { name: true } },
+        deployment: { select: { name: true } },
+        item: { select: { id: true, serialNumber: true, category: { select: { name: true } } } },
+      },
+    }),
+  ]);
+  return {
+    kitReturns: kitReturns.map(({ lines, ...r }) => ({ ...r, lines: parseReturnLines(lines) })),
+    equipmentReturns,
+  };
+}
+
+export type SoldierReturnHistory = Awaited<ReturnType<typeof getSoldierReturnHistory>>;
