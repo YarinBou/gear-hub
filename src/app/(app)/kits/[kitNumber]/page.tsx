@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, ClipboardList, Crosshair, History, PenLine, 
 import { companyContext } from "@/lib/context";
 import { NoDeploymentCard, ReadOnlyWhenClosed } from "@/components/deployment-gate";
 import { getPlatoons } from "@/lib/queries/platoons";
-import { describeGap, kitReadiness, returnCheckLines, returnGaps } from "@/lib/kit";
+import { describeGap, kitReadiness, returnCheckLines, returnGaps, signatureCoverage, STOCK_CHECK_LABELS, stockCheckState } from "@/lib/kit";
 import { getKit, getKitNeighbours, getSoldiersWithKit, getWeaponOptions, getKitSlots } from "@/lib/queries/kits";
 import { getSoldierOptions } from "@/lib/queries/soldiers";
 import { formatDateTime, formatDaysAgo } from "@/lib/utils";
@@ -49,6 +49,8 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
   const lines = kit?.lines ?? [];
   const readiness = kit ? kitReadiness(lines) : 0;
   const issued = !!kit?.soldier;
+  const stock = stockCheckState({ contentsCheckedAt: kit?.contentsCheckedAt ?? null, returned: (kit?._count.returns ?? 0) > 0 });
+  const coverage = kit?.signedAt ? signatureCoverage(lines) : null;
   const navHref = (n: number) => `/kits/${n}${platoon ? `?platoon=${platoon}` : ""}`;
 
   return (
@@ -97,7 +99,9 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
                   <Badge variant="warning">טרם הוחתם</Badge>
                 )
               ) : (
-                <Badge variant="secondary">לא הונפקה</Badge>
+                <Badge variant={stock === "checked" ? "success" : stock === "partial" ? "warning" : "secondary"}>
+                  {stock === "unchecked" ? "לא הונפקה · לא נבדק" : STOCK_CHECK_LABELS[stock]}
+                </Badge>
               )}
             </h1>
             <p className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
@@ -111,8 +115,19 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
               ) : (
                 "הערכה במלאי הפלוגה"
               )}
-              {` · ${readiness}% מלאה · ${kit?.lastInspectedAt ? `מסדר אחרון ${formatDaysAgo(kit.lastInspectedAt)}` : "טרם בוצע מסדר"}`}
+              {issued
+                ? ` · ${readiness}% מלאה · ${kit?.lastInspectedAt ? `מסדר אחרון ${formatDaysAgo(kit.lastInspectedAt)}` : "טרם בוצע מסדר"}`
+                : kit?.contentsCheckedAt
+                  ? ` · תכולה נבדקה ${formatDaysAgo(kit.contentsCheckedAt)}${kit.contentsCheckedBy ? ` (${kit.contentsCheckedBy.name})` : ""}`
+                  : stock === "partial"
+                    ? " · זוכה, אבל הלוחם לא היה חתום על כל התיק — יש לבצע בדיקת תכולה"
+                    : " · התיק לא נבדק — יש לבצע בדיקת תכולה"}
             </p>
+            {coverage && coverage.signed < coverage.total && (
+              <p className="text-warning-foreground dark:text-warning mt-1 text-sm font-medium">
+                חתימה חלקית: הלוחם חתום על {coverage.signed} מתוך {coverage.total} פריטים — שאר התיק לא נבדק בהחתמה
+              </p>
+            )}
           </div>
           {issued && (
             <Button asChild variant="outline">
@@ -133,7 +148,14 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
               <CardDescription>הקשה על פריט מחליפה בין קיים לחסר ונשמרת מיד</CardDescription>
             </CardHeader>
             <CardContent>
-              <KitChecklist key={kitNumber} kitNumber={kitNumber} lines={lines} issued={issued} />
+              <KitChecklist
+                key={kitNumber}
+                kitNumber={kitNumber}
+                lines={lines}
+                issued={issued}
+                canCheck={!deployment.readOnly}
+                checkedAt={kit?.contentsCheckedAt ?? null}
+              />
             </CardContent>
           </Card>
 
@@ -275,17 +297,18 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <History className="size-4" /> היסטוריית מסדרים
+                  <History className="size-4" /> היסטוריית מסדרים ובדיקות
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {!kit?.inspections.length ? (
-                  <p className="text-muted-foreground text-sm">טרם בוצע מסדר</p>
+                  <p className="text-muted-foreground text-sm">טרם בוצע מסדר או בדיקת תכולה</p>
                 ) : (
                   <ul className="divide-y text-sm">
                     {kit.inspections.map((ins) => (
                       <li key={ins.id} className="py-2">
                         <p className="text-muted-foreground text-xs">
+                          {ins.fullCheck && <span className="text-foreground font-medium">בדיקת תכולה · </span>}
                           {formatDateTime(ins.createdAt)}
                           {ins.performedBy && ` · ${ins.performedBy.name}`}
                         </p>

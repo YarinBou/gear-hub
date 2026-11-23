@@ -154,6 +154,7 @@ model User {
   kitInspections     KitInspection[]
   kitReturns         KitReturn[]
   signedKits         PersonalKit[]   @relation("KitSignedBy")
+  checkedKits        PersonalKit[]   @relation("KitContentsCheckedBy")
   deploymentsCreated Deployment[]    @relation("DeploymentCreatedBy")
 
   @@index([companyId])
@@ -489,6 +490,12 @@ model PersonalKit {
   /// Data-URL / blob URL of the soldier's drawn signature.
   signatureData   String?
   lastInspectedAt DateTime?
+  /// בדיקת תכולה: the last time every line of the bag was checked (a full contents check, or the
+  /// return of a kit signed for in full). Null = its real contents aren't known. Cleared when a
+  /// partly-signed kit is returned; carried into the next deployment with the checked contents.
+  contentsCheckedAt   DateTime?
+  contentsCheckedById String?
+  contentsCheckedBy   User?     @relation("KitContentsCheckedBy", fields: [contentsCheckedById], references: [id], onDelete: SetNull)
   notes           String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -511,6 +518,8 @@ model KitInspection {
   kit           PersonalKit @relation(fields: [kitId], references: [id], onDelete: Cascade)
   /// Names of the checklist items found missing, as they were called at the time of the inspection.
   missingItems  String[]
+  /// בדיקת תכולה of a kit in stock (every line checked), rather than a מסדר of an issued kit.
+  fullCheck     Boolean     @default(false)
   performedById String?
   performedBy   User?       @relation(fields: [performedById], references: [id], onDelete: SetNull)
   note          String?

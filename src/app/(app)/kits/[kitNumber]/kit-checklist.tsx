@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { expectedOf, groupLines, haveOf, kitReadiness, lineApplies, lineComplete, type ChecklistLine } from "@/lib/kit";
 import { cn } from "@/lib/utils";
-import { completeInspection, setAllKitItems, setKitBaseline, setKitItem, setKitItemQuantity } from "../actions";
+import { completeContentsCheck, completeInspection, setAllKitItems, setKitBaseline, setKitItem, setKitItemQuantity } from "../actions";
 
 type Patch = { itemId: string | "*"; present?: boolean; quantity?: number; baseline?: number };
 
@@ -19,7 +19,21 @@ type Patch = { itemId: string | "*"; present?: boolean; quantity?: number; basel
  * Once the soldier has signed, only what they signed for counts: lines they didn't sign for sit in
  * a separate "not part of this kit" list and are never missing. "עריכת מה שנחתם" corrects that.
  */
-export function KitChecklist({ kitNumber, lines, issued }: { kitNumber: number; lines: ChecklistLine[]; issued: boolean }) {
+export function KitChecklist({
+  kitNumber,
+  lines,
+  issued,
+  canCheck = false,
+  checkedAt = null,
+}: {
+  kitNumber: number;
+  lines: ChecklistLine[];
+  issued: boolean;
+  /** A kit in stock in the active deployment: offer the contents check. */
+  canCheck?: boolean;
+  /** When its contents were last checked (null = never). */
+  checkedAt?: Date | null;
+}) {
   const [optimistic, apply] = useOptimistic(lines, (state: ChecklistLine[], p: Patch) =>
     state.map((l) => {
       if (p.itemId === "*") {
@@ -223,6 +237,35 @@ export function KitChecklist({ kitNumber, lines, issued }: { kitNumber: number; 
               <PenLine />
               עריכת מה שהלוחם חתם עליו
             </Button>
+          </>
+        )}
+        {!issued && canCheck && (
+          <>
+            <p className="text-muted-foreground text-xs">
+              בדיקת תכולה: עוברים על כל הפריטים — כולל &quot;לא שייך לתיק הזה&quot; — ומסמנים מה יש בתיק בפועל. אחרי האישור התיק מסומן
+              כנבדק, והתכולה שלו נשמרת גם להפעלה הבאה.
+            </p>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="הערה לבדיקה (אופציונלי)" aria-label="הערה לבדיקת התכולה" />
+            <Button
+              type="button"
+              size="lg"
+              disabled={inspecting}
+              onClick={() =>
+                startInspection(async () => {
+                  const r = await completeContentsCheck(kitNumber, note);
+                  setInspectionMsg({ ok: r.ok, text: r.message ?? "" });
+                  if (r.ok) setNote("");
+                })
+              }
+            >
+              <ClipboardCheck />
+              {inspecting ? "רושם…" : checkedAt ? "בדיקת תכולה חוזרת" : "סיום בדיקת תכולה"}
+            </Button>
+            {inspectionMsg && (
+              <p role="status" className={cn("text-sm font-medium", inspectionMsg.ok ? "text-success" : "text-danger")}>
+                {inspectionMsg.text}
+              </p>
+            )}
           </>
         )}
       </div>

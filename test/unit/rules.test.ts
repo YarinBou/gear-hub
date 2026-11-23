@@ -7,6 +7,8 @@ import {
   groupLines,
   kitReadiness,
   expectedOf,
+  signatureCoverage,
+  stockCheckState,
   lineComplete,
   missingDescriptions,
   summarizeKits,
@@ -205,5 +207,35 @@ describe("kit: optional items and פק\"ל requirements", () => {
     expect(expectedOf({ targetQuantity: 7, baseline: null })).toBe(7);
     expect(expectedOf({ targetQuantity: 7, baseline: 5 })).toBe(5);
     expect(expectedOf({ targetQuantity: null, baseline: null })).toBe(1);
+  });
+});
+
+describe("kit: signature coverage and stock check state", () => {
+  const l = (over: Partial<import("@/lib/kit").ChecklistLine>): import("@/lib/kit").ChecklistLine => ({
+    itemId: Math.random().toString(),
+    label: "x",
+    groupName: "g",
+    sortOrder: 0,
+    targetQuantity: null,
+    systemKey: null,
+    present: false,
+    quantity: null,
+    baseline: null,
+    ...over,
+  });
+  it("counts the lines every kit should hold — not the weapon, not optional ones", () => {
+    const lines = [
+      l({ systemKey: "WEAPON", baseline: 0 }),
+      l({ baseline: 1 }),
+      l({ baseline: 0 }),
+      l({ optional: true, baseline: 0 }),
+      l({ optional: true, pakalQuantity: 1, baseline: 1 }),
+    ];
+    expect(signatureCoverage(lines)).toEqual({ signed: 2, total: 3 });
+  });
+  it("stock state", () => {
+    expect(stockCheckState({ contentsCheckedAt: new Date(), returned: false })).toBe("checked");
+    expect(stockCheckState({ contentsCheckedAt: null, returned: true })).toBe("partial");
+    expect(stockCheckState({ contentsCheckedAt: null, returned: false })).toBe("unchecked");
   });
 });

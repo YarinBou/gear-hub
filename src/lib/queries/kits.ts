@@ -8,6 +8,9 @@ import {
   kitReadiness,
   missingDescriptions,
   parseReturnLines,
+  signatureCoverage,
+  stockCheckState,
+  type StockCheckState,
   summarizeKits,
   type ChecklistLine,
 } from "@/lib/kit";
@@ -26,6 +29,10 @@ export type KitTile = {
   missing: string[];
   signedAt: Date | null;
   lastInspectedAt: Date | null;
+  /** Kit in stock: are its contents known (see stockCheckState). Null for an issued kit. */
+  stock: { state: StockCheckState; checkedAt: Date | null } | null;
+  /** Signed kit: how much of the bag the signature covers. Null when not signed. */
+  coverage: { signed: number; total: number } | null;
 };
 
 /** All kit slots of the viewed deployment, including kits whose DB row doesn't exist yet. */
@@ -38,6 +45,8 @@ export async function listKits(): Promise<KitTile[]> {
         kitNumber: true,
         signedAt: true,
         lastInspectedAt: true,
+        contentsCheckedAt: true,
+        _count: { select: { returns: true } },
         soldier: { select: { id: true, name: true, platoon: platoonSelect } },
         ...kitItemsSelect,
       },
@@ -58,6 +67,13 @@ export async function listKits(): Promise<KitTile[]> {
       missing: missingDescriptions(lines),
       signedAt: k?.signedAt ?? null,
       lastInspectedAt: k?.lastInspectedAt ?? null,
+      stock: k?.soldier
+        ? null
+        : {
+            state: stockCheckState({ contentsCheckedAt: k?.contentsCheckedAt ?? null, returned: (k?._count.returns ?? 0) > 0 }),
+            checkedAt: k?.contentsCheckedAt ?? null,
+          },
+      coverage: k?.signedAt ? signatureCoverage(lines) : null,
     };
   });
 }
@@ -80,6 +96,8 @@ export async function getKit(kitNumber: number) {
         },
       },
       signedBy: { select: { name: true } },
+      contentsCheckedBy: { select: { name: true } },
+      _count: { select: { returns: true } },
       ...kitItemsSelect,
       inspections: {
         orderBy: { createdAt: "desc" },

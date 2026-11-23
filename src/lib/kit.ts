@@ -294,3 +294,40 @@ export function returnGaps(lines: ReturnLine[]) {
 export function describeGap(l: ReturnLine) {
   return l.expected > 1 ? `${l.label} (${l.returned}/${l.expected})` : l.label;
 }
+
+// ───────────── Contents check (בדיקת תכולה) ─────────────
+
+/**
+ * How much of the kit a signature covers: of the lines every kit is expected to hold (not optional,
+ * or required by its פק"ל; not the weapon, which is returned on the צל"ם side), how many the soldier
+ * signed for. A kit signed for only a few lines (e.g. just a rifle strap) doesn't tell what's in the bag.
+ */
+export function signatureCoverage(lines: ChecklistLine[]) {
+  const expected = lines.filter((l) => l.systemKey !== WEAPON_ITEM && (!l.optional || l.pakalQuantity != null));
+  return { signed: expected.filter((l) => (l.baseline ?? 0) > 0).length, total: expected.length };
+}
+
+/** Whether a signature covers the whole kit. */
+export function coversWholeKit(lines: ChecklistLine[]) {
+  const c = signatureCoverage(lines);
+  return c.signed === c.total;
+}
+
+/**
+ * A kit in stock: are its real contents known?
+ * - checked: every line was checked (a full contents check, or the return of a kit signed in full);
+ * - partial: it was returned, but the signature covered only part of the bag;
+ * - unchecked: nobody signed for it or checked it — it hasn't been opened.
+ */
+export type StockCheckState = "checked" | "partial" | "unchecked";
+
+export function stockCheckState(kit: { contentsCheckedAt: Date | null; returned: boolean }): StockCheckState {
+  if (kit.contentsCheckedAt) return "checked";
+  return kit.returned ? "partial" : "unchecked";
+}
+
+export const STOCK_CHECK_LABELS: Record<StockCheckState, string> = {
+  checked: "נבדק",
+  partial: "בדיקה חלקית",
+  unchecked: "לא נבדק",
+};
