@@ -54,7 +54,8 @@ describe("kit return (זיכוי ערכה)", () => {
     const [mag, ammo] = [await kitItemId("מחסניות"), await kitItemId("כדורים")];
 
     const r = await returnKit(4, { soldierId: soldier.id, returned: { [helmet]: 1, [bag]: 1, [mag]: 7, [ammo]: 210 }, gapNotes: {} });
-    expect(r).toMatchObject({ ok: true, gaps: 0, message: "הערכה זוכתה — הכל חזר" });
+    expect(r).toMatchObject({ ok: true, gaps: 0 });
+    expect(r.message).toMatch(/^הערכה זוכתה — הכל חזר/);
 
     const ret = await prisma.kitReturn.findFirstOrThrow({ where: { kitId: id } });
     expect(ret).toMatchObject({ soldierId: soldier.id, soldierName: "יוסי לוי", gapCount: 0 });

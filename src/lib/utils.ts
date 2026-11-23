@@ -12,6 +12,13 @@ export function formatDate(d: Date | null | undefined): string {
   return d ? dateFmt.format(d) : "—";
 }
 
+const dayMonthFmt = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric", timeZone: "Asia/Jerusalem" });
+
+/** "23.11" — for tight spots like kit tiles. */
+export function formatDayMonth(d: Date | null | undefined): string {
+  return d ? dayMonthFmt.format(d) : "—";
+}
+
 export function formatNumber(n: number): string {
   return numFmt.format(n);
 }

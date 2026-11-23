@@ -23,7 +23,7 @@ type ItemOption = { id: string; label: string; counted: boolean; target: number 
 export function PakalSettings({ pakals, items }: { pakals: PakalDetail[]; items: ItemOption[] }) {
   const [state, action, pending] = useActionState(createPakal, undefined);
   return (
-    <Card>
+    <Card id="pakals" className="scroll-mt-20">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Star className="size-4" /> פק&quot;לים

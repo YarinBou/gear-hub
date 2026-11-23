@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ClipboardList, PenLine } from "lucide-react";
+import { CheckCircle2, ClipboardList, PenLine } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { NoDeploymentCard } from "@/components/deployment-gate";
 import { getPlatoons } from "@/lib/queries/platoons";
 import type { PlatoonRef } from "@/lib/platoons";
 import { listKits, type KitTile } from "@/lib/queries/kits";
-import { cn } from "@/lib/utils";
+import { cn, formatDayMonth } from "@/lib/utils";
+import { STOCK_CHECK_LABELS } from "@/lib/kit";
 import { PlatoonBadge, PlatoonDot } from "@/components/platoon-badge";
 import { PakalBadge } from "@/components/pakal-badge";
 import { Card } from "@/components/ui/card";
@@ -15,11 +16,14 @@ import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "ציוד אישי והחתמות" };
 
-type Filter = "missing" | "unissued" | "unsigned";
+type Filter = "missing" | "unissued" | "unsigned" | "unchecked" | "partialSign";
+const partialSign = (k: KitTile) => !!k.coverage && k.coverage.signed < k.coverage.total;
 const FILTERS: Record<Filter, { label: string; test: (k: KitTile) => boolean }> = {
   missing: { label: "חסרים פריטים", test: (k) => !!k.soldier && k.readiness < 100 },
   unsigned: { label: "לא הוחתמו", test: (k) => !!k.soldier && !k.signedAt },
+  partialSign: { label: "חתימה חלקית", test: partialSign },
   unissued: { label: "לא הונפקו", test: (k) => !k.soldier },
+  unchecked: { label: "במלאי — לא נבדקו", test: (k) => !!k.stock && k.stock.state !== "checked" },
 };
 
 function first(v: string | string[] | undefined) {
@@ -162,7 +166,10 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
                   href={kitHref(k.kitNumber)}
                   className={cn(
                     "bg-card hover:border-primary/50 flex h-full flex-col gap-1.5 rounded-lg border p-2.5 transition-colors",
-                    !k.soldier && "bg-muted/50",
+                    // In stock: checked (contents known) / partly checked / never opened.
+                    k.stock?.state === "checked" && "border-success/60 bg-success/5",
+                    k.stock?.state === "partial" && "border-warning/70 bg-muted/50 border-dashed",
+                    k.stock?.state === "unchecked" && "bg-muted/50 border-dashed",
                   )}
                 >
                   <div className="flex items-center justify-between gap-1">
@@ -173,15 +180,27 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
                   </div>
                   {k.pakal && <PakalBadge pakal={k.pakal} className="px-1 py-0 text-[10px]" />}
                   {/* No colored dot here: a pink platoon dot next to the bar read as "missing items". */}
-                  <p className={cn("truncate text-xs", k.soldier ? "font-medium" : "text-muted-foreground")}>
-                    {k.soldier?.name ?? "לא הונפקה"}
-                  </p>
+                  {k.soldier ? (
+                    <p className="truncate text-xs font-medium">{k.soldier.name}</p>
+                  ) : (
+                    <StockLine stock={k.stock!} missing={k.missing.length} />
+                  )}
                   <div className="bg-muted h-1.5 overflow-hidden rounded-full">
                     <div className={cn("h-full rounded-full", t.bar)} style={{ width: `${k.soldier ? k.readiness : 0}%` }} />
                   </div>
                   {k.soldier && (
                     <p className="text-muted-foreground flex items-center justify-between gap-1 text-[11px]">
-                      <span className="shrink-0">{k.missing.length ? `${k.missing.length} חסרים` : "מלאה"}</span>
+                      <span className="shrink-0">
+                        {partialSign(k) ? (
+                          <span className="text-warning-foreground dark:text-warning font-medium">
+                            חתימה חלקית {k.coverage!.signed}/{k.coverage!.total}
+                          </span>
+                        ) : k.missing.length ? (
+                          `${k.missing.length} חסרים`
+                        ) : (
+                          "מלאה"
+                        )}
+                      </span>
                       <span className="flex min-w-0 items-center gap-1">
                         <PlatoonBadge platoon={k.soldier.platoon} className="min-w-0 truncate px-1 py-0 text-[10px]" />
                         {k.signedAt && <PenLine className="size-3 shrink-0" aria-label="הוחתם" />}
@@ -195,5 +214,23 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
         </ul>
       )}
     </div>
+  );
+}
+
+/** A kit in stock: is what's in it known? */
+function StockLine({ stock, missing }: { stock: NonNullable<KitTile["stock"]>; missing: number }) {
+  if (stock.state === "checked") {
+    return (
+      <p className="text-success flex items-center gap-1 truncate text-xs font-medium">
+        <CheckCircle2 className="size-3.5 shrink-0" />
+        נבדק {formatDayMonth(stock.checkedAt)}
+        {missing > 0 && <span className="text-muted-foreground font-normal">· {missing} חסרים</span>}
+      </p>
+    );
+  }
+  return (
+    <p className={cn("truncate text-xs", stock.state === "partial" ? "text-warning-foreground dark:text-warning font-medium" : "text-muted-foreground")}>
+      {STOCK_CHECK_LABELS[stock.state]}
+    </p>
   );
 }

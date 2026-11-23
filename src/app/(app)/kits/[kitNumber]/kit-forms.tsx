@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useActionState, useState, useTransition } from "react";
+import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import { Field } from "@/components/form-field";
 import { SoldierSelect } from "@/components/soldier-select";
@@ -158,6 +159,20 @@ export function KitPakalForm({
   const [result, setResult] = useState<{ ok: boolean; message?: string } | null>(null);
   // Inactive ones can't be chosen, but the kit's own stays visible.
   const options = pakals.filter((p) => p.isActive || p.id === current);
+  if (!options.length) {
+    return (
+      <div className="flex flex-col gap-1">
+        <p className="text-sm font-medium">תיק פק&quot;ל</p>
+        <p className="text-muted-foreground text-sm">
+          עדיין לא הוגדרו פק&quot;לים בפלוגה.{" "}
+          <Link href="/kits/items#pakals" className="text-primary font-medium underline-offset-4 hover:underline">
+            הגדרת פק&quot;לים בתכולת ערכה
+          </Link>{" "}
+          — לכל פק&quot;ל בוחרים את פריטי החובה שלו (למשל נגביסט: וסט נגב ותופי נגב), ואז מסמנים כאן את התיק.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-2">
       <Field id="kit-pakal" label='תיק פק"ל' hint='פריטי החובה של הפק"ל נבדקים בתיק הזה. הסימון נשאר עם התיק גם בזיכוי ובהפעלה הבאה.'>

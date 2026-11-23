@@ -54,7 +54,8 @@ export async function createKitStatuses(
 /**
  * A kit that hasn't been issued yet in the active deployment: no soldier, no weapon, not signed,
  * never returned. Its checklist is just the starting point, so it follows the start settings.
- * A returned kit (זיכוי) holds what actually came back, so the start settings never overwrite it.
+ * A returned kit (זיכוי) or a checked one (בדיקת תכולה) holds its real contents, so the start
+ * settings never overwrite it.
  */
 export const unissuedKitWhere = {
   deployment: { status: "ACTIVE" },
@@ -62,6 +63,7 @@ export const unissuedKitWhere = {
   personalWeaponId: null,
   signedAt: null,
   returns: { none: {} },
+  contentsCheckedAt: null,
 } satisfies Prisma.PersonalKitWhereInput;
 
 /**

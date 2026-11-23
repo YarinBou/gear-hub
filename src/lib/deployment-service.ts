@@ -125,27 +125,56 @@ export async function startDeployment(
         ).map((k) => [k.kitNumber, k.pakalId])
       : [],
   );
+  // Kits in stock whose contents were checked (בדיקת תכולה) keep those contents — the bag is the same
+  // bag — in both modes, and stay "checked".
+  const checkedInStock = new Map(
+    previous
+      ? (
+          await tx.personalKit.findMany({
+            where: { deploymentId: previous.id, soldierId: null, contentsCheckedAt: { not: null } },
+            select: {
+              kitNumber: true,
+              contentsCheckedAt: true,
+              contentsCheckedById: true,
+              items: { select: { itemId: true, present: true, quantity: true } },
+            },
+          })
+        ).map((k) => [k.kitNumber, k])
+      : [],
+  );
   // Kits that carry over to the same soldier keep their checklist (by kit number).
   const carried = new Map<number, (typeof prevKits)[number]>();
   const newKits = await tx.personalKit.createManyAndReturn({
     data: Array.from({ length: kitCount }, (_, i) => {
       const kitNumber = i + 1;
-      const base = { companyId, deploymentId: deployment.id, kitNumber, pakalId: pakalByNumber.get(kitNumber) ?? null };
+      const checked = checkedInStock.get(kitNumber);
+      const base = {
+        companyId,
+        deploymentId: deployment.id,
+        kitNumber,
+        pakalId: pakalByNumber.get(kitNumber) ?? null,
+        contentsCheckedAt: checked?.contentsCheckedAt ?? null,
+        contentsCheckedById: checked?.contentsCheckedById ?? null,
+      };
       const prev = kitByNumber.get(kitNumber);
       if (!prev) return base;
       const soldierId = keepSoldier(prev.soldierId);
-      if (!soldierId) return base; // the holder left — the kit starts blank
+      if (!soldierId) return base; // the holder left — the kit starts blank (or with its checked contents)
       carried.set(kitNumber, prev);
       const { kitNumber: _n, soldierId: _s, items: _i, ...rest } = prev;
       return { ...base, ...rest, soldierId };
     }),
     select: { id: true, kitNumber: true },
   });
-  // Checklist rows: carried kits copy theirs; the rest start per the company setting.
+  // Checklist rows: carried kits copy theirs; checked kits in stock keep their contents (nobody has
+  // signed for them); the rest start per the company setting.
   const copyFrom = new Map(
     newKits.flatMap((k) => {
       const prev = carried.get(k.kitNumber);
-      return prev ? [[k.id, new Map(prev.items.map((s) => [s.itemId, s]))] as const] : [];
+      if (prev) return [[k.id, new Map(prev.items.map((s) => [s.itemId, s]))] as const];
+      const checked = checkedInStock.get(k.kitNumber);
+      if (checked) return [[k.id, new Map(checked.items.map((s) => [s.itemId, { ...s, baseline: null }]))] as const];
+      return [];
     }),
   );
   await createKitStatuses(tx, { companyId, kitIds: newKits.map((k) => k.id), copyFrom });

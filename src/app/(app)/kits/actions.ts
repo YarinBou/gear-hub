@@ -7,6 +7,7 @@ import { writableContext } from "@/lib/context";
 import { AssignmentError, applyAssignment, ensureAssignment, NOT_IN_DEPLOYMENT_MESSAGE } from "@/lib/equipment-service";
 import {
   checklistLines,
+  coversWholeKit,
   kitItemsSelect,
   missingDescriptions,
   returnCheckLines,
@@ -59,12 +60,23 @@ async function writeLine(
   value: { present?: boolean; quantity?: number },
 ) {
   const kit = await ensureKit(db, ids, kitNumber);
-  const def = await db.kitItemDef.findFirst({ where: { id: itemId, isActive: true }, select: { id: true, targetQuantity: true } });
+  const def = await db.kitItemDef.findFirst({
+    where: { id: itemId, isActive: true },
+    select: { id: true, targetQuantity: true, optional: true },
+  });
   if (!def) return false;
-  const data =
+  const data: { quantity?: number; present?: boolean; baseline?: number } =
     def.targetQuantity != null
       ? { quantity: value.quantity ?? (value.present ? def.targetQuantity : 0) }
       : { present: value.present ?? (value.quantity ?? 0) > 0 };
+  // Marking something as there on a line that isn't part of this kit (not signed for, or an optional
+  // item) adds it to the kit: it now counts as signed for, at the amount found.
+  const have = def.targetQuantity != null ? data.quantity! : data.present ? 1 : 0;
+  if (have > 0) {
+    const row = await db.kitItemStatus.findUnique({ where: { kitId_itemId: { kitId: kit.id, itemId } }, select: { baseline: true } });
+    const baseline = row?.baseline ?? null;
+    if (baseline === 0 || (baseline === null && def.optional)) data.baseline = have;
+  }
   await db.kitItemStatus.upsert({
     where: { kitId_itemId: { kitId: kit.id, itemId } },
     update: data,
@@ -277,6 +289,49 @@ export async function completeInspection(kitNumber: number, note: string): Promi
   };
 }
 
+/**
+ * בדיקת תכולה: every line of a kit in stock was checked — what is marked now is what is in the bag.
+ * Records it in the kit's history (with what is short against the list) and marks the kit as checked.
+ */
+export async function completeContentsCheck(kitNumber: number, note: string): Promise<KitResult> {
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  const { user, db, deployment } = w;
+  const ids = { companyId: user.companyId, deploymentId: deployment.id };
+  const result = await db.$transaction(async (tx) => {
+    const k = await ensureKit(tx, ids, kitNumber);
+    const kit = await tx.personalKit.findUniqueOrThrow({ where: { id: k.id }, select: { id: true, soldierId: true, ...kitItemsSelect } });
+    if (kit.soldierId) return { error: "בדיקת תכולה נעשית לתיק שבמלאי. לתיק מונפק — מסדר" };
+    const lines = checklistLines(kit.items, { history: false, activeDefs: await activeItemDefs(tx), pakal: kit.pakal });
+    // The weapon is not kept in a bag in stock.
+    const missing = missingDescriptions(lines.filter((l) => l.systemKey !== WEAPON_ITEM));
+    const now = new Date();
+    await tx.kitInspection.create({
+      data: {
+        companyId: user.companyId,
+        kitId: kit.id,
+        missingItems: missing,
+        fullCheck: true,
+        note: (typeof note === "string" ? note.trim().slice(0, 300) : "") || null,
+        performedById: user.id,
+      },
+    });
+    await tx.personalKit.update({ where: { id: kit.id }, data: { contentsCheckedAt: now, contentsCheckedById: user.id } });
+    return { missing: missing.length };
+  });
+  if ("error" in result) return { ok: false, message: result.error };
+  refresh();
+  return {
+    ok: true,
+    message:
+      result.missing === 0
+        ? "בדיקת התכולה נרשמה — התיק מלא"
+        : result.missing === 1
+          ? "בדיקת התכולה נרשמה — פריט אחד חסר"
+          : `בדיקת התכולה נרשמה — ${result.missing} פריטים חסרים`,
+  };
+}
+
 // ───────────── Digital signature ─────────────
 
 const MAX_SIGNATURE_BYTES = 200_000;
@@ -336,7 +391,10 @@ export type ReturnKitInput = {
  * kit (and the totals) show its real contents until it is filled up. The weapon itself is not
  * touched here — it is returned separately on the צל"ם side.
  */
-export async function returnKit(kitNumber: number, input: ReturnKitInput): Promise<KitResult & { gaps?: number }> {
+export async function returnKit(
+  kitNumber: number,
+  input: ReturnKitInput,
+): Promise<KitResult & { gaps?: number; fullCheck?: boolean }> {
   const w = await writableContext();
   if (!w.ok) return { ok: false, message: w.message };
   const { user, db, deployment } = w;
@@ -352,6 +410,7 @@ export async function returnKit(kitNumber: number, input: ReturnKitInput): Promi
       select: {
         id: true,
         soldierId: true,
+        signedAt: true,
         soldier: { select: { name: true } },
         ...kitItemsSelect,
       },
@@ -368,6 +427,9 @@ export async function returnKit(kitNumber: number, input: ReturnKitInput): Promi
       return { label: c.label, expected: c.expected, returned: got, ...(note ? { note } : {}) };
     });
     const gaps = record.filter((l) => l.returned < l.expected).length;
+    // A return checks what was signed for. When that was the whole kit, its contents are now known;
+    // when the soldier signed for only part of it, the rest of the bag still needs a contents check.
+    const fullCheck = !!kit.signedAt && coversWholeKit(lines);
 
     await tx.kitReturn.create({
       data: {
@@ -393,6 +455,8 @@ export async function returnKit(kitNumber: number, input: ReturnKitInput): Promi
         signatureData: null,
         personalWeaponId: null,
         rifleType: null,
+        contentsCheckedAt: fullCheck ? new Date() : null,
+        contentsCheckedById: fullCheck ? user.id : null,
       },
     });
     const back = new Map(check.map((c, i) => [c.key, record[i].returned]));
@@ -412,20 +476,18 @@ export async function returnKit(kitNumber: number, input: ReturnKitInput): Promi
         create: { companyId: user.companyId, kitId: kit.id, itemId: l.itemId, ...data },
       });
     }
-    return { gaps };
+    return { gaps, fullCheck };
   });
 
   if ("error" in result) return { ok: false, message: result.error };
   refresh();
+  const outcome =
+    result.gaps === 0 ? "הערכה זוכתה — הכל חזר" : result.gaps === 1 ? "הערכה זוכתה — פער אחד נרשם" : `הערכה זוכתה — ${result.gaps} פערים נרשמו`;
   return {
     ok: true,
     gaps: result.gaps,
-    message:
-      result.gaps === 0
-        ? "הערכה זוכתה — הכל חזר"
-        : result.gaps === 1
-          ? "הערכה זוכתה — פער אחד נרשם"
-          : `הערכה זוכתה — ${result.gaps} פערים נרשמו`,
+    fullCheck: result.fullCheck,
+    message: result.fullCheck ? outcome : `${outcome}. הלוחם לא היה חתום על כל התיק — מומלץ לבצע בדיקת תכולה`,
   };
 }
 
