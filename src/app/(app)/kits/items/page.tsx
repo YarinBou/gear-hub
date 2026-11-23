@@ -5,18 +5,31 @@ import { groupLines } from "@/lib/kit";
 import { BackLink } from "@/components/layout/back-link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AddKitItemForm, KitCountSetting, KitDefaultSetting, KitItemLine } from "./kit-item-forms";
+import { PakalSettings } from "./pakal-forms";
+import { getPakals } from "@/lib/queries/kits";
 
 export const metadata: Metadata = { title: "תכולת ערכה" };
 
 /** Admin: what a personal kit contains (the checklist on every kit and on the printed form). */
 export default async function KitItemsPage() {
   const { user, db } = await adminContext();
-  const [items, company] = await Promise.all([
+  const [items, company, pakals] = await Promise.all([
     db.kitItemDef.findMany({
       orderBy: { sortOrder: "asc" },
-      select: { id: true, label: true, groupName: true, sortOrder: true, targetQuantity: true, systemKey: true, startPresent: true, isActive: true },
+      select: {
+        id: true,
+        label: true,
+        groupName: true,
+        sortOrder: true,
+        targetQuantity: true,
+        systemKey: true,
+        startPresent: true,
+        optional: true,
+        isActive: true,
+      },
     }),
     db.company.findUnique({ where: { id: user.companyId }, select: { kitDefaultPresent: true, kitCount: true } }),
+    getPakals(),
   ]);
   const active = items.filter((i) => i.isActive);
   const inactive = items.filter((i) => !i.isActive);
@@ -69,6 +82,11 @@ export default async function KitItemsPage() {
           </ul>
         </Card>
       ))}
+
+      <PakalSettings
+        pakals={pakals}
+        items={active.filter((i) => !i.systemKey).map((i) => ({ id: i.id, label: i.label, counted: i.targetQuantity != null }))}
+      />
 
       {inactive.length > 0 && (
         <Card className="gap-0 py-0">

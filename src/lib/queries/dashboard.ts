@@ -121,7 +121,7 @@ export async function getDashboardData() {
     const k = kitMap.get(i + 1);
     return {
       kitNumber: i + 1,
-      readiness: k ? kitReadiness(checklistLines(k.items, { history: !!deployment?.readOnly, activeDefs })) : null,
+      readiness: k ? kitReadiness(checklistLines(k.items, { history: !!deployment?.readOnly, activeDefs, pakal: k.pakal })) : null,
       soldierName: k?.soldier?.name ?? null,
       platoon: k?.soldier?.platoon ?? null,
     };

@@ -59,7 +59,7 @@ export default async function KitSheetPage({ params }: PageProps<"/kits/[kitNumb
         </dl>
 
         <section className="mb-4">
-          <h2 className="mb-1 font-semibold">נשק אישי ותחמושת</h2>
+          <h2 className="mb-1 font-semibold">נשק אישי</h2>
           <table className="w-full border-collapse">
             <tbody>
               {weaponLine && <SheetRow label={weaponLine.label} value={<Issued yes={lineComplete(weaponLine)} />} />}
@@ -68,11 +68,6 @@ export default async function KitSheetPage({ params }: PageProps<"/kits/[kitNumb
                 label='צ / מס"ט'
                 value={kit.personalWeapon ? <Serial value={kit.personalWeapon.serialNumber} /> : "—"}
               />
-              <SheetRow label="מחסניות" value={String(kit.magazineCount)} />
-              <SheetRow label="כדורים" value={String(kit.ammoCount)} />
-              {kit.extraAmmo.map((a) => (
-                <SheetRow key={a.label} label={a.label} value={String(a.quantity)} />
-              ))}
             </tbody>
           </table>
         </section>

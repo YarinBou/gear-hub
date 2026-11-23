@@ -6,10 +6,9 @@ import {
   defaultStatus,
   groupLines,
   kitReadiness,
+  expectedOf,
   lineComplete,
   missingDescriptions,
-  parseExtraAmmo,
-  sumExtraAmmo,
   summarizeKits,
   type ChecklistLine,
 } from "@/lib/kit";
@@ -186,20 +185,25 @@ describe("kit checklist", () => {
   });
 });
 
-describe("kit extra ammo", () => {
-  it("parses stored lines and drops malformed ones", () => {
-    expect(parseExtraAmmo(null)).toEqual([]);
-    expect(
-      parseExtraAmmo([{ label: " תופי נגב ", quantity: 2 }, { label: "", quantity: 1 }, { label: "x", quantity: -1 }, "junk"]),
-    ).toEqual([{ label: "תופי נגב", quantity: 2 }]);
+describe("kit: optional items and פק\"ל requirements", () => {
+  const counted = { targetQuantity: 4, present: false, quantity: 0 };
+  it("an optional item is part of the kit only when signed for", () => {
+    expect(expectedOf({ ...counted, baseline: null, optional: true })).toBeNull();
+    expect(expectedOf({ ...counted, baseline: 2, optional: true })).toBe(2);
+    expect(expectedOf({ ...counted, baseline: 0, optional: true })).toBeNull();
+    expect(lineComplete({ ...counted, baseline: null, optional: true })).toBe(true);
   });
-
-  it("sums per type over kits", () => {
-    expect(
-      sumExtraAmmo([[{ label: "תופי נגב", quantity: 2 }], [{ label: 'תופי מא"ג', quantity: 3 }, { label: "תופי נגב", quantity: 1 }]]),
-    ).toEqual([
-      { label: "תופי נגב", quantity: 3 },
-      { label: 'תופי מא"ג', quantity: 3 },
-    ]);
+  it("a פק\"ל requirement makes it part of the kit, at least its quantity", () => {
+    expect(expectedOf({ ...counted, baseline: null, optional: true, pakalQuantity: 4 })).toBe(4);
+    // Signed for less (or not at all) — the פק"ל still requires it.
+    expect(expectedOf({ ...counted, baseline: 0, optional: true, pakalQuantity: 4 })).toBe(4);
+    // Signed for more — what was signed counts.
+    expect(expectedOf({ ...counted, baseline: 6, pakalQuantity: 4 })).toBe(6);
+    expect(expectedOf({ targetQuantity: null, baseline: 0, optional: true, pakalQuantity: 1 })).toBe(1);
+  });
+  it("regular items are unchanged", () => {
+    expect(expectedOf({ targetQuantity: 7, baseline: null })).toBe(7);
+    expect(expectedOf({ targetQuantity: 7, baseline: 5 })).toBe(5);
+    expect(expectedOf({ targetQuantity: null, baseline: null })).toBe(1);
   });
 });

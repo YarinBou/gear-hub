@@ -7,17 +7,19 @@ import {
   kitItemsSelect,
   kitReadiness,
   missingDescriptions,
-  parseExtraAmmo,
   parseReturnLines,
-  sumExtraAmmo,
   summarizeKits,
   type ChecklistLine,
 } from "@/lib/kit";
 import { activeItemDefs } from "@/lib/kit-service";
 import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
 
+/** A kit's פק"ל mark (name + badge color). */
+export type PakalRef = { id: string; name: string; color: number };
+
 export type KitTile = {
   kitNumber: number;
+  pakal: PakalRef | null;
   soldier: { id: string; name: string; platoon: PlatoonRef } | null;
   readiness: number;
   /** Incomplete checklist lines ("קסדה", "מחסניות (5/7)"). */
@@ -47,9 +49,10 @@ export async function listKits(): Promise<KitTile[]> {
   const slots = await getKitSlots();
   return Array.from({ length: slots }, (_, i) => {
     const k = byNumber.get(i + 1);
-    const lines = k ? checklistLines(k.items, { history, activeDefs }) : [];
+    const lines = k ? checklistLines(k.items, { history, activeDefs, pakal: k.pakal }) : [];
     return {
       kitNumber: i + 1,
+      pakal: k?.pakal ? { id: k.pakal.id, name: k.pakal.name, color: k.pakal.color } : null,
       soldier: k?.soldier ?? null,
       readiness: k ? kitReadiness(lines) : 0,
       missing: missingDescriptions(lines),
@@ -91,13 +94,12 @@ export async function getKit(kitNumber: number) {
     },
   });
   if (!kit) return null;
-  const { items, extraAmmo, returns, ...rest } = kit;
+  const { items, returns, ...rest } = kit;
   // Live deployment: the company's current checklist. Closed one: exactly what was recorded.
-  const lines: ChecklistLine[] = checklistLines(items, { history: !!deployment?.readOnly, activeDefs });
+  const lines: ChecklistLine[] = checklistLines(items, { history: !!deployment?.readOnly, activeDefs, pakal: kit.pakal });
   return {
     ...rest,
     lines,
-    extraAmmo: parseExtraAmmo(extraAmmo),
     returns: returns.map(({ lines, ...r }) => ({ ...r, lines: parseReturnLines(lines) })),
     personalWeapon: kit.personalWeapon ? flattenState(kit.personalWeapon) : null,
   };
@@ -203,17 +205,17 @@ export async function getFreeKitNumbers() {
 
 /**
  * Company-wide totals per checklist line over the issued kits of the viewed deployment
- * (optionally one platoon): signed for / in the kits / missing. Plus magazines and rounds from the
- * weapon cards, which aren't checklist lines.
+ * (optionally one platoon): signed for / in the kits / missing (magazines, rounds and drums are
+ * checklist lines too), plus what is in returned kits in stock.
  */
 export async function getKitSummary(platoonId?: string) {
   await connection();
   const { db, deployment } = await companyContext();
-  if (!deployment) return { kits: 0, signedKits: 0, stockKits: 0, lines: [], magazines: 0, rounds: 0, extraAmmo: [], weapons: 0 };
+  if (!deployment) return { kits: 0, signedKits: 0, stockKits: 0, lines: [], weapons: 0 };
   const [kits, stockKits, activeDefs] = await Promise.all([
     db.personalKit.findMany({
       where: { soldierId: { not: null }, ...(platoonId ? { soldier: { platoonId } } : {}) },
-      select: { signedAt: true, magazineCount: true, ammoCount: true, extraAmmo: true, personalWeaponId: true, ...kitItemsSelect },
+      select: { signedAt: true, personalWeaponId: true, ...kitItemsSelect },
     }),
     // Returned kits waiting in stock (they belong to no platoon): what is really in them.
     platoonId
@@ -227,14 +229,33 @@ export async function getKitSummary(platoonId?: string) {
     signedKits: kits.filter((k) => k.signedAt).length,
     stockKits: stockKits.length,
     lines: summarizeKits([
-      ...kits.map((k) => ({ signed: !!k.signedAt, lines: checklistLines(k.items, { history, activeDefs }) })),
-      ...stockKits.map((k) => ({ signed: false, inStock: true, lines: checklistLines(k.items, { history, activeDefs }) })),
+      ...kits.map((k) => ({ signed: !!k.signedAt, lines: checklistLines(k.items, { history, activeDefs, pakal: k.pakal }) })),
+      ...stockKits.map((k) => ({
+        signed: false,
+        inStock: true,
+        lines: checklistLines(k.items, { history, activeDefs, pakal: k.pakal }),
+      })),
     ]),
-    magazines: kits.reduce((a, k) => a + k.magazineCount, 0),
-    rounds: kits.reduce((a, k) => a + k.ammoCount, 0),
-    extraAmmo: sumExtraAmmo(kits.map((k) => parseExtraAmmo(k.extraAmmo))),
     weapons: kits.filter((k) => k.personalWeaponId).length,
   };
 }
 
 export type KitSummary = Awaited<ReturnType<typeof getKitSummary>>;
+
+/** The company's פק"לים with the items they require (for the kit page and /kits/items). */
+export async function getPakals() {
+  const { db } = await companyContext();
+  return db.pakal.findMany({
+    orderBy: [{ isActive: "desc" }, { name: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      color: true,
+      isActive: true,
+      items: { orderBy: { item: { sortOrder: "asc" } }, select: { itemId: true, quantity: true, item: { select: { label: true } } } },
+      _count: { select: { kits: true } },
+    },
+  });
+}
+
+export type PakalDetail = Awaited<ReturnType<typeof getPakals>>[number];

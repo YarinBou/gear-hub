@@ -9,18 +9,6 @@ import { cn, formatNumber } from "@/lib/utils";
 export function KitSummaryTable({ summary, compact = false }: { summary: KitSummary; compact?: boolean }) {
   const extra: KitSummaryLine[] = [
     { itemId: "_weapons", label: "נשק אישי מקושר", groupName: "", sortOrder: 0, signed: 0, have: summary.weapons, missing: 0, stock: 0 },
-    { itemId: "_magazines", label: "מחסניות (כרטיס נשק)", groupName: "", sortOrder: 0, signed: 0, have: summary.magazines, missing: 0, stock: 0 },
-    { itemId: "_rounds", label: "כדורים (כרטיס נשק)", groupName: "", sortOrder: 0, signed: 0, have: summary.rounds, missing: 0, stock: 0 },
-    ...summary.extraAmmo.map((a) => ({
-      itemId: `_extra_${a.label}`,
-      label: `${a.label} (כרטיס נשק)`,
-      groupName: "",
-      sortOrder: 0,
-      signed: 0,
-      have: a.quantity,
-      missing: 0,
-      stock: 0,
-    })),
   ].filter((r) => r.have > 0);
   // "במלאי": what is in returned kits waiting in stock — shown only when there are any.
   const showStock = summary.lines.some((l) => l.stock > 0);

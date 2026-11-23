@@ -10,6 +10,7 @@ import { getActivePlatoons } from "@/lib/queries/platoons";
 import { daysAgo, formatDate } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
 import { PlatoonBadge } from "@/components/platoon-badge";
+import { PakalBadge } from "@/components/pakal-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { updateSoldier } from "../actions";
@@ -90,7 +91,10 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
             <CardContent>
               {soldier.kit ? (
                 <Link href={`/kits/${soldier.kit.kitNumber}`} className="hover:bg-accent -mx-2 flex items-center justify-between rounded-md px-2 py-2">
-                  <span className="font-medium">ערכה {soldier.kit.kitNumber}</span>
+                  <span className="flex items-center gap-2 font-medium">
+                    ערכה {soldier.kit.kitNumber}
+                    <PakalBadge pakal={soldier.kit.pakal} />
+                  </span>
                   <span className="text-muted-foreground text-xs">
                     {soldier.kit.signedAt ? `הוחתם ${formatDate(soldier.kit.signedAt)}` : "טרם הוחתם"}
                   </span>

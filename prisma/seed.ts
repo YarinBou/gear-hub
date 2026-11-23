@@ -111,7 +111,7 @@ async function seedDemo(companyId: string) {
     });
     const kit = await prisma.personalKit.update({
       where: { deploymentId_kitNumber: { deploymentId, kitNumber: i + 1 } },
-      data: { soldierId: soldier.id, personalWeaponId: weapon.id, rifleType: "M16", magazineCount: 7, ammoCount: 210 },
+      data: { soldierId: soldier.id, personalWeaponId: weapon.id, rifleType: "M16" },
     });
     // A few gaps per kit, so the readiness grid has something to show.
     await prisma.kitItemStatus.createMany({

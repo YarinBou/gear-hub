@@ -14,7 +14,10 @@ import { PlatoonBadge } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AssignKitForm, WeaponForm } from "./kit-forms";
+import { AssignKitForm, KitPakalForm, WeaponForm } from "./kit-forms";
+import { PakalBadge } from "@/components/pakal-badge";
+import { isCompanyAdmin } from "@/lib/roles";
+import { getPakals } from "@/lib/queries/kits";
 import { KitChecklist } from "./kit-checklist";
 import { SignaturePad } from "./signature-pad";
 import { KitReturn } from "./kit-return";
@@ -23,7 +26,7 @@ export const metadata: Metadata = { title: "ערכה אישית" };
 
 
 export default async function KitPage({ params, searchParams }: PageProps<"/kits/[kitNumber]">) {
-  const { deployment } = await companyContext();
+  const { user, deployment } = await companyContext();
   if (!deployment) return <NoDeploymentCard what="ערכות אישיות והחתמות" />;
   const [{ kitNumber: raw }, sp] = await Promise.all([params, searchParams]);
   const kitNumber = Number(raw);
@@ -40,6 +43,8 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
     getKitNeighbours(kitNumber, platoon),
   ]);
   const assignable = allSoldiers.filter((s) => !withKit.has(s.id));
+  const isAdmin = isCompanyAdmin(user.role);
+  const pakals = isAdmin ? await getPakals() : [];
 
   const lines = kit?.lines ?? [];
   const readiness = kit ? kitReadiness(lines) : 0;
@@ -84,6 +89,7 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
           <div>
             <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold">
               ערכה {kitNumber}
+              <PakalBadge pakal={kit?.pakal} className="text-sm" />
               {issued ? (
                 kit?.signedAt ? (
                   <Badge variant="success">הוחתם</Badge>
@@ -145,13 +151,18 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
                   soldiers={assignable}
                   currentSoldierId={soldierId}
                 />
+                {isAdmin && !deployment.readOnly && (
+                  <div className="mt-4 border-t pt-4">
+                    <KitPakalForm key={kit?.pakal?.id ?? "none"} kitNumber={kitNumber} current={kit?.pakal?.id ?? null} pakals={pakals} />
+                  </div>
+                )}
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Crosshair className="size-4" /> נשק אישי ותחמושת
+                  <Crosshair className="size-4" /> נשק אישי
                 </CardTitle>
                 {!issued && <CardDescription>יש לשייך את הערכה ללוחם תחילה</CardDescription>}
               </CardHeader>
@@ -164,9 +175,6 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
                   current={{
                     rifleType: kit?.rifleType ?? null,
                     personalWeaponId: kit?.personalWeaponId ?? null,
-                    magazineCount: kit?.magazineCount ?? 0,
-                    ammoCount: kit?.ammoCount ?? 0,
-                    extraAmmo: kit?.extraAmmo ?? [],
                   }}
                 />
               </CardContent>
@@ -208,7 +216,7 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
                     soldierId={kit.soldier.id}
                     soldierName={kit.soldier.name}
                     hasWeapon={!!kit.personalWeaponId}
-                    lines={returnCheckLines(lines, kit)}
+                    lines={returnCheckLines(lines)}
                   />
                 </CardContent>
               </Card>

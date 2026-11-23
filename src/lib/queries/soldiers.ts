@@ -108,7 +108,11 @@ export async function getSoldier(id: string) {
     include: {
       platoon: platoonSelect,
       // What the soldier holds in the viewed deployment.
-      kits: { where: { deploymentId }, take: 1, select: { id: true, kitNumber: true, signedAt: true } },
+      kits: {
+        where: { deploymentId },
+        take: 1,
+        select: { id: true, kitNumber: true, signedAt: true, pakal: { select: { name: true, color: true } } },
+      },
       absences: { where: { deploymentId }, take: 1, select: { id: true } },
       assignments: {
         where: { deploymentId },

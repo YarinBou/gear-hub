@@ -17,14 +17,14 @@ async function kitId(kitNumber: number) {
   return (await prisma.personalKit.findFirstOrThrow({ where: { deploymentId: d.id, kitNumber } })).id;
 }
 
-/** Kit n issued to a new soldier with a helmet, a sleeping bag and 7 magazines on the weapon card, signed. */
+/** Kit n issued to a new soldier with a helmet, a sleeping bag, 7 magazines and 210 rounds (they start full), signed. */
 async function issuedKit(n: number, weaponId?: string) {
   await activeDeployment();
   const soldier = await makeSoldier({ name: "יוסי לוי" });
   expect(await assignKit(n, undefined, form({ soldierId: soldier.id }))).toMatchObject({ ok: true });
   for (const label of ["קסדה", "שק שינה"]) await setKitItem(n, await kitItemId(label), true);
   expect(
-    await updateWeapon(n, undefined, form({ rifleType: "M4", personalWeaponId: weaponId ?? "", magazineCount: 7, ammoCount: 210 })),
+    await updateWeapon(n, undefined, form({ rifleType: "M4", personalWeaponId: weaponId ?? "" })),
   ).toMatchObject({ ok: true });
   expect(await signKit(n, SIGNATURE)).toMatchObject({ ok: true });
   return { soldier, id: await kitId(n) };
@@ -35,12 +35,13 @@ describe("kit return (זיכוי ערכה)", () => {
     await loginAs("REGULAR");
     await issuedKit(3);
     const kit = (await getKit(3))!;
-    const check = returnCheckLines(kit.lines, kit);
+    const check = returnCheckLines(kit.lines);
+    // Magazines and rounds are checklist lines (group "תחמושת") — signed for and checked like the rest.
     expect(check.map((c) => [c.label, c.expected])).toEqual([
-      ["שק שינה", 1],
-      ["קסדה", 1],
       ["מחסניות", 7],
       ["כדורים", 210],
+      ["שק שינה", 1],
+      ["קסדה", 1],
     ]);
   });
 
@@ -50,8 +51,9 @@ describe("kit return (זיכוי ערכה)", () => {
     const { soldier, id } = await issuedKit(4, rifle.id);
     const helmet = await kitItemId("קסדה");
     const bag = await kitItemId("שק שינה");
+    const [mag, ammo] = [await kitItemId("מחסניות"), await kitItemId("כדורים")];
 
-    const r = await returnKit(4, { soldierId: soldier.id, returned: { [helmet]: 1, [bag]: 1, mag: 7, ammo: 210 }, gapNotes: {} });
+    const r = await returnKit(4, { soldierId: soldier.id, returned: { [helmet]: 1, [bag]: 1, [mag]: 7, [ammo]: 210 }, gapNotes: {} });
     expect(r).toMatchObject({ ok: true, gaps: 0, message: "הערכה זוכתה — הכל חזר" });
 
     const ret = await prisma.kitReturn.findFirstOrThrow({ where: { kitId: id } });
@@ -65,9 +67,6 @@ describe("kit return (זיכוי ערכה)", () => {
       signatureData: null,
       personalWeaponId: null,
       rifleType: null,
-      magazineCount: 0,
-      ammoCount: 0,
-      extraAmmo: [],
     });
     // The checklist keeps what came back (no baseline — nobody has signed for it now).
     expect(await kitLine(id, "קסדה")).toMatchObject({ present: true, baseline: null });
@@ -82,11 +81,12 @@ describe("kit return (זיכוי ערכה)", () => {
     const { soldier, id } = await issuedKit(6);
     const helmet = await kitItemId("קסדה");
     const bag = await kitItemId("שק שינה");
+    const [mag, ammo] = [await kitItemId("מחסניות"), await kitItemId("כדורים")];
 
     const r = await returnKit(6, {
       soldierId: soldier.id,
-      returned: { [helmet]: 1, [bag]: 0, mag: 5, ammo: 999 },
-      gapNotes: { [bag]: "  אובדן  ", mag: "נהרסו", [helmet]: "ignored — no gap" },
+      returned: { [helmet]: 1, [bag]: 0, [mag]: 5, [ammo]: 999 },
+      gapNotes: { [bag]: "  אובדן  ", [mag]: "נהרסו", [helmet]: "ignored — no gap" },
       note: "זיכוי בסוף תעסוקה",
     });
     expect(r).toMatchObject({ ok: true, gaps: 2 });
@@ -94,12 +94,14 @@ describe("kit return (זיכוי ערכה)", () => {
     const ret = await prisma.kitReturn.findFirstOrThrow({ where: { kitId: id } });
     expect(ret).toMatchObject({ gapCount: 2, note: "זיכוי בסוף תעסוקה" });
     expect(parseReturnLines(ret.lines)).toEqual([
-      { label: "שק שינה", expected: 1, returned: 0, note: "אובדן" },
-      { label: "קסדה", expected: 1, returned: 1 },
       { label: "מחסניות", expected: 7, returned: 5, note: "נהרסו" },
       // More than signed for is capped.
       { label: "כדורים", expected: 210, returned: 210 },
+      { label: "שק שינה", expected: 1, returned: 0, note: "אובדן" },
+      { label: "קסדה", expected: 1, returned: 1 },
     ]);
+    // The returned kit keeps the 5 magazines that came back.
+    expect(await kitLine(id, "מחסניות")).toMatchObject({ quantity: 5 });
     expect((await prisma.personalKit.findUniqueOrThrow({ where: { id } })).soldierId).toBeNull();
     expect((await getKit(6))!.returns).toHaveLength(1);
   });
@@ -109,7 +111,8 @@ describe("kit return (זיכוי ערכה)", () => {
     const { soldier, id } = await issuedKit(9);
     const helmet = await kitItemId("קסדה");
     const bag = await kitItemId("שק שינה");
-    await returnKit(9, { soldierId: soldier.id, returned: { [helmet]: 1, [bag]: 0, mag: 7, ammo: 210 }, gapNotes: {} });
+    const [mag, ammo] = [await kitItemId("מחסניות"), await kitItemId("כדורים")];
+    await returnKit(9, { soldierId: soldier.id, returned: { [helmet]: 1, [bag]: 0, [mag]: 7, [ammo]: 210 }, gapNotes: {} });
 
     expect(await kitLine(id, "קסדה")).toMatchObject({ present: true });
     expect(await kitLine(id, "שק שינה")).toMatchObject({ present: false });
@@ -148,7 +151,8 @@ describe("kit return (זיכוי ערכה)", () => {
     const { soldier } = await issuedKit(11, rifle.id);
     const helmet = await kitItemId("קסדה");
     const bag = await kitItemId("שק שינה");
-    await returnKit(11, { soldierId: soldier.id, returned: { [helmet]: 1, [bag]: 0, mag: 7, ammo: 210 }, gapNotes: { [bag]: "אובדן" } });
+    const [mag, ammo] = [await kitItemId("מחסניות"), await kitItemId("כדורים")];
+    await returnKit(11, { soldierId: soldier.id, returned: { [helmet]: 1, [bag]: 0, [mag]: 7, [ammo]: 210 }, gapNotes: { [bag]: "אובדן" } });
     await returnSoldierEquipment(soldier.id, [rifle.id]);
 
     const h = await getSoldierReturnHistory(soldier.id);

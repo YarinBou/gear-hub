@@ -14,6 +14,7 @@ import {
   setKitDefaultPresent,
   setKitCount,
   setKitItemActive,
+  setKitItemOptional,
   setKitItemStartPresent,
   updateKitItem,
   type KitItemFormState,
@@ -26,6 +27,7 @@ export type KitItemRow = {
   targetQuantity: number | null;
   systemKey: string | null;
   startPresent: boolean;
+  optional: boolean;
   isActive: boolean;
 };
 
@@ -92,6 +94,10 @@ export function AddKitItemForm({ groups, startPresent }: { groups: string[]; sta
             <input type="checkbox" name="startPresent" defaultChecked={startPresent} className="size-4" />
             מסומן כקיים בערכה חדשה
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="optional" className="size-4" />
+            אופציונלי — נבדק רק אצל מי שחתם עליו או בתיק פק&quot;ל שמחייב אותו (למשל תופים)
+          </label>
           <div className="flex gap-2">
             <Button type="submit" disabled={pending}>
               <Plus />
@@ -125,6 +131,11 @@ export function KitItemLine({ item, groups, first, last }: { item: KitItemRow; g
         <span className={cn("min-w-0 flex-1 font-medium", !item.isActive && "text-muted-foreground line-through")}>
           {item.label}
           {item.targetQuantity != null && <span className="text-muted-foreground ms-2 text-sm">× {item.targetQuantity}</span>}
+          {item.optional && (
+            <Badge variant="outline" className="ms-2">
+              אופציונלי
+            </Badge>
+          )}
           {item.systemKey === "WEAPON" && (
             <Badge variant="secondary" className="ms-2">
               מסומן אוטומטית בקישור נשק
@@ -156,7 +167,12 @@ export function KitItemLine({ item, groups, first, last }: { item: KitItemRow; g
         </Button>
       </div>
       {/* Keyed by the saved value, so "הכל קיים / הכל חסר" resets it. */}
-      {item.isActive && <StartToggle key={String(item.startPresent)} item={item} />}
+      {item.isActive && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <StartToggle key={String(item.startPresent)} item={item} />
+          {!item.systemKey && <OptionalToggle key={String(item.optional)} item={item} />}
+        </div>
+      )}
       {editing && (
         <form onSubmit={submitWith(action)} className="bg-muted/40 flex flex-col gap-3 rounded-lg border p-3" noValidate>
           <ItemFields idPrefix={`edit-${item.id}`} groups={groups} values={item} errors={state?.errors ?? {}} />
@@ -210,6 +226,31 @@ function StartToggle({ item }: { item: KitItemRow }) {
       </ToggleGroup>
       {message && <span className="text-muted-foreground text-xs">{message}</span>}
     </div>
+  );
+}
+
+/** אופציונלי: only for soldiers who signed for it, or kits whose פק"ל requires it. */
+function OptionalToggle({ item }: { item: KitItemRow }) {
+  const [value, setValue] = useState(item.optional);
+  const [pending, start] = useTransition();
+  return (
+    <label className="flex cursor-pointer items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        className="size-4"
+        checked={value}
+        disabled={pending}
+        onChange={(e) => {
+          const optional = e.target.checked;
+          setValue(optional);
+          start(async () => {
+            const r = await setKitItemOptional(item.id, optional);
+            if (!r.ok) setValue(!optional);
+          });
+        }}
+      />
+      אופציונלי
+    </label>
   );
 }
 

@@ -35,6 +35,8 @@ export const SCOPED_MODELS = new Set([
   "PersonalKit",
   "KitInspection",
   "KitReturn",
+  "Pakal",
+  "PakalItem",
   "KitItemDef",
   "KitItemStatus",
   "StorageItem",

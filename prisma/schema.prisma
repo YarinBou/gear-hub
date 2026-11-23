@@ -81,6 +81,8 @@ model Company {
 
   users                User[]
   kitItemDefs          KitItemDef[]
+  pakals               Pakal[]
+  pakalItems           PakalItem[]
   kitItemStatuses      KitItemStatus[]
   deployments          Deployment[]
   equipmentAssignments EquipmentAssignment[]
@@ -470,11 +472,12 @@ model PersonalKit {
   personalWeapon   EquipmentItem? @relation(fields: [personalWeaponId], references: [id], onDelete: SetNull)
   /// e.g. M16 / M4 (free text, kept even without a linked serial item)
   rifleType        String?
-  magazineCount    Int            @default(0)
-  ammoCount        Int            @default(0)
-  /// Extra ammunition signed on the weapon card, e.g. Negev / MAG belt boxes:
-  /// [{ "label": "תופי נגב", "quantity": 2 }]. Read through parseExtraAmmo().
-  extraAmmo        Json           @default("[]")
+  // Magazines, rounds and extra ammo (drums…) are checklist lines (group "תחמושת"), not weapon-card fields.
+
+  /// תיק פק"ל: a kit marked for a role (e.g. נגביסט). The role's items are required in it.
+  /// Belongs to the physical bag: kept on return / reissue and carried into the next deployment.
+  pakalId String?
+  pakal   Pakal?  @relation(fields: [pakalId], references: [id], onDelete: SetNull)
 
   // The checklist (רשימת ציוד) lives in KitItemStatus — one row per checklist item.
   items KitItemStatus[]
@@ -562,14 +565,52 @@ model KitItemDef {
   systemKey      String?
   /// How this line starts on a new kit, or an unissued one: present (full quantity) or missing.
   startPresent   Boolean  @default(false)
+  /// אופציונלי: part of a kit only when the soldier signed for it, or the kit's פק"ל requires it
+  /// (e.g. drums — not everyone has them). Never missing otherwise.
+  optional       Boolean  @default(false)
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  statuses KitItemStatus[]
+  statuses   KitItemStatus[]
+  pakalItems PakalItem[]
 
   @@unique([companyId, systemKey])
   @@index([companyId, isActive, sortOrder])
+}
+
+/// A פק"ל (role kit type), e.g. נגביסט / מא"ג / חובש. Admin-managed on /kits/items. A kit marked
+/// with it must hold its items (PakalItem), even ones that are optional for everyone else.
+model Pakal {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  name      String
+  /// Index into the badge palette (src/lib/platoons.ts), fixed at creation.
+  color     Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items PakalItem[]
+  kits  PersonalKit[]
+
+  @@unique([companyId, name])
+}
+
+/// A checklist item a פק"ל requires, and how many (e.g. נגביסט: תוף נגב × 4, וסט נגב × 1).
+model PakalItem {
+  id        String     @id @default(cuid())
+  companyId String
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  pakalId   String
+  pakal     Pakal      @relation(fields: [pakalId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      KitItemDef @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  quantity  Int        @default(1)
+
+  @@unique([pakalId, itemId])
+  @@index([itemId])
 }
 
 /// One checklist line of one kit. Kits belong to a deployment, so this is per deployment too.

@@ -2,7 +2,6 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import type { EquipmentStatus } from "@/generated/prisma/enums";
 import { createKitStatuses } from "@/lib/kit-service";
-import { parseExtraAmmo } from "@/lib/kit";
 
 // Starting and closing deployments (הפעלות). Runs with a client scoped to the company but NOT to a
 // deployment (scopedDb(companyId)), because it reads one deployment and writes another.
@@ -109,28 +108,36 @@ export async function startDeployment(
           soldierId: true,
           personalWeaponId: true,
           rifleType: true,
-          magazineCount: true,
-          ammoCount: true,
-          extraAmmo: true,
           notes: true,
           items: { select: { itemId: true, present: true, quantity: true, baseline: true } },
         },
       })
     : [];
   const kitByNumber = new Map(prevKits.map((k) => [k.kitNumber, k]));
+  // פק"ל marks belong to the physical bag: they carry over in both modes.
+  const pakalByNumber = new Map(
+    previous
+      ? (
+          await tx.personalKit.findMany({
+            where: { deploymentId: previous.id, pakalId: { not: null } },
+            select: { kitNumber: true, pakalId: true },
+          })
+        ).map((k) => [k.kitNumber, k.pakalId])
+      : [],
+  );
   // Kits that carry over to the same soldier keep their checklist (by kit number).
   const carried = new Map<number, (typeof prevKits)[number]>();
   const newKits = await tx.personalKit.createManyAndReturn({
     data: Array.from({ length: kitCount }, (_, i) => {
       const kitNumber = i + 1;
-      const base = { companyId, deploymentId: deployment.id, kitNumber };
+      const base = { companyId, deploymentId: deployment.id, kitNumber, pakalId: pakalByNumber.get(kitNumber) ?? null };
       const prev = kitByNumber.get(kitNumber);
       if (!prev) return base;
       const soldierId = keepSoldier(prev.soldierId);
       if (!soldierId) return base; // the holder left — the kit starts blank
       carried.set(kitNumber, prev);
-      const { kitNumber: _n, soldierId: _s, items: _i, extraAmmo, ...rest } = prev;
-      return { ...base, ...rest, extraAmmo: parseExtraAmmo(extraAmmo), soldierId };
+      const { kitNumber: _n, soldierId: _s, items: _i, ...rest } = prev;
+      return { ...base, ...rest, soldierId };
     }),
     select: { id: true, kitNumber: true },
   });

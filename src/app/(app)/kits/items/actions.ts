@@ -6,6 +6,7 @@ import { adminContext } from "@/lib/context";
 import { scopedDb } from "@/lib/db";
 import { applyStartToUnissuedKits, createKitStatuses } from "@/lib/kit-service";
 import { MAX_KIT_COUNT } from "@/lib/constants";
+import { nextColor } from "@/lib/platoons";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
 
 // Admin: the company's personal-kit checklist (תכולת ערכה). Company-level — changes apply to the
@@ -52,6 +53,7 @@ export async function createKitItem(_prev: KitItemFormState, fd: FormData): Prom
   const { label, groupName, targetQuantity } = parsed.data;
 
   const startPresent = fd.get("startPresent") === "on";
+  const optional = fd.get("optional") === "on";
 
   const last = await db.kitItemDef.findFirst({ orderBy: { sortOrder: "desc" }, select: { sortOrder: true } });
   await scopedDb(user.companyId).$transaction(async (tx) => {
@@ -62,6 +64,7 @@ export async function createKitItem(_prev: KitItemFormState, fd: FormData): Prom
         groupName,
         targetQuantity: targetQuantity ?? null,
         startPresent,
+        optional,
         sortOrder: (last?.sortOrder ?? 0) + 10,
       },
     });
@@ -221,4 +224,80 @@ export async function setKitCount(countRaw: number): Promise<SimpleResult> {
   }, { timeout: 30_000 });
   refresh();
   return { ok: true, message: `לפלוגה ${count} ערכות` };
+}
+
+/**
+ * אופציונלי: the item is part of a kit only when the soldier signed for it or the kit's פק"ל
+ * requires it (e.g. drums). Nothing is rewritten — only what counts as missing changes.
+ */
+export async function setKitItemOptional(id: string, optional: boolean): Promise<SimpleResult> {
+  const { db } = await adminContext();
+  if (typeof optional !== "boolean") return { ok: false };
+  const { count } = await db.kitItemDef.updateMany({ where: { id, systemKey: null }, data: { optional } });
+  if (!count) return { ok: false, message: "לא ניתן לשנות פריט זה" };
+  refresh();
+  return { ok: true };
+}
+
+// ───────────── פק"לים (role kits) ─────────────
+
+const PakalName = z.string().trim().min(1, "יש להזין שם").max(30, "השם ארוך מדי");
+
+export async function createPakal(_prev: KitItemFormState, fd: FormData): Promise<KitItemFormState> {
+  const { user, db } = await adminContext();
+  const name = PakalName.safeParse(fd.get("name") ?? "");
+  if (!name.success) return { errors: { name: name.error.issues[0].message } };
+  if (await db.pakal.findFirst({ where: { name: name.data }, select: { id: true } })) {
+    return { errors: { name: `כבר קיים פק"ל בשם "${name.data}"` } };
+  }
+  const used = (await db.pakal.findMany({ select: { color: true } })).map((p) => p.color);
+  await db.pakal.create({ data: { companyId: user.companyId, name: name.data, color: nextColor(used) } });
+  refresh();
+  return { ok: true, message: `נוסף פק"ל "${name.data}" — עכשיו בחרו את הפריטים שהוא מחייב`, at: Date.now() };
+}
+
+export async function renamePakal(id: string, raw: string): Promise<SimpleResult> {
+  const { db } = await adminContext();
+  const name = PakalName.safeParse(raw);
+  if (!name.success) return { ok: false, message: name.error.issues[0].message };
+  if (await db.pakal.findFirst({ where: { name: name.data, id: { not: id } }, select: { id: true } })) {
+    return { ok: false, message: `כבר קיים פק"ל בשם "${name.data}"` };
+  }
+  const { count } = await db.pakal.updateMany({ where: { id }, data: { name: name.data } });
+  if (!count) return { ok: false, message: 'הפק"ל לא נמצא' };
+  refresh();
+  return { ok: true };
+}
+
+/** Switched off, a פק"ל can't be given to more kits; kits already marked keep it (and its requirements). */
+export async function setPakalActive(id: string, active: boolean): Promise<SimpleResult> {
+  const { db } = await adminContext();
+  if (typeof active !== "boolean") return { ok: false };
+  await db.pakal.updateMany({ where: { id }, data: { isActive: active } });
+  refresh();
+  return { ok: true };
+}
+
+/** What a פק"ל requires: set an item's quantity (0 = not required). */
+export async function setPakalItem(pakalId: string, itemId: string, quantity: number): Promise<SimpleResult> {
+  const { user, db } = await adminContext();
+  if (!Number.isInteger(quantity) || quantity < 0 || quantity > 1000) return { ok: false, message: "כמות לא תקינה" };
+  const [pakal, item] = await Promise.all([
+    db.pakal.findUnique({ where: { id: pakalId }, select: { id: true } }),
+    db.kitItemDef.findFirst({ where: { id: itemId, isActive: true, systemKey: null }, select: { id: true, targetQuantity: true } }),
+  ]);
+  if (!pakal || !item) return { ok: false, message: "בחירה לא תקינה" };
+  if (quantity === 0) {
+    await db.pakalItem.deleteMany({ where: { pakalId, itemId } });
+  } else {
+    // A present / missing item is just required (1).
+    const q = item.targetQuantity == null ? 1 : quantity;
+    await db.pakalItem.upsert({
+      where: { pakalId_itemId: { pakalId, itemId } },
+      update: { quantity: q },
+      create: { companyId: user.companyId, pakalId, itemId, quantity: q },
+    });
+  }
+  refresh();
+  return { ok: true };
 }

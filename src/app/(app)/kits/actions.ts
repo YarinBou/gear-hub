@@ -8,12 +8,9 @@ import { AssignmentError, applyAssignment, ensureAssignment, NOT_IN_DEPLOYMENT_M
 import {
   checklistLines,
   kitItemsSelect,
-  MAX_EXTRA_AMMO,
   missingDescriptions,
-  parseExtraAmmo,
   returnCheckLines,
   WEAPON_ITEM,
-  type ExtraAmmo,
   type ReturnLine,
 } from "@/lib/kit";
 import { activeItemDefs, captureBaseline, createKitStatuses, fillKit } from "@/lib/kit-service";
@@ -124,39 +121,7 @@ export async function assignKit(kitNumber: number, _prev: KitFormState, fd: Form
 const WeaponSchema = z.object({
   rifleType: z.preprocess(emptyToUndef, z.string().trim().max(30, "סוג הנשק ארוך מדי").optional()),
   personalWeaponId: z.preprocess(emptyToUndef, z.string().optional()),
-  magazineCount: z.preprocess(
-    (v) => (v === "" ? 0 : v),
-    z.coerce.number({ error: "יש להזין מספר" }).int("מספר שלם").min(0, "לא שלילי").max(20, "לכל היותר 20"),
-  ),
-  ammoCount: z.preprocess(
-    (v) => (v === "" ? 0 : v),
-    z.coerce.number({ error: "יש להזין מספר" }).int("מספר שלם").min(0, "לא שלילי").max(2000, "לכל היותר 2,000"),
-  ),
 });
-
-/**
- * Extra-ammo lines from the form (extraLabel[] / extraQty[] pairs). Rows left completely empty are
- * ignored; a label needs a quantity and the other way round. The same label twice is merged.
- */
-function readExtraAmmo(fd: FormData): { lines: ExtraAmmo[] } | { error: string } {
-  const labels = fd.getAll("extraLabel").map((v) => String(v).trim());
-  const qtys = fd.getAll("extraQty").map((v) => String(v).trim());
-  const merged = new Map<string, number>();
-  for (let i = 0; i < Math.max(labels.length, qtys.length); i++) {
-    const label = labels[i] ?? "";
-    const raw = qtys[i] ?? "";
-    if (!label && !raw) continue;
-    if (!label) return { error: "יש להזין סוג לכל שורת תחמושת נוספת" };
-    if (label.length > 30) return { error: "סוג התחמושת ארוך מדי" };
-    const quantity = Number(raw);
-    if (!raw || !Number.isInteger(quantity) || quantity < 1 || quantity > 200) {
-      return { error: `כמות ל"${label}": מספר שלם בין 1 ל-200` };
-    }
-    merged.set(label, (merged.get(label) ?? 0) + quantity);
-  }
-  if (merged.size > MAX_EXTRA_AMMO) return { error: `לכל היותר ${MAX_EXTRA_AMMO} שורות תחמושת נוספת` };
-  return { lines: [...merged].map(([label, quantity]) => ({ label, quantity })) };
-}
 
 export async function updateWeapon(kitNumber: number, _prev: KitFormState, fd: FormData): Promise<KitFormState> {
   const w = await writableContext();
@@ -167,13 +132,9 @@ export async function updateWeapon(kitNumber: number, _prev: KitFormState, fd: F
   const parsed = WeaponSchema.safeParse({
     rifleType: fd.get("rifleType") ?? "",
     personalWeaponId: fd.get("personalWeaponId") ?? "",
-    magazineCount: fd.get("magazineCount") ?? "",
-    ammoCount: fd.get("ammoCount") ?? "",
   });
   if (!parsed.success) return { errors: toFieldErrors(parsed.error) };
-  const { rifleType, personalWeaponId, magazineCount, ammoCount } = parsed.data;
-  const extra = readExtraAmmo(fd);
-  if ("error" in extra) return { errors: { extraAmmo: extra.error } };
+  const { rifleType, personalWeaponId } = parsed.data;
 
   try {
     await db.$transaction(async (tx) => {
@@ -205,9 +166,6 @@ export async function updateWeapon(kitNumber: number, _prev: KitFormState, fd: F
         data: {
           personalWeaponId: personalWeaponId ?? null,
           rifleType: rifleType ?? typeFromItem ?? null,
-          magazineCount,
-          ammoCount,
-          extraAmmo: extra.lines,
         },
       });
       // Linking a rifle means the personal-weapon line of the checklist is fulfilled.
@@ -297,7 +255,7 @@ export async function completeInspection(kitNumber: number, note: string): Promi
   });
   if (!kit) return { ok: false, message: "הערכה לא נמצאה" };
   if (!kit.soldierId) return { ok: false, message: "לא ניתן לבצע מסדר לערכה שלא הונפקה" };
-  const lines = checklistLines(kit.items, { history: false, activeDefs: await activeItemDefs(db) });
+  const lines = checklistLines(kit.items, { history: false, activeDefs: await activeItemDefs(db), pakal: kit.pakal });
   const missing = missingDescriptions(lines);
   const cleanNote = note.trim().slice(0, 300) || null;
 
@@ -395,21 +353,14 @@ export async function returnKit(kitNumber: number, input: ReturnKitInput): Promi
         id: true,
         soldierId: true,
         soldier: { select: { name: true } },
-        magazineCount: true,
-        ammoCount: true,
-        extraAmmo: true,
         ...kitItemsSelect,
       },
     });
     if (!kit.soldierId || !kit.soldier) return { error: "הערכה אינה מונפקת ללוחם" };
     if (kit.soldierId !== input.soldierId) return { error: "הערכה הועברה ללוחם אחר בינתיים — יש לרענן את הדף" };
 
-    const lines = checklistLines(kit.items, { history: false, activeDefs: await activeItemDefs(tx) });
-    const check = returnCheckLines(lines, {
-      magazineCount: kit.magazineCount,
-      ammoCount: kit.ammoCount,
-      extraAmmo: parseExtraAmmo(kit.extraAmmo),
-    });
+    const lines = checklistLines(kit.items, { history: false, activeDefs: await activeItemDefs(tx), pakal: kit.pakal });
+    const check = returnCheckLines(lines);
     const record: ReturnLine[] = check.map((c) => {
       const raw = Number(returned[c.key]);
       const got = Number.isInteger(raw) ? Math.min(Math.max(raw, 0), c.expected) : 0;
@@ -442,9 +393,6 @@ export async function returnKit(kitNumber: number, input: ReturnKitInput): Promi
         signatureData: null,
         personalWeaponId: null,
         rifleType: null,
-        magazineCount: 0,
-        ammoCount: 0,
-        extraAmmo: [],
       },
     });
     const back = new Map(check.map((c, i) => [c.key, record[i].returned]));
@@ -479,4 +427,26 @@ export async function returnKit(kitNumber: number, input: ReturnKitInput): Promi
           ? "הערכה זוכתה — פער אחד נרשם"
           : `הערכה זוכתה — ${result.gaps} פערים נרשמו`,
   };
+}
+
+// ───────────── תיק פק"ל ─────────────
+
+/**
+ * Mark a kit as a פק"ל kit (or a regular one). Admin only. The mark belongs to the physical bag:
+ * it stays through returns and reissues and carries into the next deployment.
+ */
+export async function setKitPakal(kitNumber: number, pakalId: string | null): Promise<KitResult> {
+  const w = await writableContext({ admin: true }); // admins only
+  if (!w.ok) return { ok: false, message: w.message };
+  const { user, db, deployment } = w;
+  if (pakalId !== null && typeof pakalId !== "string") return { ok: false, message: "בחירה לא תקינה" };
+  if (pakalId && !(await db.pakal.findFirst({ where: { id: pakalId, isActive: true }, select: { id: true } }))) {
+    return { ok: false, message: 'הפק"ל לא נמצא' };
+  }
+  await db.$transaction(async (tx) => {
+    const kit = await ensureKit(tx, { companyId: user.companyId, deploymentId: deployment.id }, kitNumber);
+    await tx.personalKit.update({ where: { id: kit.id }, data: { pakalId } });
+  });
+  refresh();
+  return { ok: true, message: pakalId ? 'הערכה סומנה כתיק פק"ל' : 'סימון הפק"ל הוסר' };
 }

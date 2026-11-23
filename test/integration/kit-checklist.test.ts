@@ -37,16 +37,16 @@ describe("managing the checklist", () => {
     const kit = await makeKit({ kitNumber: 1 });
     await setKitDefaultPresent(true);
 
-    const res = await createKitItem(undefined, form({ label: "מחסניות", groupName: "נשק אישי", targetQuantity: 7, startPresent: "on" }));
+    const res = await createKitItem(undefined, form({ label: "רימונים", groupName: "נשק אישי", targetQuantity: 7, startPresent: "on" }));
     expect(res).toMatchObject({ ok: true });
-    expect(await kitLine(kit.id, "מחסניות")).toMatchObject({ quantity: 7 });
+    expect(await kitLine(kit.id, "רימונים")).toMatchObject({ quantity: 7 });
     await createKitItem(undefined, form({ label: "כפפות", groupName: "נשק אישי" }));
     expect(await kitLine(kit.id, "כפפות")).toMatchObject({ present: false });
 
     // A new item lands at the end of its group.
     const detail = await getKit(1);
     const weaponGroup = detail!.lines.filter((l) => l.groupName === "נשק אישי").map((l) => l.label);
-    expect(weaponGroup).toEqual(["נשק אישי", "מחסניות", "כפפות"]);
+    expect(weaponGroup).toEqual(["נשק אישי", "רימונים", "כפפות"]);
     expect(d.status).toBe("ACTIVE");
   });
 
@@ -54,15 +54,15 @@ describe("managing the checklist", () => {
     await loginAs("ADMIN");
     await activeDeployment();
     const soldier = await makeSoldier();
-    await createKitItem(undefined, form({ label: "מחסניות", groupName: "נשק אישי", targetQuantity: 7 }));
+    await createKitItem(undefined, form({ label: "רימונים", groupName: "נשק אישי", targetQuantity: 7 }));
     await assignKit(2, undefined, form({ soldierId: soldier.id }));
     await setAllKitItems(2);
     expect((await getKit(2))!.lines.every((l) => (l.targetQuantity ? l.quantity === l.targetQuantity : l.present))).toBe(true);
 
-    await setKitItemQuantity(2, await kitItemId("מחסניות"), 5);
+    await setKitItemQuantity(2, await kitItemId("רימונים"), 5);
     expect(await completeInspection(2, "")).toMatchObject({ ok: true, message: "מסדר נרשם — פריט אחד חסר" });
     const insp = await prisma.kitInspection.findFirstOrThrow({ orderBy: { createdAt: "desc" } });
-    expect(insp.missingItems).toEqual(["מחסניות (5/7)"]);
+    expect(insp.missingItems).toEqual(["רימונים (5/7)"]);
   });
 
   it("switching an item to counted (and back) converts the active kits", async () => {
@@ -116,12 +116,10 @@ describe("history and deployments", () => {
     await assignKit(4, undefined, form({ soldierId: soldier.id }));
     await setAllKitItems(4);
 
-    await prisma.personalKit.updateMany({ where: { kitNumber: 4 }, data: { extraAmmo: [{ label: 'תופי מא"ג', quantity: 2 }] } });
 
     const { deployment: copied } = await start("ממשיכה", "copy", admin.id);
     const k4 = await prisma.personalKit.findUniqueOrThrow({ where: { deploymentId_kitNumber: { deploymentId: copied.id, kitNumber: 4 } } });
     expect(await kitLine(k4.id, "קסדה")).toMatchObject({ present: true });
-    expect(k4.extraAmmo).toEqual([{ label: 'תופי מא"ג', quantity: 2 }]);
 
     await setKitDefaultPresent(true);
     const { deployment: empty } = await start("נקייה", "empty", admin.id);
@@ -195,10 +193,10 @@ describe("start state (ערכה חדשה מתחילה כ…)", () => {
 
   it("counted items start at the full quantity or zero", async () => {
     const admin = await loginAs("ADMIN");
-    await createKitItem(undefined, form({ label: "מחסניות", groupName: "נשק אישי", targetQuantity: 7 }));
+    await createKitItem(undefined, form({ label: "רימונים", groupName: "נשק אישי", targetQuantity: 7 }));
     const { kit } = await freshDeployment(admin.id);
-    expect(await kitLine((await kit(1)).id, "מחסניות")).toMatchObject({ quantity: 0 });
-    await setKitItemStartPresent(await kitItemId("מחסניות"), true);
-    expect(await kitLine((await kit(1)).id, "מחסניות")).toMatchObject({ quantity: 7 });
+    expect(await kitLine((await kit(1)).id, "רימונים")).toMatchObject({ quantity: 0 });
+    await setKitItemStartPresent(await kitItemId("רימונים"), true);
+    expect(await kitLine((await kit(1)).id, "רימונים")).toMatchObject({ quantity: 7 });
   });
 });
