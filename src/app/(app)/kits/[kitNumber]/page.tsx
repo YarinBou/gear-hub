@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, ChevronRight, ClipboardList, Crosshair, History, PenLine, Printer, UserRound } from "lucide-react";
+import { ChevronLeft, ChevronRight, ClipboardList, Crosshair, History, PenLine, Printer, Undo2, UserRound } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { NoDeploymentCard, ReadOnlyWhenClosed } from "@/components/deployment-gate";
 import { getPlatoons } from "@/lib/queries/platoons";
-import { kitReadiness } from "@/lib/kit";
+import { describeGap, kitReadiness, returnCheckLines, returnGaps } from "@/lib/kit";
 import { getKit, getKitNeighbours, getSoldiersWithKit, getWeaponOptions, getKitSlots } from "@/lib/queries/kits";
 import { getSoldierOptions } from "@/lib/queries/soldiers";
 import { formatDateTime, formatDaysAgo } from "@/lib/utils";
@@ -17,6 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { AssignKitForm, WeaponForm } from "./kit-forms";
 import { KitChecklist } from "./kit-checklist";
 import { SignaturePad } from "./signature-pad";
+import { KitReturn } from "./kit-return";
 
 export const metadata: Metadata = { title: "ערכה אישית" };
 
@@ -189,6 +190,76 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
                         : null
                     }
                   />
+                </CardContent>
+              </Card>
+            )}
+
+            {issued && kit?.soldier && !deployment.readOnly && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Undo2 className="size-4" /> זיכוי ערכה
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <KitReturn
+                    key={kit.soldier.id}
+                    kitNumber={kitNumber}
+                    soldierId={kit.soldier.id}
+                    soldierName={kit.soldier.name}
+                    hasWeapon={!!kit.personalWeaponId}
+                    lines={returnCheckLines(lines, kit)}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {!!kit?.returns.length && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Undo2 className="size-4" /> היסטוריית זיכויים
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="divide-y text-sm">
+                    {kit.returns.map((r) => {
+                      const gaps = returnGaps(r.lines);
+                      return (
+                        <li key={r.id} className="flex flex-col gap-0.5 py-2">
+                          <p className="text-muted-foreground text-xs">
+                            {formatDateTime(r.createdAt)}
+                            {r.performedBy && ` · ${r.performedBy.name}`}
+                          </p>
+                          <p className="font-medium">
+                            {r.soldierId ? (
+                              <Link href={`/roster/${r.soldierId}`} className="hover:underline">
+                                {r.soldierName}
+                              </Link>
+                            ) : (
+                              r.soldierName
+                            )}
+                            {gaps.length === 0 ? (
+                              <span className="text-success"> · הכל חזר</span>
+                            ) : (
+                              <span className="text-danger"> · {gaps.length === 1 ? "פער אחד" : `${gaps.length} פערים`}</span>
+                            )}
+                          </p>
+                          {gaps.length > 0 && (
+                            <ul className="text-sm">
+                              {gaps.map((g, i) => (
+                                <li key={i}>
+                                  <span className="text-danger">{describeGap(g)}</span>
+                                  {g.note && <span className="text-muted-foreground"> — {g.note}</span>}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          {r.note && <p className="text-muted-foreground">&quot;{r.note}&quot;</p>}
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </CardContent>
               </Card>
             )}

@@ -92,6 +92,7 @@ model Company {
   ammoLogs             AmmoLog[]
   personalKits         PersonalKit[]
   kitInspections       KitInspection[]
+  kitReturns           KitReturn[]
   storageItems         StorageItem[]
   platoons             Platoon[]
   deploymentAbsences   DeploymentAbsence[]
@@ -149,6 +150,7 @@ model User {
   equipmentLogs      EquipmentLog[]
   ammoLogs           AmmoLog[]
   kitInspections     KitInspection[]
+  kitReturns         KitReturn[]
   signedKits         PersonalKit[]   @relation("KitSignedBy")
   deploymentsCreated Deployment[]    @relation("DeploymentCreatedBy")
 
@@ -193,6 +195,8 @@ model Soldier {
   kits        PersonalKit[]
   /// Deployments this soldier is not part of.
   absences    DeploymentAbsence[]
+  /// Kits this soldier returned (זיכוי), with what came back.
+  kitReturns  KitReturn[]
   /// Ammo held personally by this soldier (AmmoStock rows whose "location" is the soldier).
   ammoStocks  AmmoStock[]
   logsFrom    EquipmentLog[]        @relation("LogFromSoldier")
@@ -487,6 +491,7 @@ model PersonalKit {
   updatedAt       DateTime  @updatedAt
 
   inspections KitInspection[]
+  returns     KitReturn[]
 
   @@unique([deploymentId, kitNumber])
   @@unique([deploymentId, soldierId])
@@ -509,6 +514,34 @@ model KitInspection {
   createdAt     DateTime    @default(now())
 
   @@index([kitId, createdAt])
+  @@index([companyId])
+}
+
+/// A kit return (זיכוי ערכה): the soldier hands the kit back. What they signed for ("לפני") is checked
+/// against what came back ("אחרי"); gaps are recorded with a free-text note (e.g. אובדן / נהרס) but
+/// never block the return. Afterwards the kit form is reset: no soldier, no signature, no weapon
+/// link (the weapon itself is returned separately, on the צל"ם side), checklist back to its start.
+model KitReturn {
+  id            String      @id @default(cuid())
+  companyId     String
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  kitId         String
+  kit           PersonalKit @relation(fields: [kitId], references: [id], onDelete: Cascade)
+  soldierId     String?
+  soldier       Soldier?    @relation(fields: [soldierId], references: [id], onDelete: SetNull)
+  /// The soldier's name at the time (kept if the soldier record changes).
+  soldierName   String
+  /// Snapshot of the check, line by line: [{ "label", "expected", "returned", "note"? }]. Read through parseReturnLines().
+  lines         Json        @default("[]")
+  /// How many lines came back short.
+  gapCount      Int         @default(0)
+  note          String?
+  performedById String?
+  performedBy   User?       @relation(fields: [performedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime    @default(now())
+
+  @@index([kitId, createdAt])
+  @@index([soldierId])
   @@index([companyId])
 }
 

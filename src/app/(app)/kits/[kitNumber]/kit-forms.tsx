@@ -51,13 +51,23 @@ export function AssignKitForm({
   return (
     <form onSubmit={submitWith(action)} className="flex flex-col gap-3" noValidate>
       <Feedback state={state} />
-      <Field id="soldierId" label="לוחם" hint='מוצגים רק לוחמים שאין להם ערכה. החלפת לוחם מבטלת את ההחתמה הקיימת.'>
+      <Field
+        id="soldierId"
+        label="לוחם"
+        hint={
+          currentSoldierId
+            ? "מוצגים רק לוחמים שאין להם ערכה. החלפת לוחם מבטלת את ההחתמה הקיימת. להחזרת הערכה למלאי — זיכוי ערכה."
+            : "מוצגים רק לוחמים שאין להם ערכה."
+        }
+      >
         <SoldierSelect
           id="soldierId"
           name="soldierId"
           options={soldiers}
           defaultValue={currentSoldierId ?? ""}
           emptyLabel="ללא — הערכה במלאי"
+          // With a holder, the kit goes back to stock through "זיכוי ערכה" (it checks what came back).
+          allowEmpty={!currentSoldierId}
         />
       </Field>
       <Button type="submit" variant="outline" className="sm:w-fit" disabled={pending}>

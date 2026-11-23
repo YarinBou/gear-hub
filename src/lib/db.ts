@@ -34,6 +34,7 @@ export const SCOPED_MODELS = new Set([
   "AmmoLog",
   "PersonalKit",
   "KitInspection",
+  "KitReturn",
   "KitItemDef",
   "KitItemStatus",
   "StorageItem",

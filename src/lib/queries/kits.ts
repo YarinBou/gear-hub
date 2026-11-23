@@ -8,6 +8,7 @@ import {
   kitReadiness,
   missingDescriptions,
   parseExtraAmmo,
+  parseReturnLines,
   sumExtraAmmo,
   summarizeKits,
   type ChecklistLine,
@@ -82,16 +83,22 @@ export async function getKit(kitNumber: number) {
         take: 10,
         include: { performedBy: { select: { name: true } } },
       },
+      returns: {
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        include: { performedBy: { select: { name: true } } },
+      },
     },
   });
   if (!kit) return null;
-  const { items, extraAmmo, ...rest } = kit;
+  const { items, extraAmmo, returns, ...rest } = kit;
   // Live deployment: the company's current checklist. Closed one: exactly what was recorded.
   const lines: ChecklistLine[] = checklistLines(items, { history: !!deployment?.readOnly, activeDefs });
   return {
     ...rest,
     lines,
     extraAmmo: parseExtraAmmo(extraAmmo),
+    returns: returns.map(({ lines, ...r }) => ({ ...r, lines: parseReturnLines(lines) })),
     personalWeapon: kit.personalWeapon ? flattenState(kit.personalWeapon) : null,
   };
 }

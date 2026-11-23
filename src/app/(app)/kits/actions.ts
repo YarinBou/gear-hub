@@ -5,7 +5,18 @@ import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { writableContext } from "@/lib/context";
 import { AssignmentError, applyAssignment, ensureAssignment, NOT_IN_DEPLOYMENT_MESSAGE } from "@/lib/equipment-service";
-import { checklistLines, kitItemsSelect, MAX_EXTRA_AMMO, missingDescriptions, WEAPON_ITEM, type ExtraAmmo } from "@/lib/kit";
+import {
+  checklistLines,
+  defaultStatus,
+  kitItemsSelect,
+  MAX_EXTRA_AMMO,
+  missingDescriptions,
+  parseExtraAmmo,
+  returnCheckLines,
+  WEAPON_ITEM,
+  type ExtraAmmo,
+  type ReturnLine,
+} from "@/lib/kit";
 import { activeItemDefs, captureBaseline, createKitStatuses, fillKit } from "@/lib/kit-service";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
 
@@ -347,4 +358,115 @@ export async function clearSignature(kitNumber: number): Promise<KitResult> {
   });
   refresh();
   return { ok: true };
+}
+
+// ───────────── Kit return (זיכוי ערכה) ─────────────
+
+export type ReturnKitInput = {
+  /** The holder the user is returning the kit from — refused if the kit has changed hands since. */
+  soldierId: string;
+  /** What came back, by ReturnCheckLine.key (missing key = nothing came back). */
+  returned: Record<string, number>;
+  /** Free text next to a gap (e.g. אובדן / נהרס), by key. */
+  gapNotes: Record<string, string>;
+  note?: string;
+};
+
+/**
+ * The soldier hands the kit back. What they signed for is checked against what came back; gaps
+ * are recorded (with their notes) but never block it. Then the kit form is reset: no soldier, no
+ * signature, no weapon link / magazines / ammo, checklist back to its start. The weapon itself is
+ * not touched here — it is returned separately on the צל"ם side.
+ */
+export async function returnKit(kitNumber: number, input: ReturnKitInput): Promise<KitResult & { gaps?: number }> {
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  const { user, db, deployment } = w;
+  if (!input || typeof input !== "object" || typeof input.soldierId !== "string") return { ok: false, message: "בקשה לא תקינה" };
+  const returned = input.returned && typeof input.returned === "object" ? input.returned : {};
+  const gapNotes = input.gapNotes && typeof input.gapNotes === "object" ? input.gapNotes : {};
+  const ids = { companyId: user.companyId, deploymentId: deployment.id };
+
+  const result = await db.$transaction(async (tx) => {
+    const k = await ensureKit(tx, ids, kitNumber);
+    const kit = await tx.personalKit.findUniqueOrThrow({
+      where: { id: k.id },
+      select: {
+        id: true,
+        soldierId: true,
+        soldier: { select: { name: true } },
+        magazineCount: true,
+        ammoCount: true,
+        extraAmmo: true,
+        ...kitItemsSelect,
+      },
+    });
+    if (!kit.soldierId || !kit.soldier) return { error: "הערכה אינה מונפקת ללוחם" };
+    if (kit.soldierId !== input.soldierId) return { error: "הערכה הועברה ללוחם אחר בינתיים — יש לרענן את הדף" };
+
+    const lines = checklistLines(kit.items, { history: false, activeDefs: await activeItemDefs(tx) });
+    const check = returnCheckLines(lines, {
+      magazineCount: kit.magazineCount,
+      ammoCount: kit.ammoCount,
+      extraAmmo: parseExtraAmmo(kit.extraAmmo),
+    });
+    const record: ReturnLine[] = check.map((c) => {
+      const raw = Number(returned[c.key]);
+      const got = Number.isInteger(raw) ? Math.min(Math.max(raw, 0), c.expected) : 0;
+      const note = got < c.expected && typeof gapNotes[c.key] === "string" ? gapNotes[c.key].trim().slice(0, 200) : "";
+      return { label: c.label, expected: c.expected, returned: got, ...(note ? { note } : {}) };
+    });
+    const gaps = record.filter((l) => l.returned < l.expected).length;
+
+    await tx.kitReturn.create({
+      data: {
+        companyId: user.companyId,
+        kitId: kit.id,
+        soldierId: kit.soldierId,
+        soldierName: kit.soldier.name,
+        lines: record,
+        gapCount: gaps,
+        note: typeof input.note === "string" ? input.note.trim().slice(0, 300) || null : null,
+        performedById: user.id,
+      },
+    });
+
+    // Reset the form: back in the company's stock, ready for the next soldier.
+    await tx.personalKit.update({
+      where: { id: kit.id },
+      data: {
+        soldierId: null,
+        signedAt: null,
+        signedById: null,
+        signatureData: null,
+        personalWeaponId: null,
+        rifleType: null,
+        magazineCount: 0,
+        ammoCount: 0,
+        extraAmmo: [],
+      },
+    });
+    // An unissued kit's checklist follows the start settings (see applyStartToUnissuedKits).
+    const rows = await tx.kitItemStatus.findMany({
+      where: { kitId: kit.id },
+      select: { id: true, item: { select: { targetQuantity: true, startPresent: true } } },
+    });
+    for (const r of rows) {
+      await tx.kitItemStatus.update({ where: { id: r.id }, data: { ...defaultStatus(r.item), baseline: null } });
+    }
+    return { gaps };
+  });
+
+  if ("error" in result) return { ok: false, message: result.error };
+  refresh();
+  return {
+    ok: true,
+    gaps: result.gaps,
+    message:
+      result.gaps === 0
+        ? "הערכה זוכתה — הכל חזר"
+        : result.gaps === 1
+          ? "הערכה זוכתה — פער אחד נרשם"
+          : `הערכה זוכתה — ${result.gaps} פערים נרשמו`,
+  };
 }
