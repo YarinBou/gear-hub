@@ -226,3 +226,67 @@ export function summarizeKits(kits: { signed: boolean; lines: ChecklistLine[] }[
   }
   return [...rows.values()].sort((a, b) => a.sortOrder - b.sortOrder);
 }
+
+// ───────────── Kit return (זיכוי ערכה) ─────────────
+
+/** One line checked when a kit is returned: what was signed for ("לפני") vs what came back ("אחרי"). */
+export type ReturnCheckLine = {
+  /** Checklist item id, or "mag" / "ammo" / "extra:<label>" for the weapon card. */
+  key: string;
+  label: string;
+  groupName: string;
+  expected: number;
+  /** true = counted (enter a number); false = came back / didn't. */
+  counted: boolean;
+};
+
+/** A recorded line of a return (KitReturn.lines). */
+export type ReturnLine = { label: string; expected: number; returned: number; note?: string };
+
+export const RETURN_WEAPON_CARD_GROUP = "כרטיס נשק";
+
+/**
+ * What has to come back when a kit is returned: every checklist line that is part of the kit, plus
+ * the magazines / rounds / extra ammo on the weapon card. The personal weapon itself is not part of
+ * it — it is returned separately, on the צל"ם side.
+ */
+export function returnCheckLines(
+  lines: ChecklistLine[],
+  card: { magazineCount: number; ammoCount: number; extraAmmo: ExtraAmmo[] },
+): ReturnCheckLine[] {
+  const out: ReturnCheckLine[] = [];
+  for (const l of [...lines].sort((a, b) => a.sortOrder - b.sortOrder)) {
+    if (l.systemKey === WEAPON_ITEM) continue;
+    const expected = expectedOf(l);
+    if (expected == null || expected <= 0) continue;
+    out.push({ key: l.itemId, label: l.label, groupName: l.groupName, expected, counted: l.targetQuantity != null });
+  }
+  const g = RETURN_WEAPON_CARD_GROUP;
+  if (card.magazineCount > 0) out.push({ key: "mag", label: "מחסניות", groupName: g, expected: card.magazineCount, counted: true });
+  if (card.ammoCount > 0) out.push({ key: "ammo", label: "כדורים", groupName: g, expected: card.ammoCount, counted: true });
+  for (const a of card.extraAmmo) {
+    if (a.quantity > 0) out.push({ key: `extra:${a.label}`, label: a.label, groupName: g, expected: a.quantity, counted: true });
+  }
+  return out;
+}
+
+/** KitReturn.lines (JSON) as clean lines; anything malformed is dropped. */
+export function parseReturnLines(json: unknown): ReturnLine[] {
+  if (!Array.isArray(json)) return [];
+  return json.flatMap((x) => {
+    if (!x || typeof x !== "object") return [];
+    const { label, expected, returned, note } = x as Record<string, unknown>;
+    if (typeof label !== "string" || !Number.isInteger(expected) || !Number.isInteger(returned)) return [];
+    return [{ label, expected: expected as number, returned: returned as number, ...(typeof note === "string" && note ? { note } : {}) }];
+  });
+}
+
+/** Lines that came back short. */
+export function returnGaps(lines: ReturnLine[]) {
+  return lines.filter((l) => l.returned < l.expected);
+}
+
+/** "מחסניות (5/7)" / "קסדה" — a short description of a gap. */
+export function describeGap(l: ReturnLine) {
+  return l.expected > 1 ? `${l.label} (${l.returned}/${l.expected})` : l.label;
+}

@@ -23,6 +23,7 @@ const OWNED = [
   "AmmoLog",
   "PersonalKit",
   "KitInspection",
+  "KitReturn",
   "StorageItem",
 ];
 

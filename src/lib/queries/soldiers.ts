@@ -115,7 +115,7 @@ export async function getSoldier(id: string) {
         select: {
           status: true,
           lastVerifiedAt: true,
-          item: { select: { id: true, serialNumber: true, category: { select: { name: true } } } },
+          item: { select: { id: true, serialNumber: true, parentId: true, category: { select: { name: true } } } },
         },
       },
     },

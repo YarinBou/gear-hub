@@ -24,6 +24,9 @@ export const AMMO_LEVEL_LABELS: Record<AmmoLevel, string> = {
   NO_THRESHOLD: "ללא סף",
 };
 
+/** Note on a count that only confirmed the quantity (אימות), without typing it again. */
+export const VERIFY_NOTE = "אימות — ללא שינוי";
+
 export const AMMO_LOG_LABELS: Record<AmmoLogType, string> = {
   COUNT: "ספירה",
   RECEIVE: "קליטה",

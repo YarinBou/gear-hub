@@ -3,7 +3,7 @@
 import { refresh } from "next/cache";
 import { Prisma } from "@/generated/prisma/client";
 import type { AmmoLogType } from "@/generated/prisma/enums";
-import { applyMovement } from "@/lib/ammo-rules";
+import { applyMovement, VERIFY_NOTE } from "@/lib/ammo-rules";
 import { writableContext } from "@/lib/context";
 import { formatNumber } from "@/lib/utils";
 import { AddStockSchema, MovementSchema } from "@/lib/validation/ammo";
@@ -144,6 +144,61 @@ export async function recordMovement(stockId: string, _prev: AmmoFormState, fd: 
     message: `${verb}: ${formatNumber(result.previous)} ← ${formatNumber(result.next)}${delta}`,
     at: Date.now(),
   };
+}
+
+export type VerifyResult = { ok: boolean; message: string };
+
+/**
+ * אימות: confirm that the quantity shown is what is there, without typing it again. Each row gets a
+ * count (ספירה) of its current quantity. Used for one row or a whole location at once.
+ * `rows` carries the quantity the user saw: a row that changed since is skipped, not confirmed.
+ */
+export async function verifyStocks(rows: { id: string; quantity: number }[]): Promise<VerifyResult> {
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  const { user, db, deployment } = w;
+  const seen = new Map<string, number>();
+  if (Array.isArray(rows)) {
+    for (const r of rows.slice(0, 500)) {
+      if (r && typeof r.id === "string" && Number.isInteger(r.quantity)) seen.set(r.id, r.quantity);
+    }
+  }
+  if (!seen.size) return { ok: false, message: "לא נבחרו שורות לאימות" };
+
+  const { verified, changed } = await db.$transaction(async (tx) => {
+    // Lock the rows (raw SQL isn't scoped by scopedDb — company and deployment written out).
+    const locked = await tx.$queryRaw<{ id: string; quantity: number }[]>`
+      SELECT id, quantity FROM "AmmoStock"
+      WHERE id = ANY(${[...seen.keys()]}) AND "companyId" = ${user.companyId} AND "deploymentId" = ${deployment.id}
+      FOR UPDATE`;
+    const same = locked.filter((r) => r.quantity === seen.get(r.id));
+    if (same.length) {
+      const now = new Date();
+      await tx.ammoStock.updateMany({ where: { id: { in: same.map((r) => r.id) } }, data: { lastCountedAt: now } });
+      await tx.ammoLog.createMany({
+        data: same.map((r) => ({
+          companyId: user.companyId,
+          stockId: r.id,
+          type: "COUNT" as const,
+          amount: r.quantity,
+          previousQuantity: r.quantity,
+          newQuantity: r.quantity,
+          note: VERIFY_NOTE,
+          performedById: user.id,
+          createdAt: now,
+        })),
+      });
+    }
+    return { verified: same.length, changed: locked.length - same.length };
+  });
+
+  refresh();
+  if (!verified) {
+    return { ok: false, message: changed ? "הכמות השתנתה מאז שהדף נטען — יש לרענן ולבדוק שוב" : "השורות לא נמצאו" };
+  }
+  const parts = [verified === 1 ? "הכמות אומתה" : `${verified} שורות אומתו`];
+  if (changed) parts.push(`${changed} דולגו (הכמות השתנתה בינתיים — יש לרענן)`);
+  return { ok: true, message: parts.join(" · ") };
 }
 
 /** Remove an empty location. Admin only — it also removes that location's log. */

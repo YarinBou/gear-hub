@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Prisma } from "@/generated/prisma/client";
 import { companyContext, writableContext } from "@/lib/context";
 import { scopedDb } from "@/lib/db";
+import { AssignmentError, applyAssignment } from "@/lib/equipment-service";
 import { getActivePlatoons } from "@/lib/queries/platoons";
 import { soldiersTag } from "@/lib/queries/soldiers";
 import { MAX_IMPORT_ROWS, parseRosterText } from "@/lib/roster-import";
@@ -236,4 +237,43 @@ export async function setPresence(soldierIds: string[], present: boolean): Promi
   const parts = [count ? `${count} לוחמים סומנו כלא משתתפים` : "לא בוצע שינוי"];
   if (blocked.length) parts.push(`דולגו (מחזיקים ציוד או ערכה — יש לזכות קודם): ${blocked.slice(0, 8).join(", ")}${blocked.length > 8 ? "…" : ""}`);
   return { ok: true, message: parts.join(" · ") };
+}
+
+export type ReturnResult = { ok: boolean; message: string };
+
+/**
+ * זיכוי: take equipment back from a soldier (from their page). `itemIds` = the items to return, or
+ * "all" for everything they hold. Returned items have no holder and become "מאופסן". Components of a
+ * set aren't returned on their own — they follow their main item.
+ */
+export async function returnSoldierEquipment(soldierId: string, itemIds: string[] | "all"): Promise<ReturnResult> {
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  const { user, db, deployment } = w;
+  if (typeof soldierId !== "string" || !(itemIds === "all" || Array.isArray(itemIds))) {
+    return { ok: false, message: "בחירה לא תקינה" };
+  }
+  const only = itemIds === "all" ? null : [...new Set(itemIds.filter((x) => typeof x === "string"))].slice(0, 500);
+  if (only && !only.length) return { ok: false, message: "לא נבחרו פריטים" };
+
+  // `db` is scoped to the company and the active deployment.
+  const rows = await db.equipmentAssignment.findMany({
+    where: { soldierId, item: { parentId: null }, ...(only ? { itemId: { in: only } } : {}) },
+    select: { itemId: true },
+  });
+  if (!rows.length) return { ok: false, message: "אין פריטים לזיכוי" };
+
+  const ctx = { companyId: user.companyId, deploymentId: deployment.id, userId: user.id };
+  try {
+    await db.$transaction(async (tx) => {
+      for (const r of rows) {
+        await applyAssignment(tx, ctx, r.itemId, { soldierId: null, status: "STORED", note: "זיכוי מהלוחם" });
+      }
+    });
+  } catch (e) {
+    if (e instanceof AssignmentError) return { ok: false, message: e.message };
+    throw e;
+  }
+  refresh();
+  return { ok: true, message: rows.length === 1 ? "הפריט זוכה ואופסן" : `${rows.length} פריטים זוכו ואופסנו` };
 }

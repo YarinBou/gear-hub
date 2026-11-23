@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import type { AmmoCategory } from "@/generated/prisma/enums";
-import { AddStockForm, StockRow } from "./ammo-forms";
+import { AddStockForm, StockRow, VerifyLocation } from "./ammo-forms";
 import { isCompanyAdmin } from "@/lib/roles";
 
 export const metadata: Metadata = { title: "ניהול תחמושת" };
@@ -163,6 +163,14 @@ export default async function AmmoPage({ searchParams }: PageProps<"/ammo">) {
           </Card>
         ) : (
           <AddStockForm key={addFor ?? "add"} categories={categories} locations={locations} soldiers={soldiers} defaultCategoryId={addFor} />
+        )}
+
+        {loc && (
+          <VerifyLocation
+            key={loc}
+            label={loc === SOLDIERS_LOC ? "החיילים" : loc}
+            rows={shown.flatMap((t) => t.ammoStocks.filter((s) => matchesLoc(s, loc)).map((s) => ({ id: s.id, quantity: s.quantity })))}
+          />
         )}
 
         {[...groups, ...(uncategorized.length ? [{ category: null, types: uncategorized }] : [])].map((g) => (

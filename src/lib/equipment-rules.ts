@@ -25,7 +25,8 @@ export const UNASSIGNED_STATUSES: EquipmentStatus[] = ["IN_ARMORY", "IN_REPAIR",
 /**
  * Resolve the final status when (re)assigning:
  * - Handing an item to a soldier while it sits in the armory/storage → "אצל לוחם".
- * - Taking it away from a soldier while it says "אצל לוחם" → "בנשקייה".
+ * - Taking it away from a soldier while it says "אצל לוחם" → "מאופסן" (an unassigned item is either
+ *   in the armory, stored, in repair or missing — "בנשקייה" is only ever set explicitly).
  * An explicitly chosen status always wins unless it contradicts the holder.
  */
 export function resolveStatus(opts: {
@@ -39,7 +40,7 @@ export function resolveStatus(opts: {
   }
   if (requested) return { status: requested };
   if (hasSoldier && (current === "IN_ARMORY" || current === "STORED")) return { status: "WITH_SOLDIER" };
-  if (!hasSoldier && current === "WITH_SOLDIER") return { status: "IN_ARMORY" };
+  if (!hasSoldier && current === "WITH_SOLDIER") return { status: "STORED" };
   return { status: current };
 }
 

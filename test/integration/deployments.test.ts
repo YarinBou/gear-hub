@@ -104,7 +104,7 @@ describe("starting a deployment", () => {
     await prisma.soldier.update({ where: { id: leaver.id }, data: { isActive: false } });
 
     const { deployment: second } = await start("הפעלה ב", "copy", admin.id);
-    expect(await stateOf(rifle.id, second.id)).toMatchObject({ assignedSoldierId: null, status: "IN_ARMORY" });
+    expect(await stateOf(rifle.id, second.id)).toMatchObject({ assignedSoldierId: null, status: "STORED" });
     expect(await kit(second.id, 9)).toMatchObject({ soldierId: null });
   });
 

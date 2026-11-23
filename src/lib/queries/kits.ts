@@ -8,6 +8,7 @@ import {
   kitReadiness,
   missingDescriptions,
   parseExtraAmmo,
+  parseReturnLines,
   sumExtraAmmo,
   summarizeKits,
   type ChecklistLine,
@@ -82,16 +83,22 @@ export async function getKit(kitNumber: number) {
         take: 10,
         include: { performedBy: { select: { name: true } } },
       },
+      returns: {
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        include: { performedBy: { select: { name: true } } },
+      },
     },
   });
   if (!kit) return null;
-  const { items, extraAmmo, ...rest } = kit;
+  const { items, extraAmmo, returns, ...rest } = kit;
   // Live deployment: the company's current checklist. Closed one: exactly what was recorded.
   const lines: ChecklistLine[] = checklistLines(items, { history: !!deployment?.readOnly, activeDefs });
   return {
     ...rest,
     lines,
     extraAmmo: parseExtraAmmo(extraAmmo),
+    returns: returns.map(({ lines, ...r }) => ({ ...r, lines: parseReturnLines(lines) })),
     personalWeapon: kit.personalWeapon ? flattenState(kit.personalWeapon) : null,
   };
 }
@@ -129,7 +136,7 @@ export async function getSoldiersWithKit(exceptKit?: number) {
 
 /**
  * Serial-numbered items that can be this kit's personal weapon:
- * items already held by the soldier, plus unassigned items sitting in the armory.
+ * items already held by the soldier, plus free items (in the armory or stored).
  * Items linked to another kit are excluded.
  */
 export async function getWeaponOptions(soldierId: string | null, currentWeaponId: string | null) {
@@ -140,7 +147,7 @@ export async function getWeaponOptions(soldierId: string | null, currentWeaponId
     where: {
       OR: [
         ...(soldierId ? [inState(deploymentId, { soldierId })] : []),
-        inState(deploymentId, { soldierId: null, status: "IN_ARMORY" }),
+        inState(deploymentId, { soldierId: null, status: { in: ["IN_ARMORY", "STORED"] } }),
         ...(currentWeaponId ? [{ id: currentWeaponId }] : []),
       ],
       AND: [

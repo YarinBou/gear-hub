@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useActionState, useState, useTransition } from "react";
-import { CheckCircle2, ChevronDown, Minus, Plus, Trash2, User } from "lucide-react";
+import { CheckCheck, CheckCircle2, ChevronDown, Minus, Plus, Trash2, User } from "lucide-react";
 import { PlatoonBadge } from "@/components/platoon-badge";
 import { Field } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { cn, formatDateTime, formatDaysAgo, formatNumber } from "@/lib/utils";
 import type { AmmoLogType } from "@/generated/prisma/enums";
 import type { AmmoStockRow } from "@/lib/queries/ammo";
 import type { SoldierOption } from "@/lib/queries/soldiers";
-import { addStock, deleteStock, recordMovement } from "./actions";
+import { addStock, deleteStock, recordMovement, verifyStocks, type VerifyResult } from "./actions";
 
 function submitWith(action: (fd: FormData) => void) {
   return (e: React.FormEvent<HTMLFormElement>) => {
@@ -135,28 +135,52 @@ export function StockRow({ stock, isAdmin }: { stock: AmmoStockRow; isAdmin: boo
   const [state, action, pending] = useActionState(recordMovement.bind(null, stock.id), undefined);
   const [busy, startBusy] = useTransition();
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [verifying, startVerify] = useTransition();
+  const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
   const err = state?.errors ?? {};
   const current = MODES.find((m) => m.type === mode)!;
 
   return (
     <li className={cn(open && "bg-accent/30")}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="hover:bg-accent/50 flex min-h-14 w-full items-center gap-3 px-4 py-2 text-start"
-      >
-        <div className="min-w-0 flex-1">
-          <p className="flex flex-wrap items-center gap-2 font-medium">
-            {stock.soldier && <User className="text-muted-foreground size-4" aria-label="אצל חייל" />}
-            {stock.location}
-            {stock.soldier && <PlatoonBadge platoon={stock.soldier.platoon} />}
-          </p>
-          <p className="text-muted-foreground text-xs">נספר {formatDaysAgo(stock.lastCountedAt)}</p>
-        </div>
-        <span className="text-lg font-semibold tabular-nums">{formatNumber(stock.quantity)}</span>
-        <ChevronDown className={cn("text-muted-foreground size-4 shrink-0 transition-transform", open && "rotate-180")} />
-      </button>
+      <div className="flex items-stretch">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="hover:bg-accent/50 flex min-h-14 min-w-0 flex-1 items-center gap-3 py-2 ps-4 pe-2 text-start"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="flex flex-wrap items-center gap-2 font-medium">
+              {stock.soldier && <User className="text-muted-foreground size-4" aria-label="אצל חייל" />}
+              {stock.location}
+              {stock.soldier && <PlatoonBadge platoon={stock.soldier.platoon} />}
+            </p>
+            <p className="text-muted-foreground text-xs">נספר {formatDaysAgo(stock.lastCountedAt)}</p>
+          </div>
+          <span className="text-lg font-semibold tabular-nums">{formatNumber(stock.quantity)}</span>
+          <ChevronDown className={cn("text-muted-foreground size-4 shrink-0 transition-transform", open && "rotate-180")} />
+        </button>
+        {/* אימות: the quantity is right — record a count without typing it again. */}
+        <button
+          type="button"
+          disabled={verifying}
+          onClick={() => startVerify(async () => setVerifyResult(await verifyStocks([{ id: stock.id, quantity: stock.quantity }])))}
+          aria-label={`אימות הכמות ב${stock.location} (${formatNumber(stock.quantity)})`}
+          title="אימות — הכמות נכונה"
+          className="hover:bg-success/10 hover:text-success text-muted-foreground flex w-14 shrink-0 flex-col items-center justify-center gap-0.5 border-s text-xs font-medium disabled:opacity-50"
+        >
+          <CheckCheck className="size-5" />
+          {verifying ? "…" : "אימות"}
+        </button>
+      </div>
+      {verifyResult && (
+        <p
+          role={verifyResult.ok ? "status" : "alert"}
+          className={cn("px-4 pb-2 text-xs font-medium", verifyResult.ok ? "text-success" : "text-danger")}
+        >
+          {verifyResult.message}
+        </p>
+      )}
 
       {open && (
         <div className="flex flex-col gap-4 px-4 pt-1 pb-4">
@@ -256,5 +280,58 @@ export function StockRow({ stock, isAdmin }: { stock: AmmoStockRow; isAdmin: boo
         </div>
       )}
     </li>
+  );
+}
+
+// ───────────── Verify a whole location at once ─────────────
+
+/** "אימות כל המיקום": confirm every row shown for one location (e.g. חפ"ק) in one go. */
+export function VerifyLocation({ label, rows }: { label: string; rows: { id: string; quantity: number }[] }) {
+  const [confirming, setConfirming] = useState(false);
+  const [pending, start] = useTransition();
+  const [result, setResult] = useState<VerifyResult | null>(null);
+  if (!rows.length) return null;
+  const verifyAll = () =>
+    start(async () => {
+      setResult(await verifyStocks(rows));
+      setConfirming(false);
+    });
+  return (
+    <div className="bg-card flex flex-col gap-2 rounded-lg border p-3">
+      {confirming ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm">
+            לאמת את {rows.length === 1 ? "השורה" : `כל ${rows.length} השורות`} ב{label}? הכמויות הרשומות יירשמו כספירה ללא שינוי.
+          </p>
+          <div className="flex gap-2">
+            <Button disabled={pending} onClick={verifyAll}>
+              {pending ? "מאמת…" : "כן, אימות הכל"}
+            </Button>
+            <Button variant="ghost" disabled={pending} onClick={() => setConfirming(false)}>
+              ביטול
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-muted-foreground text-sm">כל הכמויות ב{label} נכונות? אפשר לאמת את כולן בלחיצה אחת.</p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setResult(null);
+              setConfirming(true);
+            }}
+          >
+            <CheckCheck />
+            אימות כל המיקום ({rows.length})
+          </Button>
+        </div>
+      )}
+      {result && (
+        <p role={result.ok ? "status" : "alert"} className={cn("text-sm font-medium", result.ok ? "text-success" : "text-danger")}>
+          {result.message}
+        </p>
+      )}
+    </div>
   );
 }

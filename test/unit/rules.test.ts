@@ -20,8 +20,10 @@ describe("equipment: resolveStatus", () => {
     expect(resolveStatus({ current: "IN_ARMORY", hasSoldier: true })).toEqual({ status: "WITH_SOLDIER" });
     expect(resolveStatus({ current: "STORED", hasSoldier: true })).toEqual({ status: "WITH_SOLDIER" });
   });
-  it("taking it back returns it to the armory", () => {
-    expect(resolveStatus({ current: "WITH_SOLDIER", hasSoldier: false })).toEqual({ status: "IN_ARMORY" });
+  it("taking it back from a soldier makes it stored", () => {
+    expect(resolveStatus({ current: "WITH_SOLDIER", hasSoldier: false })).toEqual({ status: "STORED" });
+    // An item already in the armory stays there.
+    expect(resolveStatus({ current: "IN_ARMORY", hasSoldier: false })).toEqual({ status: "IN_ARMORY" });
   });
   it("keeps repair / missing when the holder changes", () => {
     expect(resolveStatus({ current: "IN_REPAIR", hasSoldier: true })).toEqual({ status: "IN_REPAIR" });

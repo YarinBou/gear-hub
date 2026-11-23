@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { addStock, recordMovement } from "@/app/(app)/ammo/actions";
+import { addStock, recordMovement, verifyStocks } from "@/app/(app)/ammo/actions";
 import { assignKit, completeInspection, setKitItem, signKit, updateWeapon } from "@/app/(app)/kits/actions";
 import { activeDeployment, form, kitItemId, kitLine, loginAs, makeAmmoStock, makeCategory, makeItem, makeSoldier, stateOf } from "./factories";
 
@@ -28,6 +28,35 @@ describe("ammo movements", () => {
     expect(await recordMovement(stock.id, undefined, form({ type: "ISSUE", amount: 11 }))).toHaveProperty("error");
     expect((await prisma.ammoStock.findUniqueOrThrow({ where: { id: stock.id } })).quantity).toBe(10);
     expect(await prisma.ammoLog.count()).toBe(0);
+  });
+});
+
+describe("ammo verification (אימות)", () => {
+  it("confirms the quantity as a count with no change, for one row or a whole location", async () => {
+    await loginAs("REGULAR");
+    const a = await makeAmmoStock({ location: "חפ\"ק", quantity: 120 });
+    const b = await makeAmmoStock({ location: "חפ\"ק", quantity: 7 });
+
+    expect(await verifyStocks([{ id: a.id, quantity: 120 }])).toMatchObject({ ok: true, message: "הכמות אומתה" });
+    expect(await verifyStocks([{ id: a.id, quantity: 120 }, { id: b.id, quantity: 7 }])).toMatchObject({ ok: true, message: "2 שורות אומתו" });
+
+    const logs = await prisma.ammoLog.findMany({ where: { stockId: a.id } });
+    expect(logs).toHaveLength(2);
+    expect(logs[0]).toMatchObject({ type: "COUNT", amount: 120, previousQuantity: 120, newQuantity: 120, note: "אימות — ללא שינוי" });
+    const after = await prisma.ammoStock.findUniqueOrThrow({ where: { id: b.id } });
+    expect(after.quantity).toBe(7);
+    expect(after.lastCountedAt).not.toBeNull();
+  });
+
+  it("skips a row whose quantity changed since the page was loaded", async () => {
+    await loginAs();
+    const a = await makeAmmoStock({ quantity: 50 });
+    const b = await makeAmmoStock({ quantity: 10 });
+    const r = await verifyStocks([{ id: a.id, quantity: 40 }, { id: b.id, quantity: 10 }]);
+    expect(r).toMatchObject({ ok: true });
+    expect(r.message).toContain("1 דולגו");
+    expect(await prisma.ammoLog.count({ where: { stockId: a.id } })).toBe(0);
+    expect(await verifyStocks([{ id: a.id, quantity: 40 }])).toMatchObject({ ok: false });
   });
 });
 

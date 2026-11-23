@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { assignEquipment, attachComponentAction, bulkSetStatus } from "@/app/(app)/equipment/actions";
+import { returnSoldierEquipment } from "@/app/(app)/roster/actions";
 import { form, loginAs, makeCategory, makeItem, makeSoldier, stateOf } from "./factories";
 
 // Current behaviour of equipment moves (צל"ם). These must stay green through the multi-company
@@ -28,13 +29,13 @@ describe("assigning equipment", () => {
     expect(logs[0]).toMatchObject({ toSoldierId: soldier.id, fromStatus: "IN_ARMORY", toStatus: "WITH_SOLDIER", performedById: user.id });
   });
 
-  it("returning it puts it back in the armory", async () => {
+  it("returning it makes it stored", async () => {
     await loginAs();
     const soldier = await makeSoldier();
     const rifle = await makeItem({ assignedSoldierId: soldier.id, status: "WITH_SOLDIER", platoon: "PLATOON_1" });
 
     await assignEquipment(rifle.id, undefined, form({ soldierId: "" }));
-    expect(await item(rifle.id)).toMatchObject({ assignedSoldierId: null, status: "IN_ARMORY" });
+    expect(await item(rifle.id)).toMatchObject({ assignedSoldierId: null, status: "STORED" });
   });
 
   it("refuses a soldier who left the roster", async () => {
@@ -113,5 +114,38 @@ describe("uniqueness within a company", () => {
     const cat = await makeCategory();
     await makeItem({ categoryId: cat.id, serialNumber: "123" });
     await expect(makeItem({ categoryId: cat.id, serialNumber: "123" })).rejects.toThrow();
+  });
+});
+
+describe("returning equipment from the soldier's page (זיכוי)", () => {
+  it("returns one item: no holder, stored, logged", async () => {
+    await loginAs("REGULAR");
+    const soldier = await makeSoldier();
+    const rifle = await makeItem({ assignedSoldierId: soldier.id, status: "WITH_SOLDIER" });
+    const other = await makeItem({ assignedSoldierId: soldier.id, status: "WITH_SOLDIER" });
+
+    expect(await returnSoldierEquipment(soldier.id, [rifle.id])).toMatchObject({ ok: true });
+    expect(await item(rifle.id)).toMatchObject({ assignedSoldierId: null, status: "STORED" });
+    expect(await item(other.id)).toMatchObject({ assignedSoldierId: soldier.id, status: "WITH_SOLDIER" });
+    const log = await prisma.equipmentLog.findFirstOrThrow({ where: { itemId: rifle.id }, orderBy: { createdAt: "desc" } });
+    expect(log).toMatchObject({ fromSoldierId: soldier.id, toSoldierId: null, toStatus: "STORED", note: "זיכוי מהלוחם" });
+  });
+
+  it("'all' returns everything, components with their main item, and only this soldier's items", async () => {
+    await loginAs("REGULAR");
+    const [soldier, other] = [await makeSoldier(), await makeSoldier({ name: "אחר" })];
+    const gun = await makeItem({ assignedSoldierId: soldier.id, status: "WITH_SOLDIER" });
+    const sight = await makeItem({ assignedSoldierId: soldier.id, status: "WITH_SOLDIER", parentId: gun.id });
+    const broken = await makeItem({ assignedSoldierId: soldier.id, status: "IN_REPAIR" });
+    const notHis = await makeItem({ assignedSoldierId: other.id, status: "WITH_SOLDIER" });
+
+    const r = await returnSoldierEquipment(soldier.id, "all");
+    expect(r).toMatchObject({ ok: true, message: "2 פריטים זוכו ואופסנו" });
+    for (const id of [gun.id, sight.id, broken.id]) {
+      expect(await item(id)).toMatchObject({ assignedSoldierId: null, status: "STORED" });
+    }
+    expect(await item(notHis.id)).toMatchObject({ assignedSoldierId: other.id });
+    // Asking for another soldier's item through this soldier does nothing.
+    expect(await returnSoldierEquipment(soldier.id, [notHis.id])).toMatchObject({ ok: false });
   });
 });
