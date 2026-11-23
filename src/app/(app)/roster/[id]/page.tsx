@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { Backpack, Crosshair, Phone } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { VERIFICATION_STALE_DAYS } from "@/lib/constants";
-import { getSoldier } from "@/lib/queries/soldiers";
+import { getSoldier, getSoldierReturnHistory } from "@/lib/queries/soldiers";
 import { getFreeKitNumbers } from "@/lib/queries/kits";
 import { getActivePlatoons } from "@/lib/queries/platoons";
 import { daysAgo, formatDate } from "@/lib/utils";
@@ -17,6 +17,7 @@ import { SoldierForm } from "../soldier-form";
 import { ActiveToggle, PresenceToggle } from "./active-toggle";
 import { IssueKitForm } from "./issue-kit-form";
 import { SoldierEquipment } from "./soldier-equipment";
+import { ReturnHistory } from "./return-history";
 import { ReadOnlyWhenClosed } from "@/components/deployment-gate";
 
 export const metadata: Metadata = { title: "כרטיס לוחם" };
@@ -24,7 +25,7 @@ export const metadata: Metadata = { title: "כרטיס לוחם" };
 export default async function SoldierPage({ params }: PageProps<"/roster/[id]">) {
   const { deployment } = await companyContext();
   const { id } = await params;
-  const [soldier, active] = await Promise.all([getSoldier(id), getActivePlatoons()]);
+  const [soldier, active, history] = await Promise.all([getSoldier(id), getActivePlatoons(), getSoldierReturnHistory(id)]);
   if (!soldier) notFound();
   const staleBefore = daysAgo(VERIFICATION_STALE_DAYS);
   // A kit can be issued here: an active soldier who is in the active deployment and has none.
@@ -134,6 +135,8 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
           <ActiveToggle id={soldier.id} isActive={soldier.isActive} />
         </div>
       </div>
+
+      <ReturnHistory history={history} />
     </div>
   );
 }

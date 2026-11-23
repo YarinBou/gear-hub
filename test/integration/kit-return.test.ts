@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { assignKit, returnKit, setKitItem, signKit, updateWeapon } from "@/app/(app)/kits/actions";
 import { setKitDefaultPresent } from "@/app/(app)/kits/items/actions";
 import { getKit, getKitSummary } from "@/lib/queries/kits";
+import { getSoldierReturnHistory } from "@/lib/queries/soldiers";
+import { returnSoldierEquipment } from "@/app/(app)/roster/actions";
 import { parseReturnLines, returnCheckLines } from "@/lib/kit";
 import { activeDeployment, form, kitItemId, kitLine, loginAs, makeItem, makeSoldier, stateOf } from "./factories";
 
@@ -138,5 +140,26 @@ describe("kit return (זיכוי ערכה)", () => {
     expect(await returnKit(8, { soldierId: soldier.id, returned: {}, gapNotes: {} })).toMatchObject({ ok: false });
     expect(await returnKit(7, { soldierId: other.id, returned: {}, gapNotes: {} })).toMatchObject({ ok: false });
     expect(await prisma.kitReturn.count()).toBe(0);
+  });
+
+  it("the soldier's page shows what they signed for and returned (kit lines and צל\"ם)", async () => {
+    await loginAs("REGULAR");
+    const rifle = await makeItem();
+    const { soldier } = await issuedKit(11, rifle.id);
+    const helmet = await kitItemId("קסדה");
+    const bag = await kitItemId("שק שינה");
+    await returnKit(11, { soldierId: soldier.id, returned: { [helmet]: 1, [bag]: 0, mag: 7, ammo: 210 }, gapNotes: { [bag]: "אובדן" } });
+    await returnSoldierEquipment(soldier.id, [rifle.id]);
+
+    const h = await getSoldierReturnHistory(soldier.id);
+    expect(h.kitReturns).toHaveLength(1);
+    expect(h.kitReturns[0]).toMatchObject({ gapCount: 1, kit: { kitNumber: 11 } });
+    expect(h.kitReturns[0].lines).toContainEqual({ label: "שק שינה", expected: 1, returned: 0, note: "אובדן" });
+    expect(h.kitReturns[0].lines).toContainEqual({ label: "מחסניות", expected: 7, returned: 7 });
+    expect(h.equipmentReturns.map((e) => [e.item.id, e.toStatus])).toEqual([[rifle.id, "STORED"]]);
+
+    // Another soldier's history is separate.
+    const other = await makeSoldier({ name: "אחר" });
+    expect(await getSoldierReturnHistory(other.id)).toEqual({ kitReturns: [], equipmentReturns: [] });
   });
 });
