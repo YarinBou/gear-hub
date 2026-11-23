@@ -112,7 +112,7 @@ export function WeaponForm({
             </optgroup>
           )}
           {armory.length > 0 && (
-            <optgroup label="בנשקייה">
+            <optgroup label="פנויים (בנשקייה / מאופסנים)">
               {armory.map((o) => (
                 <option key={o.id} value={o.id}>
                   {o.category} · {o.serialNumber ?? "ללא צ"}

@@ -3,13 +3,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Backpack, Crosshair, Phone } from "lucide-react";
 import { companyContext } from "@/lib/context";
-import { EQUIPMENT_STATUS_LABELS, VERIFICATION_STALE_DAYS } from "@/lib/constants";
+import { VERIFICATION_STALE_DAYS } from "@/lib/constants";
 import { getSoldier } from "@/lib/queries/soldiers";
 import { getFreeKitNumbers } from "@/lib/queries/kits";
 import { getActivePlatoons } from "@/lib/queries/platoons";
 import { daysAgo, formatDate } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
-import { Serial } from "@/components/equipment/serial";
 import { PlatoonBadge } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +16,7 @@ import { updateSoldier } from "../actions";
 import { SoldierForm } from "../soldier-form";
 import { ActiveToggle, PresenceToggle } from "./active-toggle";
 import { IssueKitForm } from "./issue-kit-form";
+import { SoldierEquipment } from "./soldier-equipment";
 import { ReadOnlyWhenClosed } from "@/components/deployment-gate";
 
 export const metadata: Metadata = { title: "כרטיס לוחם" };
@@ -111,25 +111,18 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
               <CardDescription>{soldier.equipment.length} פריטים</CardDescription>
             </CardHeader>
             <CardContent>
-              {soldier.equipment.length === 0 ? (
-                <p className="text-muted-foreground text-sm">אין פריטים משויכים</p>
-              ) : (
-                <ul className="divide-y">
-                  {soldier.equipment.map((e) => {
-                    const stale = !e.lastVerifiedAt || e.lastVerifiedAt < staleBefore;
-                    return (
-                      <li key={e.id} className="flex items-center gap-2 py-2 text-sm">
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium">{e.category.name}</p>
-                          <p className="text-muted-foreground text-xs"><Serial value={e.serialNumber} /></p>
-                        </div>
-                        {stale && <Badge variant="warning">לא אומת</Badge>}
-                        <Badge variant={e.status === "MISSING" ? "danger" : "secondary"}>{EQUIPMENT_STATUS_LABELS[e.status]}</Badge>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+              <SoldierEquipment
+                soldierId={soldier.id}
+                canReturn={!!deployment && !deployment.readOnly}
+                items={soldier.equipment.map((e) => ({
+                  id: e.id,
+                  serialNumber: e.serialNumber,
+                  parentId: e.parentId,
+                  category: e.category,
+                  status: e.status,
+                  stale: !e.lastVerifiedAt || e.lastVerifiedAt < staleBefore,
+                }))}
+              />
             </CardContent>
           </Card>
 

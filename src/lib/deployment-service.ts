@@ -80,7 +80,7 @@ export async function startDeployment(
       const base = { companyId, deploymentId: deployment.id, itemId };
       if (copy && prev) {
         const soldierId = keepSoldier(prev.soldierId);
-        const status: EquipmentStatus = !soldierId && prev.status === "WITH_SOLDIER" ? "IN_ARMORY" : prev.status;
+        const status: EquipmentStatus = !soldierId && prev.status === "WITH_SOLDIER" ? "STORED" : prev.status;
         return { ...base, soldierId, status, platoonId: prev.platoonId, lastVerifiedAt: prev.lastVerifiedAt };
       }
       const status: EquipmentStatus = prev && PHYSICAL_STATUSES.includes(prev.status) ? prev.status : "IN_ARMORY";

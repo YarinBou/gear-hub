@@ -43,7 +43,7 @@ export function SignSetForm({ sets, items, soldiers }: { sets: SignSet[]; items:
   /** Options split by who holds them: free, already with this soldier, with other soldiers. */
   const sections = (list: SignItem[]) =>
     [
-      { label: "פנויים בנשקייה", items: list.filter((i) => !i.holder) },
+      { label: "פנויים (בנשקייה / מאופסנים)", items: list.filter((i) => !i.holder) },
       { label: soldierName ? `כבר אצל ${soldierName}` : "", items: list.filter((i) => i.holder && i.holder.id === soldierId) },
       { label: "אצל לוחמים אחרים (יועברו)", items: list.filter((i) => i.holder && i.holder.id !== soldierId) },
     ].filter((s) => s.items.length);

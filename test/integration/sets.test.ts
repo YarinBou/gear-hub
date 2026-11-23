@@ -100,7 +100,7 @@ describe("signing a set out", () => {
     // Returning the main item returns the whole set.
     await assignEquipment(gun.id, undefined, form({ soldierId: "" }));
     for (const id of [gun.id, pointer.id, created.id]) {
-      expect(await stateOf(id)).toMatchObject({ assignedSoldierId: null, status: "IN_ARMORY" });
+      expect(await stateOf(id)).toMatchObject({ assignedSoldierId: null, status: "STORED" });
     }
   });
 

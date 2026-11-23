@@ -129,7 +129,7 @@ export async function getSoldiersWithKit(exceptKit?: number) {
 
 /**
  * Serial-numbered items that can be this kit's personal weapon:
- * items already held by the soldier, plus unassigned items sitting in the armory.
+ * items already held by the soldier, plus free items (in the armory or stored).
  * Items linked to another kit are excluded.
  */
 export async function getWeaponOptions(soldierId: string | null, currentWeaponId: string | null) {
@@ -140,7 +140,7 @@ export async function getWeaponOptions(soldierId: string | null, currentWeaponId
     where: {
       OR: [
         ...(soldierId ? [inState(deploymentId, { soldierId })] : []),
-        inState(deploymentId, { soldierId: null, status: "IN_ARMORY" }),
+        inState(deploymentId, { soldierId: null, status: { in: ["IN_ARMORY", "STORED"] } }),
         ...(currentWeaponId ? [{ id: currentWeaponId }] : []),
       ],
       AND: [
