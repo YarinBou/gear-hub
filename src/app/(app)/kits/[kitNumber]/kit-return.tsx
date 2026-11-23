@@ -11,8 +11,8 @@ import { returnKit } from "../actions";
 
 /**
  * זיכוי ערכה: walk down what the soldier signed for ("לפני") and mark what came back ("אחרי").
- * Gaps get a free-text note and are recorded — they never block the return. Confirming resets
- * the kit form for the next soldier. The weapon is returned separately, on the צל"ם side.
+ * Gaps get a free-text note and are recorded — they never block the return. Confirming frees the
+ * kit for the next soldier; its checklist keeps what actually came back. The weapon is returned separately, on the צל"ם side.
  */
 export function KitReturn({
   kitNumber,
@@ -63,7 +63,7 @@ export function KitReturn({
     return (
       <div className="flex flex-col gap-2">
         <p className="text-muted-foreground text-sm">
-          בדיקת מה שחזר מול מה ש{soldierName} חתם עליו. אחרי האישור הטופס מתאפס והערכה חוזרת למלאי.
+          בדיקת מה שחזר מול מה ש{soldierName} חתם עליו. אחרי האישור הערכה חוזרת למלאי עם מה שחזר בפועל.
         </p>
         <Button variant="outline" className="sm:w-fit" onClick={() => setOpen(true)}>
           <Undo2 />
@@ -188,8 +188,8 @@ export function KitReturn({
         <div className="flex flex-col gap-2 rounded-md border p-3">
           <p className="text-sm">
             לזכות את {soldierName} על ערכה {kitNumber}
-            {gaps.length ? ` עם ${gaps.length === 1 ? "פער אחד" : `${gaps.length} פערים`}` : ""}? הטופס יתאפס (שיוך, חתימה, כרטיס נשק ורשימת
-            הציוד) והערכה תחזור למלאי.
+            {gaps.length ? ` עם ${gaps.length === 1 ? "פער אחד" : `${gaps.length} פערים`}` : ""}? השיוך, החתימה וכרטיס הנשק יתאפסו והערכה תחזור
+            למלאי. רשימת הציוד תישאר עם מה שחזר בפועל.
           </p>
           <div className="flex gap-2">
             <Button onClick={submit} disabled={pending}>

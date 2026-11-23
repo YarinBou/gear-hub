@@ -209,19 +209,27 @@ export async function getFreeKitNumbers() {
 export async function getKitSummary(platoonId?: string) {
   await connection();
   const { db, deployment } = await companyContext();
-  if (!deployment) return { kits: 0, signedKits: 0, lines: [], magazines: 0, rounds: 0, extraAmmo: [], weapons: 0 };
-  const [kits, activeDefs] = await Promise.all([
+  if (!deployment) return { kits: 0, signedKits: 0, stockKits: 0, lines: [], magazines: 0, rounds: 0, extraAmmo: [], weapons: 0 };
+  const [kits, stockKits, activeDefs] = await Promise.all([
     db.personalKit.findMany({
       where: { soldierId: { not: null }, ...(platoonId ? { soldier: { platoonId } } : {}) },
       select: { signedAt: true, magazineCount: true, ammoCount: true, extraAmmo: true, personalWeaponId: true, ...kitItemsSelect },
     }),
+    // Returned kits waiting in stock (they belong to no platoon): what is really in them.
+    platoonId
+      ? []
+      : db.personalKit.findMany({ where: { soldierId: null, returns: { some: {} } }, select: kitItemsSelect }),
     activeItemDefs(db),
   ]);
   const history = !!deployment.readOnly;
   return {
     kits: kits.length,
     signedKits: kits.filter((k) => k.signedAt).length,
-    lines: summarizeKits(kits.map((k) => ({ signed: !!k.signedAt, lines: checklistLines(k.items, { history, activeDefs }) }))),
+    stockKits: stockKits.length,
+    lines: summarizeKits([
+      ...kits.map((k) => ({ signed: !!k.signedAt, lines: checklistLines(k.items, { history, activeDefs }) })),
+      ...stockKits.map((k) => ({ signed: false, inStock: true, lines: checklistLines(k.items, { history, activeDefs }) })),
+    ]),
     magazines: kits.reduce((a, k) => a + k.magazineCount, 0),
     rounds: kits.reduce((a, k) => a + k.ammoCount, 0),
     extraAmmo: sumExtraAmmo(kits.map((k) => parseExtraAmmo(k.extraAmmo))),

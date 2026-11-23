@@ -7,7 +7,6 @@ import { writableContext } from "@/lib/context";
 import { AssignmentError, applyAssignment, ensureAssignment, NOT_IN_DEPLOYMENT_MESSAGE } from "@/lib/equipment-service";
 import {
   checklistLines,
-  defaultStatus,
   kitItemsSelect,
   MAX_EXTRA_AMMO,
   missingDescriptions,
@@ -375,8 +374,9 @@ export type ReturnKitInput = {
 /**
  * The soldier hands the kit back. What they signed for is checked against what came back; gaps
  * are recorded (with their notes) but never block it. Then the kit form is reset: no soldier, no
- * signature, no weapon link / magazines / ammo, checklist back to its start. The weapon itself is
- * not touched here — it is returned separately on the צל"ם side.
+ * signature, no weapon link / magazines / ammo. The checklist keeps what actually came back, so the
+ * kit (and the totals) show its real contents until it is filled up. The weapon itself is not
+ * touched here — it is returned separately on the צל"ם side.
  */
 export async function returnKit(kitNumber: number, input: ReturnKitInput): Promise<KitResult & { gaps?: number }> {
   const w = await writableContext();
@@ -431,7 +431,8 @@ export async function returnKit(kitNumber: number, input: ReturnKitInput): Promi
       },
     });
 
-    // Reset the form: back in the company's stock, ready for the next soldier.
+    // Reset the form: back in the company's stock, ready for the next soldier. The checklist keeps
+    // what actually came back — the kit shows its real contents until someone fills it up.
     await tx.personalKit.update({
       where: { id: kit.id },
       data: {
@@ -446,13 +447,22 @@ export async function returnKit(kitNumber: number, input: ReturnKitInput): Promi
         extraAmmo: [],
       },
     });
-    // An unissued kit's checklist follows the start settings (see applyStartToUnissuedKits).
-    const rows = await tx.kitItemStatus.findMany({
-      where: { kitId: kit.id },
-      select: { id: true, item: { select: { targetQuantity: true, startPresent: true } } },
-    });
-    for (const r of rows) {
-      await tx.kitItemStatus.update({ where: { id: r.id }, data: { ...defaultStatus(r.item), baseline: null } });
+    const back = new Map(check.map((c, i) => [c.key, record[i].returned]));
+    for (const l of lines) {
+      const got = back.get(l.itemId);
+      // The weapon line follows the weapon link, which was just removed.
+      const weapon = l.systemKey === WEAPON_ITEM;
+      if (got === undefined && !weapon) {
+        await tx.kitItemStatus.updateMany({ where: { kitId: kit.id, itemId: l.itemId }, data: { baseline: null } });
+        continue;
+      }
+      const n = weapon ? 0 : got!;
+      const data = l.targetQuantity != null ? { quantity: n, baseline: null } : { present: n > 0, baseline: null };
+      await tx.kitItemStatus.upsert({
+        where: { kitId_itemId: { kitId: kit.id, itemId: l.itemId } },
+        update: data,
+        create: { companyId: user.companyId, kitId: kit.id, itemId: l.itemId, ...data },
+      });
     }
     return { gaps };
   });
