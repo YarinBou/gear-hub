@@ -4,33 +4,6 @@
 /** systemKey of the personal-weapon line: fulfilled automatically when a rifle is linked. */
 export const WEAPON_ITEM = "WEAPON";
 
-/** Extra ammunition on a kit's weapon card (beyond magazines and rounds), e.g. "תופי נגב" × 2. */
-export type ExtraAmmo = { label: string; quantity: number };
-
-/** Common extra-ammo lines, offered as suggestions (free text is allowed). */
-export const EXTRA_AMMO_SUGGESTIONS = ["תופי נגב", 'תופי מא"ג', "רימוני רסס", "רימוני עשן"];
-
-/** At most this many extra-ammo lines per kit. */
-export const MAX_EXTRA_AMMO = 6;
-
-/** PersonalKit.extraAmmo (JSON) as clean lines; anything malformed is dropped. */
-export function parseExtraAmmo(json: unknown): ExtraAmmo[] {
-  if (!Array.isArray(json)) return [];
-  return json.flatMap((x) => {
-    if (!x || typeof x !== "object") return [];
-    const { label, quantity } = x as Record<string, unknown>;
-    if (typeof label !== "string" || !label.trim() || typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 0) return [];
-    return [{ label: label.trim(), quantity }];
-  });
-}
-
-/** Totals per label over kits, in first-seen order ("תופי נגב" 6, 'תופי מא"ג' 4). */
-export function sumExtraAmmo(lists: ExtraAmmo[][]): ExtraAmmo[] {
-  const totals = new Map<string, number>();
-  for (const list of lists) for (const a of list) totals.set(a.label, (totals.get(a.label) ?? 0) + a.quantity);
-  return [...totals].map(([label, quantity]) => ({ label, quantity }));
-}
-
 /** One checklist line of one kit, as pages and readiness calculations see it. */
 export type ChecklistLine = {
   itemId: string;
@@ -48,15 +21,28 @@ export type ChecklistLine = {
    * n = the signed quantity (1 for present / missing lines).
    */
   baseline: number | null;
+  /** אופציונלי: part of the kit only when signed for (baseline) or required by the kit's פק"ל. */
+  optional?: boolean;
+  /** How many the kit's פק"ל requires on this line (null / absent = not required by it). */
+  pakalQuantity?: number | null;
 };
 
-type LineState = Pick<ChecklistLine, "targetQuantity" | "present" | "quantity" | "baseline">;
+type ExpectedInput = Pick<ChecklistLine, "targetQuantity" | "baseline" | "optional" | "pakalQuantity">;
+type LineState = ExpectedInput & Pick<ChecklistLine, "present" | "quantity">;
 
-/** How many this kit should have on this line; null = the line isn't part of this kit. */
-export function expectedOf(line: Pick<ChecklistLine, "targetQuantity" | "baseline">): number | null {
+/**
+ * How many this kit should have on this line; null = the line isn't part of this kit.
+ * - Required by the kit's פק"ל: always part of it, at least the פק"ל's quantity (or what was signed, if more).
+ * - Signed for (baseline): what was signed; 0 = not part of this kit.
+ * - Not signed for yet: the company's target, unless the item is optional.
+ */
+export function expectedOf(line: ExpectedInput): number | null {
+  const counted = line.targetQuantity != null;
+  if (line.pakalQuantity != null) return counted ? Math.max(line.pakalQuantity, line.baseline ?? 0) : 1;
   if (line.baseline === 0) return null;
-  if (line.targetQuantity != null) return line.baseline ?? line.targetQuantity;
-  return 1;
+  if (line.baseline != null) return counted ? line.baseline : 1;
+  if (line.optional) return null;
+  return counted ? line.targetQuantity : 1;
 }
 
 /** How many the soldier has right now (present = 1). */
@@ -65,7 +51,7 @@ export function haveOf(line: Pick<ChecklistLine, "targetQuantity" | "present" | 
 }
 
 /** Whether the line is part of this kit (not excluded by what the soldier signed for). */
-export function lineApplies(line: Pick<ChecklistLine, "targetQuantity" | "baseline">) {
+export function lineApplies(line: ExpectedInput) {
   return expectedOf(line) != null;
 }
 
@@ -113,8 +99,17 @@ export function defaultStatus(def: { targetQuantity: number | null; startPresent
 }
 
 /** The checklist every new company starts with (editable afterwards). */
-export const DEFAULT_KIT_ITEMS: { label: string; groupName: string; systemKey?: string; targetQuantity?: number }[] = [
+export const DEFAULT_KIT_ITEMS: {
+  label: string;
+  groupName: string;
+  systemKey?: string;
+  targetQuantity?: number;
+  /** Overrides the company's start setting (a kit in stock keeps its magazines and rounds). */
+  startPresent?: boolean;
+}[] = [
   { label: "נשק אישי", groupName: "נשק אישי", systemKey: WEAPON_ITEM },
+  { label: "מחסניות", groupName: "תחמושת", targetQuantity: 7, startPresent: true },
+  { label: "כדורים", groupName: "תחמושת", targetQuantity: 210, startPresent: true },
   { label: "ערכת ניקוי", groupName: "כלי ניקוי ונשק" },
   { label: "רצועת נשק", groupName: "כלי ניקוי ונשק" },
   { label: "שמן נשק", groupName: "כלי ניקוי ונשק" },
@@ -147,18 +142,25 @@ export const kitItemsSelect = {
           sortOrder: true,
           targetQuantity: true,
           systemKey: true,
+          optional: true,
           isActive: true,
         },
       },
     },
   },
+  pakal: { select: { id: true, name: true, color: true, items: { select: { itemId: true, quantity: true } } } },
 } as const;
+
+/** A kit's פק"ל as checklistLines() takes it. */
+export type KitPakal = { items: { itemId: string; quantity: number }[] } | null;
+
+type DefFields = Omit<ChecklistLine, "itemId" | "present" | "quantity" | "baseline" | "pakalQuantity">;
 
 type StatusRow = {
   present: boolean;
   quantity: number | null;
   baseline: number | null;
-  item: Omit<ChecklistLine, "itemId" | "present" | "quantity" | "baseline"> & { id: string; isActive: boolean };
+  item: DefFields & { id: string; isActive: boolean };
 };
 
 /**
@@ -168,8 +170,9 @@ type StatusRow = {
  */
 export function checklistLines(
   rows: StatusRow[],
-  opts: { history: boolean; activeDefs?: (Omit<ChecklistLine, "itemId" | "present" | "quantity" | "baseline"> & { id: string })[] },
+  opts: { history: boolean; activeDefs?: (DefFields & { id: string })[]; pakal?: KitPakal },
 ): ChecklistLine[] {
+  const required = new Map(opts.pakal?.items.map((i) => [i.itemId, i.quantity]) ?? []);
   const toLine = (r: StatusRow): ChecklistLine => ({
     itemId: r.item.id,
     label: r.item.label,
@@ -180,6 +183,8 @@ export function checklistLines(
     present: r.present,
     quantity: r.quantity,
     baseline: r.baseline,
+    optional: r.item.optional ?? false,
+    pakalQuantity: required.get(r.item.id) ?? null,
   });
   if (opts.history) return rows.map(toLine).sort((a, b) => a.sortOrder - b.sortOrder);
   const byItem = new Map(rows.map((r) => [r.item.id, r]));
@@ -240,7 +245,7 @@ export function summarizeKits(kits: { signed: boolean; inStock?: boolean; lines:
 
 /** One line checked when a kit is returned: what was signed for ("לפני") vs what came back ("אחרי"). */
 export type ReturnCheckLine = {
-  /** Checklist item id, or "mag" / "ammo" / "extra:<label>" for the weapon card. */
+  /** Checklist item id. */
   key: string;
   label: string;
   groupName: string;
@@ -252,29 +257,19 @@ export type ReturnCheckLine = {
 /** A recorded line of a return (KitReturn.lines). */
 export type ReturnLine = { label: string; expected: number; returned: number; note?: string };
 
-export const RETURN_WEAPON_CARD_GROUP = "כרטיס נשק";
 
 /**
- * What has to come back when a kit is returned: every checklist line that is part of the kit, plus
- * the magazines / rounds / extra ammo on the weapon card. The personal weapon itself is not part of
+ * What has to come back when a kit is returned: every checklist line that is part of the kit
+ * (magazines, rounds and drums are checklist lines too). The personal weapon itself is not part of
  * it — it is returned separately, on the צל"ם side.
  */
-export function returnCheckLines(
-  lines: ChecklistLine[],
-  card: { magazineCount: number; ammoCount: number; extraAmmo: ExtraAmmo[] },
-): ReturnCheckLine[] {
+export function returnCheckLines(lines: ChecklistLine[]): ReturnCheckLine[] {
   const out: ReturnCheckLine[] = [];
   for (const l of [...lines].sort((a, b) => a.sortOrder - b.sortOrder)) {
     if (l.systemKey === WEAPON_ITEM) continue;
     const expected = expectedOf(l);
     if (expected == null || expected <= 0) continue;
     out.push({ key: l.itemId, label: l.label, groupName: l.groupName, expected, counted: l.targetQuantity != null });
-  }
-  const g = RETURN_WEAPON_CARD_GROUP;
-  if (card.magazineCount > 0) out.push({ key: "mag", label: "מחסניות", groupName: g, expected: card.magazineCount, counted: true });
-  if (card.ammoCount > 0) out.push({ key: "ammo", label: "כדורים", groupName: g, expected: card.ammoCount, counted: true });
-  for (const a of card.extraAmmo) {
-    if (a.quantity > 0) out.push({ key: `extra:${a.label}`, label: a.label, groupName: g, expected: a.quantity, counted: true });
   }
   return out;
 }

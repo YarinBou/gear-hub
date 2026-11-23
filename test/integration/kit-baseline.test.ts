@@ -42,7 +42,8 @@ describe("what the soldier signed for", () => {
     expect(await kitLine(id, "וסט קרבי")).toMatchObject({ baseline: 0 });
 
     let kit = (await getKit(5))!;
-    expect(kit.lines.filter((l) => l.baseline !== 0).map((l) => l.label).sort()).toEqual(["קסדה", "שק שינה"].sort());
+    // Magazines and rounds start full, so they are signed for too.
+    expect(kit.lines.filter((l) => l.baseline !== 0).map((l) => l.label).sort()).toEqual(["קסדה", "שק שינה", "מחסניות", "כדורים"].sort());
 
     // The sleeping bag goes missing: the inspection lists only that, not the vest he never had.
     await setKitItem(5, await kitItemId("שק שינה"), false);

@@ -15,7 +15,7 @@ export function activeItemDefs(tx: Tx) {
   return tx.kitItemDef.findMany({
     where: { isActive: true },
     orderBy: { sortOrder: "asc" },
-    select: { id: true, label: true, groupName: true, sortOrder: true, targetQuantity: true, systemKey: true },
+    select: { id: true, label: true, groupName: true, sortOrder: true, targetQuantity: true, systemKey: true, optional: true },
   });
 }
 
@@ -100,11 +100,27 @@ async function writeGrouped(tx: Tx, rows: { id: string; value: number }[], field
   }
 }
 
-const rowSelect = { id: true, present: true, quantity: true, baseline: true, item: { select: { targetQuantity: true } } } as const;
+const rowSelect = {
+  id: true,
+  itemId: true,
+  present: true,
+  quantity: true,
+  baseline: true,
+  item: { select: { targetQuantity: true, optional: true } },
+} as const;
+
+/** How many of each item the kit's פק"ל requires (by item id). */
+async function pakalRequirements(tx: Tx, kitId: string) {
+  const kit = await tx.personalKit.findUnique({
+    where: { id: kitId },
+    select: { pakal: { select: { items: { select: { itemId: true, quantity: true } } } } },
+  });
+  return new Map(kit?.pakal?.items.map((i) => [i.itemId, i.quantity]) ?? []);
+}
 
 /**
  * Signing: what is marked on the kit right now becomes what the soldier signed for (baseline).
- * From then on, only what they signed for can be missing.
+ * From then on, only what they signed for (and what the kit's פק"ל requires) can be missing.
  */
 export async function captureBaseline(tx: Tx, kitId: string) {
   const rows = await tx.kitItemStatus.findMany({ where: { kitId }, select: rowSelect });
@@ -113,11 +129,19 @@ export async function captureBaseline(tx: Tx, kitId: string) {
 
 /** "הכל קיים": every line that is part of this kit gets what it should have. */
 export async function fillKit(tx: Tx, kitId: string) {
-  const rows = await tx.kitItemStatus.findMany({ where: { kitId, item: { isActive: true } }, select: rowSelect });
+  const [rows, required] = await Promise.all([
+    tx.kitItemStatus.findMany({ where: { kitId, item: { isActive: true } }, select: rowSelect }),
+    pakalRequirements(tx, kitId),
+  ]);
   const lines = rows.map((r) => ({
     ...r,
     targetQuantity: r.item.targetQuantity,
-    expected: expectedOf({ targetQuantity: r.item.targetQuantity, baseline: r.baseline }),
+    expected: expectedOf({
+      targetQuantity: r.item.targetQuantity,
+      baseline: r.baseline,
+      optional: r.item.optional,
+      pakalQuantity: required.get(r.itemId) ?? null,
+    }),
   }));
   const plain = lines.filter((l) => l.targetQuantity == null && l.expected != null && !l.present).map((l) => l.id);
   if (plain.length) await tx.kitItemStatus.updateMany({ where: { id: { in: plain } }, data: { present: true } });

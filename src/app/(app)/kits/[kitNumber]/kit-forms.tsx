@@ -1,16 +1,15 @@
 "use client";
 
-import { startTransition, useActionState, useState } from "react";
-import { CheckCircle2, Plus, X } from "lucide-react";
+import { startTransition, useActionState, useState, useTransition } from "react";
+import { CheckCircle2 } from "lucide-react";
 import { Field } from "@/components/form-field";
 import { SoldierSelect } from "@/components/soldier-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { EXTRA_AMMO_SUGGESTIONS, MAX_EXTRA_AMMO, type ExtraAmmo } from "@/lib/kit";
 import type { SoldierOption } from "@/lib/queries/soldiers";
 import type { WeaponOption } from "@/lib/queries/kits";
-import { assignKit, updateWeapon, type KitFormState } from "../actions";
+import { assignKit, setKitPakal, updateWeapon, type KitFormState } from "../actions";
 
 function submitWith(action: (fd: FormData) => void) {
   return (e: React.FormEvent<HTMLFormElement>) => {
@@ -90,9 +89,6 @@ export function WeaponForm({
   current: {
     rifleType: string | null;
     personalWeaponId: string | null;
-    magazineCount: number;
-    ammoCount: number;
-    extraAmmo: ExtraAmmo[];
   };
   disabled: boolean;
 }) {
@@ -132,39 +128,14 @@ export function WeaponForm({
           )}
         </Select>
       </Field>
-      <div className="grid grid-cols-3 gap-3">
-        <Field id="rifleType" label="סוג" error={err.rifleType}>
-          <Input id="rifleType" name="rifleType" list="rifle-types" defaultValue={current.rifleType ?? ""} disabled={disabled} autoComplete="off" />
-          <datalist id="rifle-types">
-            {RIFLE_TYPES.map((t) => (
-              <option key={t} value={t} />
-            ))}
-          </datalist>
-        </Field>
-        <Field id="magazineCount" label="מחסניות" error={err.magazineCount}>
-          <Input
-            id="magazineCount"
-            name="magazineCount"
-            inputMode="numeric"
-            dir="ltr"
-            className="text-start"
-            defaultValue={current.magazineCount}
-            disabled={disabled}
-          />
-        </Field>
-        <Field id="ammoCount" label="כדורים" error={err.ammoCount}>
-          <Input
-            id="ammoCount"
-            name="ammoCount"
-            inputMode="numeric"
-            dir="ltr"
-            className="text-start"
-            defaultValue={current.ammoCount}
-            disabled={disabled}
-          />
-        </Field>
-      </div>
-      <ExtraAmmoRows initial={current.extraAmmo} disabled={disabled} error={err.extraAmmo} />
+      <Field id="rifleType" label="סוג" error={err.rifleType} hint="מחסניות, כדורים ותופים נספרים ברשימת הציוד (תחמושת)">
+        <Input id="rifleType" name="rifleType" list="rifle-types" defaultValue={current.rifleType ?? ""} disabled={disabled} autoComplete="off" />
+        <datalist id="rifle-types">
+          {RIFLE_TYPES.map((t) => (
+            <option key={t} value={t} />
+          ))}
+        </datalist>
+      </Field>
       <Button type="submit" variant="outline" className="sm:w-fit" disabled={pending || disabled}>
         {pending ? "שומר…" : "שמירת פרטי נשק"}
       </Button>
@@ -172,78 +143,48 @@ export function WeaponForm({
   );
 }
 
-/**
- * Extra ammunition on the weapon card — only some soldiers have it (e.g. machine gunners sign for
- * Negev / MAG belt boxes). "+" adds a row: type (with suggestions) and quantity.
- */
-function ExtraAmmoRows({ initial, disabled, error }: { initial: ExtraAmmo[]; disabled: boolean; error?: string }) {
-  const [rows, setRows] = useState(() => initial.map((a, i) => ({ key: i, label: a.label, quantity: String(a.quantity) })));
-  const [nextKey, setNextKey] = useState(initial.length);
-  const add = () => {
-    // Suggest a type not used yet.
-    const used = new Set(rows.map((r) => r.label));
-    const label = EXTRA_AMMO_SUGGESTIONS.find((l) => !used.has(l)) ?? "";
-    setRows([...rows, { key: nextKey, label, quantity: "" }]);
-    setNextKey(nextKey + 1);
-  };
-  const update = (key: number, patch: Partial<{ label: string; quantity: string }>) =>
-    setRows(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
-
+/** Admin: mark the kit as a פק"ל kit (its role's items become required) or a regular one. */
+export function KitPakalForm({
+  kitNumber,
+  current,
+  pakals,
+}: {
+  kitNumber: number;
+  current: string | null;
+  pakals: { id: string; name: string; isActive: boolean }[];
+}) {
+  const [value, setValue] = useState(current ?? "");
+  const [pending, start] = useTransition();
+  const [result, setResult] = useState<{ ok: boolean; message?: string } | null>(null);
+  // Inactive ones can't be chosen, but the kit's own stays visible.
+  const options = pakals.filter((p) => p.isActive || p.id === current);
   return (
     <div className="flex flex-col gap-2">
-      {rows.length > 0 && <p className="text-sm font-medium">תחמושת נוספת</p>}
-      <datalist id="extra-ammo-types">
-        {EXTRA_AMMO_SUGGESTIONS.map((t) => (
-          <option key={t} value={t} />
-        ))}
-      </datalist>
-      {rows.map((r, i) => (
-        <div key={r.key} className="flex items-center gap-2">
-          <Input
-            name="extraLabel"
-            list="extra-ammo-types"
-            aria-label={`סוג תחמושת נוספת ${i + 1}`}
-            placeholder="למשל: תופי נגב"
-            value={r.label}
-            onChange={(e) => update(r.key, { label: e.target.value })}
-            disabled={disabled}
-            autoComplete="off"
-            className="min-w-0 flex-1"
-          />
-          <Input
-            name="extraQty"
-            inputMode="numeric"
-            dir="ltr"
-            aria-label={`כמות ${r.label || "תחמושת נוספת"}`}
-            placeholder="כמות"
-            value={r.quantity}
-            onChange={(e) => update(r.key, { quantity: e.target.value })}
-            disabled={disabled}
-            className="w-20 shrink-0 text-start"
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={`הסרת ${r.label || "שורה"}`}
-            disabled={disabled}
-            onClick={() => setRows(rows.filter((x) => x.key !== r.key))}
-          >
-            <X />
-          </Button>
-        </div>
-      ))}
-      {error && (
-        <p role="alert" className="text-danger text-sm">
-          {error}
-        </p>
-      )}
-      {rows.length < MAX_EXTRA_AMMO && (
-        <Button type="button" variant="ghost" size="sm" className="self-start" disabled={disabled} onClick={add}>
-          <Plus />
-          תחמושת נוספת (תופי נגב / מא&quot;ג…)
-        </Button>
-      )}
+      <Field id="kit-pakal" label='תיק פק"ל' hint='פריטי החובה של הפק"ל נבדקים בתיק הזה. הסימון נשאר עם התיק גם בזיכוי ובהפעלה הבאה.'>
+        <Select
+          id="kit-pakal"
+          value={value}
+          disabled={pending}
+          onChange={(e) => {
+            const next = e.target.value;
+            setValue(next);
+            setResult(null);
+            start(async () => {
+              const r = await setKitPakal(kitNumber, next || null);
+              if (!r.ok) setValue(current ?? "");
+              setResult(r);
+            });
+          }}
+        >
+          <option value="">תיק רגיל</option>
+          {options.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {result?.message && <p className={result.ok ? "text-success text-sm" : "text-danger text-sm"}>{result.message}</p>}
     </div>
   );
 }

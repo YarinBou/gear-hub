@@ -8,6 +8,7 @@ import type { PlatoonRef } from "@/lib/platoons";
 import { listKits, type KitTile } from "@/lib/queries/kits";
 import { cn } from "@/lib/utils";
 import { PlatoonBadge, PlatoonDot } from "@/components/platoon-badge";
+import { PakalBadge } from "@/components/pakal-badge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,12 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
   const filter = filterRaw && filterRaw in FILTERS ? (filterRaw as Filter) : undefined;
 
   const all = await listKits();
+  // פק"ל kits: the marks in use, and the ?pakal= filter ("any" = every פק"ל kit).
+  const pakalsInUse = [...new Map(all.flatMap((k) => (k.pakal ? [[k.pakal.id, k.pakal] as const] : []))).values()].sort((a, b) =>
+    a.name.localeCompare(b.name, "he"),
+  );
+  const pakalRaw = first(sp.pakal);
+  const pakal = pakalRaw === "any" || pakalsInUse.some((p) => p.id === pakalRaw) ? pakalRaw : undefined;
   const issued = all.filter((k) => k.soldier);
   const avg = issued.length ? Math.round(issued.reduce((a, k) => a + k.readiness, 0) / issued.length) : 0;
   const full = issued.filter((k) => k.readiness === 100).length;
@@ -50,14 +57,17 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
 
   const shown = all
     .filter((k) => !platoon || k.soldier?.platoon.id === platoon)
-    .filter((k) => !filter || FILTERS[filter].test(k));
+    .filter((k) => !filter || FILTERS[filter].test(k))
+    .filter((k) => !pakal || (pakal === "any" ? !!k.pakal : k.pakal?.id === pakal));
 
-  const href = (next: { platoon?: string | null; filter?: Filter | null }) => {
+  const href = (next: { platoon?: string | null; filter?: Filter | null; pakal?: string | null }) => {
     const p = new URLSearchParams();
     const pl = next.platoon === undefined ? platoon : next.platoon;
     const f = next.filter === undefined ? filter : next.filter;
+    const pk = next.pakal === undefined ? pakal : next.pakal;
     if (pl) p.set("platoon", pl);
     if (f) p.set("filter", f);
+    if (pk) p.set("pakal", pk);
     const s = p.toString();
     return s ? `/kits?${s}` : "/kits";
   };
@@ -128,6 +138,16 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
         </ul>
       </nav>
 
+      {pakalsInUse.length > 0 && (
+        <nav aria-label='סינון לפי פק"ל' className="no-scrollbar -mx-4 overflow-x-auto px-4">
+          <ul className="flex w-max gap-2">
+            {chip('כל התיקים', href({ pakal: null }), !pakal)}
+            {chip('תיקי פק"ל', href({ pakal: "any" }), pakal === "any", all.filter((k) => k.pakal).length)}
+            {pakalsInUse.map((p) => chip(p.name, href({ pakal: p.id }), pakal === p.id, all.filter((k) => k.pakal?.id === p.id).length))}
+          </ul>
+        </nav>
+      )}
+
       {shown.length === 0 ? (
         <Card className="items-center py-10 text-center">
           <p className="text-muted-foreground">אין ערכות התואמות לסינון</p>
@@ -145,12 +165,13 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
                     !k.soldier && "bg-muted/50",
                   )}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-1">
                     <span className="text-lg font-bold tabular-nums">{k.kitNumber}</span>
                     {k.soldier && (
                       <span className={cn("text-xs font-semibold tabular-nums", t.text)}>{k.readiness}%</span>
                     )}
                   </div>
+                  {k.pakal && <PakalBadge pakal={k.pakal} className="px-1 py-0 text-[10px]" />}
                   {/* No colored dot here: a pink platoon dot next to the bar read as "missing items". */}
                   <p className={cn("truncate text-xs", k.soldier ? "font-medium" : "text-muted-foreground")}>
                     {k.soldier?.name ?? "לא הונפקה"}
