@@ -68,7 +68,8 @@ export default async function KitSummaryPage({ searchParams }: PageProps<"/kits/
           </p>
           <p className="text-muted-foreground text-sm">
             {summary.kits} ערכות הונפקו · {summary.signedKits} הוחתמו
-            {summary.stockKits > 0 && ` · ${summary.stockKits} זוכו ונמצאות במלאי`}
+            {summary.stockKits > 0 && ` · ${summary.stockKits} נבדקו ונמצאות במלאי`}
+            {summary.partialStock > 0 && ` · ${summary.partialStock} בבדיקה חלקית (לא נספרות)`}
           </p>
         </div>
         <p className="text-sm font-medium tabular-nums">הופק {formatDateTime(new Date())}</p>
@@ -76,7 +77,7 @@ export default async function KitSummaryPage({ searchParams }: PageProps<"/kits/
 
       <p className="text-muted-foreground text-xs">
         חתום = סך מה שהלוחמים חתמו עליו (ערכות שהוחתמו). קיים = מה שנמצא בערכות כרגע. חסר = מה שחסר לכל לוחם מול מה שחתם עליו
-        (בערכה שעוד לא הוחתמה — מול רשימת הציוד). במלאי = מה שנמצא בפועל בערכות שזוכו וממתינות במלאי.
+        (בערכה שעוד לא הוחתמה — מול רשימת הציוד). במלאי = מה שנמצא בפועל בתיקים שבמלאי ומסומנים ✓ נבדק (בדיקת תכולה או זיכוי).
       </p>
 
       <KitSummaryTable summary={summary} />

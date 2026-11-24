@@ -11,7 +11,7 @@ import {
   signKit,
 } from "@/app/(app)/kits/actions";
 import { setKitDefaultPresent } from "@/app/(app)/kits/items/actions";
-import { listKits } from "@/lib/queries/kits";
+import { getKitSummary, listKits } from "@/lib/queries/kits";
 import { activeDeployment, form, homeCompany, kitItemId, kitLine, loginAs, makeSoldier } from "./factories";
 
 // בדיקת תכולה: is what's in a kit in stock known? A full contents check, or the return of a kit the
@@ -119,5 +119,21 @@ describe("contents check (בדיקת תכולה)", () => {
     expect(await kitLine(k.id, "קסדה")).toMatchObject({ present: true, baseline: null });
     expect(await kitLine(k.id, "שק שינה")).toMatchObject({ present: false });
     expect(await kitLine(k.id, "רצועת נשק")).toMatchObject({ present: true });
+  });
+
+  it("the kit summary's 'במלאי' counts exactly the checked kits in stock", async () => {
+    await loginAs("REGULAR");
+    await activeDeployment();
+    await setKitItem(11, await kitItemId("קסדה"), true);
+    await completeContentsCheck(11, ""); // checked in stock, never returned
+    const soldier = await makeSoldier();
+    await assignKit(12, undefined, form({ soldierId: soldier.id }));
+    await setKitItem(12, await kitItemId("קסדה"), true);
+    await signKit(12, SIGNATURE);
+    await returnKit(12, { soldierId: soldier.id, returned: {}, gapNotes: {} }); // partly signed, rest not checked
+
+    const summary = await getKitSummary();
+    expect(summary).toMatchObject({ stockKits: 1, partialStock: 1 });
+    expect(summary.lines.find((l) => l.label === "קסדה")).toMatchObject({ stock: 1 });
   });
 });
