@@ -101,4 +101,23 @@ describe("contents check (בדיקת תכולה)", () => {
     expect(await kitLine(k7.id, "קסדה")).toMatchObject({ present: true });
     expect(first.id).not.toBe(deployment.id);
   });
+
+  it("a partly-signed kit returned with the rest of the bag checked is 'checked', with what was found", async () => {
+    await loginAs("REGULAR");
+    await activeDeployment();
+    const soldier = await makeSoldier();
+    const [strap, helmet, bag] = [await kitItemId("רצועת נשק"), await kitItemId("קסדה"), await kitItemId("שק שינה")];
+    await assignKit(9, undefined, form({ soldierId: soldier.id }));
+    await setKitItem(9, strap, true);
+    await signKit(9, SIGNATURE);
+
+    // Signed only for the strap (and the magazines / rounds that start full); the rest checked on return.
+    const r = await returnKit(9, { soldierId: soldier.id, returned: { [strap]: 1 }, gapNotes: {}, found: { [helmet]: 1, [bag]: 0 } });
+    expect(r).toMatchObject({ ok: true, fullCheck: true });
+    expect((await tile(9)).stock).toMatchObject({ state: "checked" });
+    const k = await kitRow(9);
+    expect(await kitLine(k.id, "קסדה")).toMatchObject({ present: true, baseline: null });
+    expect(await kitLine(k.id, "שק שינה")).toMatchObject({ present: false });
+    expect(await kitLine(k.id, "רצועת נשק")).toMatchObject({ present: true });
+  });
 });
