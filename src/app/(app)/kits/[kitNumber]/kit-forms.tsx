@@ -2,7 +2,8 @@
 
 import { startTransition, useActionState, useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckCircle2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeftRight, CheckCircle2 } from "lucide-react";
 import { Field } from "@/components/form-field";
 import { SoldierSelect } from "@/components/soldier-select";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type { SoldierOption } from "@/lib/queries/soldiers";
 import type { WeaponOption } from "@/lib/queries/kits";
-import { assignKit, setKitPakal, updateWeapon, type KitFormState } from "../actions";
+import { assignKit, setKitPakal, swapKitNumbers, updateWeapon, type KitFormState } from "../actions";
 
 function submitWith(action: (fd: FormData) => void) {
   return (e: React.FormEvent<HTMLFormElement>) => {
@@ -200,6 +201,82 @@ export function KitPakalForm({
         </Select>
       </Field>
       {result?.message && <p className={result.ok ? "text-success text-sm" : "text-danger text-sm"}>{result.message}</p>}
+    </div>
+  );
+}
+
+/** Admin: swap this kit's number with another (e.g. 2 ⇄ 36) — everything on each kit moves with it. */
+export function SwapKitNumberForm({ kitNumber, maxNumber }: { kitNumber: number; maxNumber: number }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const other = Number(value);
+  const valid = Number.isInteger(other) && other >= 1 && other <= maxNumber && other !== kitNumber;
+
+  if (!open) {
+    return (
+      <Button type="button" variant="ghost" size="sm" className="self-start" onClick={() => setOpen(true)}>
+        <ArrowLeftRight />
+        החלפת מספר תיק
+      </Button>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <Field id="swap-kit" label="החלפת מספר תיק" hint="שני התיקים מחליפים מספרים — כל מה שעל כל תיק (לוחם, צ׳קליסט, חתימה, פק״ל, היסטוריה) עובר איתו.">
+        <div className="flex gap-2">
+          <Input
+            id="swap-kit"
+            inputMode="numeric"
+            dir="ltr"
+            placeholder={`1–${maxNumber}`}
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value.replace(/\D/g, ""));
+              setConfirming(false);
+              setError(null);
+            }}
+            className="w-24 text-center"
+            disabled={pending}
+          />
+          {!confirming ? (
+            <Button type="button" variant="outline" disabled={!valid || pending} onClick={() => setConfirming(true)}>
+              המשך
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                start(async () => {
+                  const r = await swapKitNumbers(kitNumber, other);
+                  if (!r.ok) {
+                    setError(r.message ?? "ההחלפה נכשלה");
+                    setConfirming(false);
+                    return;
+                  }
+                  // This kit now carries the other number.
+                  router.push(`/kits/${other}`);
+                })
+              }
+            >
+              {pending ? "מחליף…" : `כן, ${kitNumber} ⇄ ${other}`}
+            </Button>
+          )}
+          <Button type="button" variant="ghost" disabled={pending} onClick={() => setOpen(false)}>
+            ביטול
+          </Button>
+        </div>
+      </Field>
+      {confirming && <p className="text-sm">תיק {kitNumber} יהפוך לתיק {other}, ותיק {other} יהפוך לתיק {kitNumber}. לאשר?</p>}
+      {error && (
+        <p role="alert" className="text-danger text-sm">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

@@ -512,3 +512,28 @@ export async function setKitPakal(kitNumber: number, pakalId: string | null): Pr
   refresh();
   return { ok: true, message: pakalId ? 'הערכה סומנה כתיק פק"ל' : 'סימון הפק"ל הוסר' };
 }
+
+// ───────────── Swap kit numbers ─────────────
+
+/**
+ * Swap two kits' numbers in the active deployment (e.g. bag 2 ⇄ bag 36). Everything on a kit moves
+ * with it — soldier, checklist, signature, פק"ל, contents check, returns and inspections — only the
+ * numbers change places. Admin only. Closed deployments keep their own numbers.
+ */
+export async function swapKitNumbers(kitNumber: number, otherNumber: number): Promise<KitResult> {
+  const w = await writableContext({ admin: true });
+  if (!w.ok) return { ok: false, message: w.message };
+  const { user, db, deployment } = w;
+  if (!Number.isInteger(otherNumber) || otherNumber === kitNumber) return { ok: false, message: "יש לבחור מספר תיק אחר" };
+  const ids = { companyId: user.companyId, deploymentId: deployment.id };
+  if (!(await validKitNumber(db, user.companyId, otherNumber))) return { ok: false, message: "מספר התיק מחוץ לטווח הערכות של הפלוגה" };
+  await db.$transaction(async (tx) => {
+    const [a, b] = [await ensureKit(tx, ids, kitNumber), await ensureKit(tx, ids, otherNumber)];
+    // (deploymentId, kitNumber) is unique: park one kit on a number no kit uses, then swap.
+    await tx.personalKit.update({ where: { id: a.id }, data: { kitNumber: -kitNumber } });
+    await tx.personalKit.update({ where: { id: b.id }, data: { kitNumber } });
+    await tx.personalKit.update({ where: { id: a.id }, data: { kitNumber: otherNumber } });
+  });
+  refresh();
+  return { ok: true, message: `תיק ${kitNumber} ותיק ${otherNumber} החליפו מספרים` };
+}

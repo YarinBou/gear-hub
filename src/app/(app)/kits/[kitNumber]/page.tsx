@@ -14,7 +14,7 @@ import { PlatoonBadge } from "@/components/platoon-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AssignKitForm, KitPakalForm, WeaponForm } from "./kit-forms";
+import { AssignKitForm, KitPakalForm, SwapKitNumberForm, WeaponForm } from "./kit-forms";
 import { PakalBadge } from "@/components/pakal-badge";
 import { isCompanyAdmin } from "@/lib/roles";
 import { getPakals } from "@/lib/queries/kits";
@@ -30,7 +30,8 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
   if (!deployment) return <NoDeploymentCard what="ערכות אישיות והחתמות" />;
   const [{ kitNumber: raw }, sp] = await Promise.all([params, searchParams]);
   const kitNumber = Number(raw);
-  if (!Number.isInteger(kitNumber) || kitNumber < 1 || kitNumber > (await getKitSlots())) notFound();
+  const slots = await getKitSlots();
+  if (!Number.isInteger(kitNumber) || kitNumber < 1 || kitNumber > slots) notFound();
   // Inspection walk can be scoped to one platoon: /kits/12?platoon=<platoon id>
   const platoon = (await getPlatoons()).find((p) => p.id === sp.platoon)?.id;
 
@@ -176,6 +177,9 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
                 {isAdmin && !deployment.readOnly && (
                   <div className="mt-4 border-t pt-4">
                     <KitPakalForm key={kit?.pakal?.id ?? "none"} kitNumber={kitNumber} current={kit?.pakal?.id ?? null} pakals={pakals} />
+                    <div className="mt-4">
+                      <SwapKitNumberForm key={kitNumber} kitNumber={kitNumber} maxNumber={slots} />
+                    </div>
                   </div>
                 )}
               </CardContent>
