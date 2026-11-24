@@ -229,16 +229,18 @@ export async function getFreeKitNumbers() {
 export async function getKitSummary(platoonId?: string) {
   await connection();
   const { db, deployment } = await companyContext();
-  if (!deployment) return { kits: 0, signedKits: 0, stockKits: 0, lines: [], weapons: 0 };
-  const [kits, stockKits, activeDefs] = await Promise.all([
+  if (!deployment) return { kits: 0, signedKits: 0, stockKits: 0, partialStock: 0, lines: [], weapons: 0 };
+  const [kits, stockKits, partialStock, activeDefs] = await Promise.all([
     db.personalKit.findMany({
       where: { soldierId: { not: null }, ...(platoonId ? { soldier: { platoonId } } : {}) },
       select: { signedAt: true, personalWeaponId: true, ...kitItemsSelect },
     }),
-    // Returned kits waiting in stock (they belong to no platoon): what is really in them.
+    // Kits in stock whose contents were checked (✓ נבדק — a contents check or a full return): what is
+    // really in them. They belong to no platoon.
     platoonId
       ? []
-      : db.personalKit.findMany({ where: { soldierId: null, returns: { some: {} } }, select: kitItemsSelect }),
+      : db.personalKit.findMany({ where: { soldierId: null, contentsCheckedAt: { not: null } }, select: kitItemsSelect }),
+    platoonId ? 0 : db.personalKit.count({ where: { soldierId: null, contentsCheckedAt: null, returns: { some: {} } } }),
     activeItemDefs(db),
   ]);
   const history = !!deployment.readOnly;
@@ -246,6 +248,8 @@ export async function getKitSummary(platoonId?: string) {
     kits: kits.length,
     signedKits: kits.filter((k) => k.signedAt).length,
     stockKits: stockKits.length,
+    /** Returned kits in stock whose contents weren't fully checked — not counted in "במלאי". */
+    partialStock,
     lines: summarizeKits([
       ...kits.map((k) => ({ signed: !!k.signedAt, lines: checklistLines(k.items, { history, activeDefs, pakal: k.pakal }) })),
       ...stockKits.map((k) => ({

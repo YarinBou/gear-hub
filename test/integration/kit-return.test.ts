@@ -113,7 +113,8 @@ describe("kit return (זיכוי ערכה)", () => {
     const helmet = await kitItemId("קסדה");
     const bag = await kitItemId("שק שינה");
     const [mag, ammo] = [await kitItemId("מחסניות"), await kitItemId("כדורים")];
-    await returnKit(9, { soldierId: soldier.id, returned: { [helmet]: 1, [bag]: 0, [mag]: 7, [ammo]: 210 }, gapNotes: {} });
+    // Returned with the rest of the bag checked (found: nothing else) → a checked kit in stock.
+    await returnKit(9, { soldierId: soldier.id, returned: { [helmet]: 1, [bag]: 0, [mag]: 7, [ammo]: 210 }, gapNotes: {}, found: {} });
 
     expect(await kitLine(id, "קסדה")).toMatchObject({ present: true });
     expect(await kitLine(id, "שק שינה")).toMatchObject({ present: false });
@@ -126,7 +127,7 @@ describe("kit return (זיכוי ערכה)", () => {
 
     // The totals count what is in the returned kit as stock.
     const summary = await getKitSummary();
-    expect(summary.stockKits).toBe(1);
+    expect(summary).toMatchObject({ stockKits: 1, partialStock: 0 });
     expect(summary.lines.find((l) => l.label === "קסדה")).toMatchObject({ stock: 1 });
     expect(summary.lines.find((l) => l.label === "שק שינה")).toMatchObject({ stock: 0 });
 
