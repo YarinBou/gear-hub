@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { Undo2 } from "lucide-react";
 import type { EquipmentStatus } from "@/generated/prisma/enums";
 import { EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
@@ -85,13 +86,13 @@ export function SoldierEquipment({
       <ul className="divide-y">
         {items.map((e) => (
           <li key={e.id} className="flex items-center gap-2 py-2 text-sm">
-            <div className="min-w-0 flex-1">
-              <p className="font-medium">{e.category.name}</p>
+            <Link href={`/equipment/${e.id}`} className="hover:bg-accent -mx-2 -my-1 min-w-0 flex-1 rounded-md px-2 py-1">
+              <p className="text-primary font-medium underline-offset-4 hover:underline">{e.category.name}</p>
               <p className="text-muted-foreground text-xs">
                 <Serial value={e.serialNumber} />
                 {e.parentId && " · רכיב — מזוכה עם הפריט הראשי"}
               </p>
-            </div>
+            </Link>
             {e.stale && <Badge variant="warning">לא אומת</Badge>}
             <Badge variant={e.status === "MISSING" ? "danger" : "secondary"}>{EQUIPMENT_STATUS_LABELS[e.status]}</Badge>
             {canReturn && !e.parentId && (
