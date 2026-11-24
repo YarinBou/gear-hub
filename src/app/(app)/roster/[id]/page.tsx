@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Backpack, Crosshair, Phone } from "lucide-react";
+import { Backpack, Crosshair, PackagePlus, Phone } from "lucide-react";
 import { companyContext } from "@/lib/context";
 import { VERIFICATION_STALE_DAYS } from "@/lib/constants";
 import { getSoldier, getSoldierReturnHistory } from "@/lib/queries/soldiers";
-import { getFreeKitNumbers } from "@/lib/queries/kits";
+import { getFreeKitNumbers, getLooseItemOptions } from "@/lib/queries/kits";
 import { getActivePlatoons } from "@/lib/queries/platoons";
 import { daysAgo, formatDate } from "@/lib/utils";
 import { BackLink } from "@/components/layout/back-link";
@@ -18,6 +18,7 @@ import { SoldierForm } from "../soldier-form";
 import { ActiveToggle, PresenceToggle } from "./active-toggle";
 import { IssueKitForm } from "./issue-kit-form";
 import { SoldierEquipment } from "./soldier-equipment";
+import { SoldierLooseItems } from "./soldier-loose-items";
 import { ReturnHistory } from "./return-history";
 import { ReadOnlyWhenClosed } from "@/components/deployment-gate";
 
@@ -26,7 +27,12 @@ export const metadata: Metadata = { title: "כרטיס לוחם" };
 export default async function SoldierPage({ params }: PageProps<"/roster/[id]">) {
   const { deployment } = await companyContext();
   const { id } = await params;
-  const [soldier, active, history] = await Promise.all([getSoldier(id), getActivePlatoons(), getSoldierReturnHistory(id)]);
+  const [soldier, active, history, looseOptions] = await Promise.all([
+    getSoldier(id),
+    getActivePlatoons(),
+    getSoldierReturnHistory(id),
+    getLooseItemOptions(),
+  ]);
   if (!soldier) notFound();
   const staleBefore = daysAgo(VERIFICATION_STALE_DAYS);
   // A kit can be issued here: an active soldier who is in the active deployment and has none.
@@ -130,6 +136,25 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
               />
             </CardContent>
           </Card>
+
+          {deployment && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <PackagePlus className="size-4" /> פריטים מחוץ לתיק
+                </CardTitle>
+                <CardDescription>ציוד שנמסר ללוחם בנפרד מהערכה (למשל פק&quot;ל ירך, שק שינה)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <SoldierLooseItems
+                  soldierId={soldier.id}
+                  rows={soldier.looseItems}
+                  options={looseOptions}
+                  canEdit={!deployment.readOnly && soldier.isActive && soldier.inDeployment === true}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {deployment && soldier.isActive && soldier.inDeployment !== null && (
             <ReadOnlyWhenClosed>

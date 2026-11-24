@@ -13,8 +13,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
  * older ones are collapsed.
  */
 export function ReturnHistory({ history }: { history: SoldierReturnHistory }) {
-  const { kitReturns, equipmentReturns } = history;
-  if (!kitReturns.length && !equipmentReturns.length) return null;
+  const { kitReturns, equipmentReturns, looseReturns } = history;
+  if (!kitReturns.length && !equipmentReturns.length && !looseReturns.length) return null;
 
   return (
     <Card>
@@ -77,6 +77,32 @@ export function ReturnHistory({ history }: { history: SoldierReturnHistory }) {
                 </details>
               );
             })}
+          </section>
+        )}
+
+        {looseReturns.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-muted-foreground text-sm font-semibold">פריטים מחוץ לתיק</h3>
+            <ul className="divide-y rounded-md border text-sm">
+              {looseReturns.map((r) => (
+                <li key={r.id} className="flex flex-col gap-0.5 px-3 py-2">
+                  <p className="text-muted-foreground text-xs">
+                    {formatDateTime(r.createdAt)} · {r.deployment.name}
+                    {r.performedBy && ` · ${r.performedBy.name}`}
+                  </p>
+                  {r.lines.map((l, j) => {
+                    const short = l.returned < l.expected;
+                    return (
+                      <p key={j} className={cn(short && "text-danger")}>
+                        {l.label} — נמסר {l.expected}, חזר {l.returned}
+                        {l.note && <span className="text-muted-foreground"> — {l.note}</span>}
+                      </p>
+                    );
+                  })}
+                  {r.note && <p className="text-muted-foreground">&quot;{r.note}&quot;</p>}
+                </li>
+              ))}
+            </ul>
           </section>
         )}
 

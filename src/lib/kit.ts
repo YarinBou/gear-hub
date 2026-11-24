@@ -214,6 +214,8 @@ export type KitSummaryLine = {
   missing: number;
   /** Total in returned kits waiting in the company's stock (not counted in have / missing). */
   stock: number;
+  /** Total held by soldiers outside any kit (not counted in have / missing). */
+  loose?: number;
 };
 
 /**

@@ -166,6 +166,6 @@ describe("kit return (זיכוי ערכה)", () => {
 
     // Another soldier's history is separate.
     const other = await makeSoldier({ name: "אחר" });
-    expect(await getSoldierReturnHistory(other.id)).toEqual({ kitReturns: [], equipmentReturns: [] });
+    expect(await getSoldierReturnHistory(other.id)).toEqual({ kitReturns: [], equipmentReturns: [], looseReturns: [] });
   });
 });

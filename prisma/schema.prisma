@@ -95,6 +95,8 @@ model Company {
   personalKits         PersonalKit[]
   kitInspections       KitInspection[]
   kitReturns           KitReturn[]
+  soldierItems         SoldierItem[]
+  soldierItemReturns   SoldierItemReturn[]
   storageItems         StorageItem[]
   platoons             Platoon[]
   deploymentAbsences   DeploymentAbsence[]
@@ -125,6 +127,9 @@ model Deployment {
   equipmentLogs EquipmentLog[]
   /// Roster soldiers who are NOT in this deployment (everyone else is).
   absences      DeploymentAbsence[]
+  /// Checklist items held by soldiers outside any kit.
+  soldierItems       SoldierItem[]
+  soldierItemReturns SoldierItemReturn[]
 
   @@unique([companyId, name])
   @@index([companyId, status])
@@ -153,6 +158,8 @@ model User {
   ammoLogs           AmmoLog[]
   kitInspections     KitInspection[]
   kitReturns         KitReturn[]
+  soldierItemsIssued SoldierItem[]       @relation("SoldierItemIssuedBy")
+  soldierItemReturns SoldierItemReturn[]
   signedKits         PersonalKit[]   @relation("KitSignedBy")
   checkedKits        PersonalKit[]   @relation("KitContentsCheckedBy")
   deploymentsCreated Deployment[]    @relation("DeploymentCreatedBy")
@@ -200,6 +207,9 @@ model Soldier {
   absences    DeploymentAbsence[]
   /// Kits this soldier returned (זיכוי), with what came back.
   kitReturns  KitReturn[]
+  /// Items held outside any kit (e.g. a thigh pouch, a sleeping bag), and their returns.
+  looseItems       SoldierItem[]
+  looseItemReturns SoldierItemReturn[]
   /// Ammo held personally by this soldier (AmmoStock rows whose "location" is the soldier).
   ammoStocks  AmmoStock[]
   logsFrom    EquipmentLog[]        @relation("LogFromSoldier")
@@ -582,10 +592,58 @@ model KitItemDef {
   updatedAt      DateTime @updatedAt
 
   statuses   KitItemStatus[]
+  heldLoose  SoldierItem[]
   pakalItems PakalItem[]
 
   @@unique([companyId, systemKey])
   @@index([companyId, isActive, sortOrder])
+}
+
+/// A checklist item a soldier holds outside any kit (e.g. a thigh pouch or a sleeping bag handed out
+/// on the move), in one deployment. Items come from the company's checklist (KitItemDef), so they
+/// count together with the kits. Recorded with who issued it and when — no signature.
+/// Adding the same item again adds to the quantity.
+model SoldierItem {
+  id           String     @id @default(cuid())
+  companyId    String
+  company      Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  deploymentId String
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Restrict)
+  soldierId    String
+  soldier      Soldier    @relation(fields: [soldierId], references: [id], onDelete: Restrict)
+  itemId       String
+  item         KitItemDef @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  quantity     Int
+  note         String?
+  issuedById   String?
+  issuedBy     User?      @relation("SoldierItemIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([deploymentId, soldierId, itemId])
+  @@index([companyId])
+  @@index([itemId])
+}
+
+/// A return (זיכוי) of items held outside any kit: what was held vs what came back, with gap notes.
+model SoldierItemReturn {
+  id            String     @id @default(cuid())
+  companyId     String
+  company       Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  deploymentId  String
+  deployment    Deployment @relation(fields: [deploymentId], references: [id], onDelete: Restrict)
+  soldierId     String?
+  soldier       Soldier?   @relation(fields: [soldierId], references: [id], onDelete: SetNull)
+  /// [{ "label", "expected", "returned", "note"? }] — read through parseReturnLines().
+  lines         Json       @default("[]")
+  gapCount      Int        @default(0)
+  note          String?
+  performedById String?
+  performedBy   User?      @relation(fields: [performedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime   @default(now())
+
+  @@index([soldierId, createdAt])
+  @@index([companyId])
 }
 
 /// A פק"ל (role kit type), e.g. נגביסט / מא"ג / חובש. Admin-managed on /kits/items. A kit marked

@@ -12,6 +12,8 @@ export function KitSummaryTable({ summary, compact = false }: { summary: KitSumm
   ].filter((r) => r.have > 0);
   // "במלאי": what is in returned kits waiting in stock — shown only when there are any.
   const showStock = summary.lines.some((l) => l.stock > 0);
+  // "מחוץ לתיק": items soldiers hold outside any kit.
+  const showLoose = summary.lines.some((l) => (l.loose ?? 0) > 0);
 
   const head = (
     <thead className="text-muted-foreground border-b text-xs">
@@ -21,6 +23,7 @@ export function KitSummaryTable({ summary, compact = false }: { summary: KitSumm
         <th className={cn("w-20 text-center font-medium", compact ? "py-1.5" : "px-2 py-2")}>קיים</th>
         <th className={cn("w-20 text-center font-medium", compact ? "py-1.5" : "px-2 py-2")}>חסר</th>
         {showStock && <th className={cn("w-20 text-center font-medium", compact ? "py-1.5" : "px-2 py-2")}>במלאי</th>}
+        {showLoose && <th className={cn("w-20 text-center font-medium", compact ? "py-1.5" : "px-2 py-2")}>מחוץ לתיק</th>}
       </tr>
     </thead>
   );
@@ -31,6 +34,7 @@ export function KitSummaryTable({ summary, compact = false }: { summary: KitSumm
       <td className="text-center">{formatNumber(l.have)}</td>
       <td className={cn("text-center", l.missing > 0 && "text-danger font-semibold")}>{weaponCard ? "—" : l.missing ? formatNumber(l.missing) : "—"}</td>
       {showStock && <td className="text-center">{weaponCard || !l.stock ? "—" : formatNumber(l.stock)}</td>}
+      {showLoose && <td className="text-center">{weaponCard || !l.loose ? "—" : formatNumber(l.loose)}</td>}
     </tr>
   );
 
