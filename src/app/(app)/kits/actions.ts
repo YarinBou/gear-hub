@@ -65,18 +65,18 @@ async function writeLine(
     select: { id: true, targetQuantity: true, optional: true },
   });
   if (!def) return false;
-  const data: { quantity?: number; present?: boolean; baseline?: number } =
+  const data: { quantity?: number; present?: boolean; baseline?: number | null } =
     def.targetQuantity != null
       ? { quantity: value.quantity ?? (value.present ? def.targetQuantity : 0) }
       : { present: value.present ?? (value.quantity ?? 0) > 0 };
   // Marking something as there on a line that isn't part of this kit (not signed for, or an optional
-  // item) adds it to the kit: it now counts as signed for, at the amount found.
+  // item) adds it to the kit: it now counts as signed for, at the amount found. Until the kit is
+  // signed, an optional line keeps following what is in the bag (0 takes it out again).
   const have = def.targetQuantity != null ? data.quantity! : data.present ? 1 : 0;
-  if (have > 0) {
-    const row = await db.kitItemStatus.findUnique({ where: { kitId_itemId: { kitId: kit.id, itemId } }, select: { baseline: true } });
-    const baseline = row?.baseline ?? null;
-    if (baseline === 0 || (baseline === null && def.optional)) data.baseline = have;
-  }
+  const row = await db.kitItemStatus.findUnique({ where: { kitId_itemId: { kitId: kit.id, itemId } }, select: { baseline: true } });
+  const baseline = row?.baseline ?? null;
+  if (def.optional && !kit.signedAt) data.baseline = have > 0 ? have : null;
+  else if (have > 0 && (baseline === 0 || (baseline === null && def.optional))) data.baseline = have;
   await db.kitItemStatus.upsert({
     where: { kitId_itemId: { kitId: kit.id, itemId } },
     update: data,

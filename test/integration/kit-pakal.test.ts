@@ -16,9 +16,7 @@ const SIGNATURE = "data:image/png;base64,AAAA";
 async function setup() {
   await loginAs("ADMIN");
   await activeDeployment();
-  expect(await createKitItem(undefined, form({ label: "תופי נגב", groupName: "תחמושת", targetQuantity: 4, optional: "on" }))).toMatchObject({
-    ok: true,
-  });
+  // "תופי נגב" is one of the default checklist items (optional, × 4).
   expect(await createKitItem(undefined, form({ label: "וסט נגב", groupName: "ציוד אישי ללוחם", optional: "on" }))).toMatchObject({ ok: true });
   expect(await createPakal(undefined, form({ name: "נגביסט" }))).toMatchObject({ ok: true });
   const pakal = await prisma.pakal.findFirstOrThrow({ where: { name: "נגביסט" } });
@@ -126,5 +124,16 @@ describe('magazines, optional items and תיק פק"ל', () => {
     const helmet = await kitItemId("קסדה");
     await setKitItem(6, helmet, false);
     expect(line((await getKit(6))!.lines, "קסדה")).toMatchObject({ present: false, baseline: 0 });
+  });
+
+  it("before signing, an optional line follows what's in the bag (+2 drums → 2/2, back to 0 → out)", async () => {
+    const { drums } = await setup();
+    const soldier = await makeSoldier();
+    await assignKit(8, undefined, form({ soldierId: soldier.id }));
+    await setKitItemQuantity(8, drums, 1);
+    await setKitItemQuantity(8, drums, 2);
+    expect(line((await getKit(8))!.lines, "תופי נגב")).toMatchObject({ quantity: 2, baseline: 2 });
+    await setKitItemQuantity(8, drums, 0);
+    expect(line((await getKit(8))!.lines, "תופי נגב")).toMatchObject({ quantity: 0, baseline: null });
   });
 });

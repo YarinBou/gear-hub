@@ -156,6 +156,7 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
                 issued={issued}
                 canCheck={!deployment.readOnly}
                 checkedAt={kit?.contentsCheckedAt ?? null}
+                signed={!!kit?.signedAt}
               />
             </CardContent>
           </Card>

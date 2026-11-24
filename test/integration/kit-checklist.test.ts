@@ -57,7 +57,9 @@ describe("managing the checklist", () => {
     await createKitItem(undefined, form({ label: "רימונים", groupName: "נשק אישי", targetQuantity: 7 }));
     await assignKit(2, undefined, form({ soldierId: soldier.id }));
     await setAllKitItems(2);
-    expect((await getKit(2))!.lines.every((l) => (l.targetQuantity ? l.quantity === l.targetQuantity : l.present))).toBe(true);
+    // Every line that is part of the kit is full; optional ones (drums) aren't added by "הכל קיים".
+    const filled = (await getKit(2))!.lines.filter((l) => !l.optional);
+    expect(filled.every((l) => (l.targetQuantity ? l.quantity === l.targetQuantity : l.present))).toBe(true);
 
     await setKitItemQuantity(2, await kitItemId("רימונים"), 5);
     expect(await completeInspection(2, "")).toMatchObject({ ok: true, message: "מסדר נרשם — פריט אחד חסר" });
