@@ -179,10 +179,9 @@ export async function attachComponent(
   { takeOver = false }: { takeOver?: boolean } = {},
 ) {
   if (parentId === childId) throw new AssignmentError("לא ניתן לצרף פריט לעצמו");
-  const [parent, child] = await Promise.all([
-    tx.equipmentItem.findUnique({ where: { id: parentId }, select: linkSelect }),
-    tx.equipmentItem.findUnique({ where: { id: childId }, select: linkSelect }),
-  ]);
+  // Sequential: a transaction's queries share one connection.
+  const parent = await tx.equipmentItem.findUnique({ where: { id: parentId }, select: linkSelect });
+  const child = await tx.equipmentItem.findUnique({ where: { id: childId }, select: linkSelect });
   if (!parent || !child) throw new AssignmentError("הפריט לא נמצא");
   if (parent.parentId) throw new AssignmentError("פריט שהוא רכיב לא יכול לשמש כפריט ראשי");
   if (child.parentId) throw new AssignmentError(`${itemLabel(child)} כבר משויך כרכיב של פריט אחר`);
@@ -195,10 +194,10 @@ export async function attachComponent(
   const [parentRow, childRow] = [await ensureAssignment(tx, ctx, parent.id), await ensureAssignment(tx, ctx, child.id)];
   let movedFrom: string | null = null;
   if (childRow.soldierId && childRow.soldierId !== parentRow.soldierId) {
-    const [holder, parentHolder] = await Promise.all([
-      tx.soldier.findUnique({ where: { id: childRow.soldierId }, select: { id: true, name: true } }),
-      parentRow.soldierId ? tx.soldier.findUnique({ where: { id: parentRow.soldierId }, select: { id: true, name: true } }) : null,
-    ]);
+    const holder = await tx.soldier.findUnique({ where: { id: childRow.soldierId }, select: { id: true, name: true } });
+    const parentHolder = parentRow.soldierId
+      ? await tx.soldier.findUnique({ where: { id: parentRow.soldierId }, select: { id: true, name: true } })
+      : null;
     const holderName = holder?.name ?? "לוחם אחר";
     if (!takeOver) {
       throw new HolderConflictError(`${itemLabel(child)} מוחזק ע"י ${holderName}`, {
@@ -237,10 +236,11 @@ export async function createNoSerialComponent(
   parentId: string,
   categoryId: string,
 ) {
-  const [parent, category] = await Promise.all([
-    tx.equipmentItem.findUnique({ where: { id: parentId }, select: linkSelect }),
-    tx.equipmentCategory.findFirst({ where: { id: categoryId, domain: "EQUIPMENT" }, select: { id: true, name: true } }),
-  ]);
+  const parent = await tx.equipmentItem.findUnique({ where: { id: parentId }, select: linkSelect });
+  const category = await tx.equipmentCategory.findFirst({
+    where: { id: categoryId, domain: "EQUIPMENT" },
+    select: { id: true, name: true },
+  });
   if (!parent) throw new AssignmentError("הפריט לא נמצא");
   if (parent.parentId) throw new AssignmentError("פריט שהוא רכיב לא יכול לשמש כפריט ראשי");
   if (!category) throw new AssignmentError("סוג הרכיב לא נמצא");
