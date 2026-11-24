@@ -131,10 +131,9 @@ export async function captureBaseline(tx: Tx, kitId: string) {
 
 /** "הכל קיים": every line that is part of this kit gets what it should have. */
 export async function fillKit(tx: Tx, kitId: string) {
-  const [rows, required] = await Promise.all([
-    tx.kitItemStatus.findMany({ where: { kitId, item: { isActive: true } }, select: rowSelect }),
-    pakalRequirements(tx, kitId),
-  ]);
+  // One after the other: queries on a transaction share one connection (no parallel queries on it).
+  const rows = await tx.kitItemStatus.findMany({ where: { kitId, item: { isActive: true } }, select: rowSelect });
+  const required = await pakalRequirements(tx, kitId);
   const lines = rows.map((r) => ({
     ...r,
     targetQuantity: r.item.targetQuantity,
