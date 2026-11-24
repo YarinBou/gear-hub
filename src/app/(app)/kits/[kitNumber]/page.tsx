@@ -16,8 +16,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AssignKitForm, KitPakalForm, SwapKitNumberForm, WeaponForm } from "./kit-forms";
 import { PakalBadge } from "@/components/pakal-badge";
+import { applyKitView, kitViewQuery, parseKitView, type KitView } from "@/lib/kit-filters";
 import { isCompanyAdmin } from "@/lib/roles";
-import { getPakals } from "@/lib/queries/kits";
+import { getPakals, listKits } from "@/lib/queries/kits";
 import { KitChecklist } from "./kit-checklist";
 import { SignaturePad } from "./signature-pad";
 import { KitReturn } from "./kit-return";
@@ -32,8 +33,11 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
   const kitNumber = Number(raw);
   const slots = await getKitSlots();
   if (!Number.isInteger(kitNumber) || kitNumber < 1 || kitNumber > slots) notFound();
-  // Inspection walk can be scoped to one platoon: /kits/12?platoon=<platoon id>
-  const platoon = (await getPlatoons()).find((p) => p.id === sp.platoon)?.id;
+  // The grid's view (platoon / filter / פק"ל) comes along, so ‹ › walk the same kits it showed:
+  // /kits/12?platoon=<id>&filter=checked&pakal=<id>
+  const parsed = parseKitView(sp);
+  const platoon = (await getPlatoons()).find((p) => p.id === parsed.platoon)?.id;
+  const view = { ...parsed, platoon };
 
   const kit = await getKit(kitNumber);
   const soldierId = kit?.soldierId ?? null;
@@ -41,7 +45,7 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
     getSoldierOptions(),
     getSoldiersWithKit(kitNumber),
     getWeaponOptions(soldierId, kit?.personalWeaponId ?? null),
-    getKitNeighbours(kitNumber, platoon),
+    view.filter || view.pakal ? filteredNeighbours(kitNumber, view) : getKitNeighbours(kitNumber, platoon),
   ]);
   const assignable = allSoldiers.filter((s) => !withKit.has(s.id));
   const isAdmin = isCompanyAdmin(user.role);
@@ -52,13 +56,13 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
   const issued = !!kit?.soldier;
   const stock = stockCheckState({ contentsCheckedAt: kit?.contentsCheckedAt ?? null, returned: (kit?._count.returns ?? 0) > 0 });
   const coverage = kit?.signedAt ? signatureCoverage(lines) : null;
-  const navHref = (n: number) => `/kits/${n}${platoon ? `?platoon=${platoon}` : ""}`;
+  const navHref = (n: number) => `/kits/${n}${kitViewQuery(view)}`;
 
   return (
     <ReadOnlyWhenClosed>
       <div className="mx-auto flex max-w-5xl flex-col gap-4">
         <div className="flex items-center justify-between gap-2">
-          <BackLink href={platoon ? `/kits?platoon=${platoon}` : "/kits"} label="כל הערכות" />
+          <BackLink href={`/kits${kitViewQuery(view)}`} label="כל הערכות" />
           {/* Walk through issued kits during a מסדר (RTL: previous is on the right) */}
           <nav aria-label="מעבר בין ערכות" className="flex items-center gap-1">
             <Button asChild={!!nav.prev} variant="outline" size="sm" disabled={!nav.prev}>
@@ -338,4 +342,13 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
       </div>
     </ReadOnlyWhenClosed>
   );
+}
+
+/** Previous / next kit among those the grid's filtered view shows (by kit number). */
+async function filteredNeighbours(kitNumber: number, view: KitView) {
+  const numbers = applyKitView(await listKits(), view).map((k) => k.kitNumber);
+  return {
+    prev: numbers.filter((n) => n < kitNumber).at(-1) ?? null,
+    next: numbers.find((n) => n > kitNumber) ?? null,
+  };
 }
