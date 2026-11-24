@@ -106,10 +106,14 @@ export const DEFAULT_KIT_ITEMS: {
   targetQuantity?: number;
   /** Overrides the company's start setting (a kit in stock keeps its magazines and rounds). */
   startPresent?: boolean;
+  /** Only in kits whose soldier signs for it or whose פק"ל requires it (e.g. drums). */
+  optional?: boolean;
 }[] = [
   { label: "נשק אישי", groupName: "נשק אישי", systemKey: WEAPON_ITEM },
   { label: "מחסניות", groupName: "תחמושת", targetQuantity: 7, startPresent: true },
   { label: "כדורים", groupName: "תחמושת", targetQuantity: 210, startPresent: true },
+  { label: "תופי נגב", groupName: "תחמושת", targetQuantity: 4, startPresent: false, optional: true },
+  { label: 'תופי מא"ג', groupName: "תחמושת", targetQuantity: 4, startPresent: false, optional: true },
   { label: "ערכת ניקוי", groupName: "כלי ניקוי ונשק" },
   { label: "רצועת נשק", groupName: "כלי ניקוי ונשק" },
   { label: "שמן נשק", groupName: "כלי ניקוי ונשק" },

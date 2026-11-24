@@ -9,7 +9,7 @@ import { expectedOf, groupLines, haveOf, kitReadiness, lineApplies, lineComplete
 import { cn } from "@/lib/utils";
 import { completeContentsCheck, completeInspection, setAllKitItems, setKitBaseline, setKitItem, setKitItemQuantity } from "../actions";
 
-type Patch = { itemId: string | "*"; present?: boolean; quantity?: number; baseline?: number };
+type Patch = { itemId: string | "*"; present?: boolean; quantity?: number; baseline?: number | null };
 
 /**
  * Inspection checklist (the company's own list — see /kits/items). Every tap saves immediately
@@ -25,6 +25,7 @@ export function KitChecklist({
   issued,
   canCheck = false,
   checkedAt = null,
+  signed = false,
 }: {
   kitNumber: number;
   lines: ChecklistLine[];
@@ -33,6 +34,8 @@ export function KitChecklist({
   canCheck?: boolean;
   /** When its contents were last checked (null = never). */
   checkedAt?: Date | null;
+  /** Whether the soldier has signed (what they signed for is then fixed). */
+  signed?: boolean;
 }) {
   const [optimistic, apply] = useOptimistic(lines, (state: ChecklistLine[], p: Patch) =>
     state.map((l) => {
@@ -58,7 +61,6 @@ export function KitChecklist({
   const [inspectionMsg, setInspectionMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const applicable = optimistic.filter(lineApplies);
-  const notMine = optimistic.filter((l) => !lineApplies(l));
   const hasBaseline = optimistic.some((l) => l.baseline != null);
   const total = applicable.length;
   const complete = applicable.filter(lineComplete).length;
@@ -74,7 +76,9 @@ export function KitChecklist({
   };
   // A line that isn't part of the kit joins it when something is marked as there (the server records
   // it as signed for at that amount); the optimistic patch moves it up right away.
-  const joins = (line: ChecklistLine, have: number) => (!lineApplies(line) && have > 0 ? { baseline: have } : {});
+  // Unsigned kit: an optional line follows what's in the bag (like the server does).
+  const joins = (line: ChecklistLine, have: number) =>
+    line.optional && !signed ? { baseline: have > 0 ? have : null } : !lineApplies(line) && have > 0 ? { baseline: have } : {};
   const toggle = (line: ChecklistLine) =>
     save({ itemId: line.itemId, present: !line.present, ...joins(line, line.present ? 0 : 1) }, () =>
       setKitItem(kitNumber, line.itemId, !line.present),
@@ -140,59 +144,56 @@ export function KitChecklist({
       </div>
       {hasBaseline && <p className="text-muted-foreground -mt-2 text-xs">חוסרים נבדקים מול מה שהלוחם חתם עליו</p>}
 
-      {groupLines(applicable).map((g) => (
-        <section key={g.groupName}>
-          <h3 className="text-muted-foreground mb-1 text-xs font-semibold">
-            {g.groupName} ({g.lines.filter(lineComplete).length}/{g.lines.length})
-          </h3>
-          <ul className="divide-y rounded-lg border">
-            {g.lines.map((line) => (
-              <li key={line.itemId}>
-                {line.targetQuantity != null ? (
-                  <QuantityRow line={line} onChange={(q) => setQuantity(line, q)} />
-                ) : (
-                  <ToggleRow line={line} onToggle={() => toggle(line)} />
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-
-      {notMine.length > 0 && (
-        <details className="rounded-lg border">
-          <summary className="text-muted-foreground cursor-pointer px-3 py-2 text-sm">
-            לא שייך לתיק הזה ({notMine.length})
-          </summary>
-          <p className="text-muted-foreground border-t px-3 pt-2 text-xs">
-            פריטים אופציונליים או שהלוחם לא חתם עליהם. סימון כקיים מוסיף את הפריט לתיק.
-          </p>
-          <ul className="divide-y text-sm">
-            {notMine.map((l) => (
-              <li key={l.itemId}>
-                {l.targetQuantity != null ? (
-                  <div className="flex min-h-12 items-center gap-3 px-3" role="group" aria-label={l.label}>
-                    <span className="text-muted-foreground flex-1">{l.label}</span>
-                    <Stepper label={l.label} value={haveOf(l)} onChange={(q) => setQuantity(l, q)} display={String(haveOf(l))} tone="" />
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => addToKit(l)}
-                    className="active:bg-accent flex min-h-12 w-full items-center gap-3 px-3 text-start"
-                  >
-                    <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center rounded-full">
-                      <Plus className="size-4" />
-                    </span>
-                    <span className="text-muted-foreground flex-1">{l.label}</span>
-                    <span className="text-muted-foreground text-xs">סימון כקיים</span>
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+      {/* Each group lists its kit lines, then — muted, with + / − — items that aren't part of this kit
+          (optional ones like drums, or not signed for). Adding one puts it in the kit. */}
+      {groupLines(optimistic).map((g) => {
+        const mine = g.lines.filter(lineApplies);
+        const extra = g.lines.filter((l) => !lineApplies(l));
+        return (
+          <section key={g.groupName}>
+            <h3 className="text-muted-foreground mb-1 text-xs font-semibold">
+              {g.groupName} {mine.length > 0 && `(${mine.filter(lineComplete).length}/${mine.length})`}
+            </h3>
+            <ul className="divide-y rounded-lg border">
+              {mine.map((line) => (
+                <li key={line.itemId}>
+                  {line.targetQuantity != null ? (
+                    <QuantityRow line={line} onChange={(q) => setQuantity(line, q)} />
+                  ) : (
+                    <ToggleRow line={line} onToggle={() => toggle(line)} />
+                  )}
+                </li>
+              ))}
+              {extra.map((l) => (
+                <li key={l.itemId} className="bg-muted/30">
+                  {l.targetQuantity != null ? (
+                    <div className="flex min-h-12 items-center gap-3 px-3" role="group" aria-label={l.label}>
+                      <span className="text-muted-foreground flex-1">
+                        {l.label} <span className="text-xs">· לא בתיק</span>
+                      </span>
+                      <Stepper label={l.label} value={haveOf(l)} onChange={(q) => setQuantity(l, q)} display={String(haveOf(l))} tone="" />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => addToKit(l)}
+                      className="active:bg-accent flex min-h-12 w-full items-center gap-3 px-3 text-start"
+                    >
+                      <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center rounded-full">
+                        <Plus className="size-4" />
+                      </span>
+                      <span className="text-muted-foreground flex-1">
+                        {l.label} <span className="text-xs">· לא בתיק</span>
+                      </span>
+                      <span className="text-muted-foreground text-xs">הוספה לתיק</span>
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
 
       {error && (
         <p role="alert" className="text-danger text-sm">
@@ -242,7 +243,7 @@ export function KitChecklist({
         {!issued && canCheck && (
           <>
             <p className="text-muted-foreground text-xs">
-              בדיקת תכולה: עוברים על כל הפריטים — כולל &quot;לא שייך לתיק הזה&quot; — ומסמנים מה יש בתיק בפועל. אחרי האישור התיק מסומן
+              בדיקת תכולה: עוברים על כל הפריטים — כולל אלה שמסומנים &quot;לא בתיק&quot; — ומסמנים מה יש בתיק בפועל. אחרי האישור התיק מסומן
               כנבדק, והתכולה שלו נשמרת גם להפעלה הבאה.
             </p>
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="הערה לבדיקה (אופציונלי)" aria-label="הערה לבדיקת התכולה" />
