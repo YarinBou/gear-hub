@@ -16,13 +16,14 @@ import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "ציוד אישי והחתמות" };
 
-type Filter = "missing" | "unissued" | "unsigned" | "unchecked" | "partialSign";
+type Filter = "missing" | "unissued" | "unsigned" | "checked" | "unchecked" | "partialSign";
 const partialSign = (k: KitTile) => !!k.coverage && k.coverage.signed < k.coverage.total;
 const FILTERS: Record<Filter, { label: string; test: (k: KitTile) => boolean }> = {
   missing: { label: "חסרים פריטים", test: (k) => !!k.soldier && k.readiness < 100 },
   unsigned: { label: "לא הוחתמו", test: (k) => !!k.soldier && !k.signedAt },
   partialSign: { label: "חתימה חלקית", test: partialSign },
   unissued: { label: "לא הונפקו", test: (k) => !k.soldier },
+  checked: { label: "נבדקו", test: (k) => k.stock?.state === "checked" },
   unchecked: { label: "במלאי — לא נבדקו", test: (k) => !!k.stock && k.stock.state !== "checked" },
 };
 
