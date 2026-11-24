@@ -222,11 +222,12 @@ export async function setPresence(soldierIds: string[], present: boolean): Promi
     return { ok: true, message: count ? `${count} לוחמים סומנו כמשתתפים בהפעלה` : "לא בוצע שינוי" };
   }
 
-  const [holdingItems, holdingKits] = await Promise.all([
+  const [holdingItems, holdingKits, holdingLoose] = await Promise.all([
     db.equipmentAssignment.findMany({ where: { soldierId: { in: soldiers.map((s) => s.id) } }, select: { soldierId: true } }),
     db.personalKit.findMany({ where: { soldierId: { in: soldiers.map((s) => s.id) } }, select: { soldierId: true } }),
+    db.soldierItem.findMany({ where: { soldierId: { in: soldiers.map((s) => s.id) } }, select: { soldierId: true } }),
   ]);
-  const holding = new Set([...holdingItems, ...holdingKits].map((r) => r.soldierId));
+  const holding = new Set([...holdingItems, ...holdingKits, ...holdingLoose].map((r) => r.soldierId));
   const eligible = soldiers.filter((s) => !holding.has(s.id));
   const { count } = await db.deploymentAbsence.createMany({
     data: eligible.map((s) => ({ companyId: user.companyId, deploymentId: deployment.id, soldierId: s.id })),
@@ -235,7 +236,7 @@ export async function setPresence(soldierIds: string[], present: boolean): Promi
   refresh();
   const blocked = soldiers.filter((s) => holding.has(s.id)).map((s) => s.name);
   const parts = [count ? `${count} לוחמים סומנו כלא משתתפים` : "לא בוצע שינוי"];
-  if (blocked.length) parts.push(`דולגו (מחזיקים ציוד או ערכה — יש לזכות קודם): ${blocked.slice(0, 8).join(", ")}${blocked.length > 8 ? "…" : ""}`);
+  if (blocked.length) parts.push(`דולגו (מחזיקים ציוד, ערכה או פריטים — יש לזכות קודם): ${blocked.slice(0, 8).join(", ")}${blocked.length > 8 ? "…" : ""}`);
   return { ok: true, message: parts.join(" · ") };
 }
 
@@ -276,4 +277,91 @@ export async function returnSoldierEquipment(soldierId: string, itemIds: string[
   }
   refresh();
   return { ok: true, message: rows.length === 1 ? "הפריט זוכה ואופסן" : `${rows.length} פריטים זוכו ואופסנו` };
+}
+
+// ───────────── Items outside the kit ─────────────
+
+export type LooseResult = { ok: boolean; message: string };
+
+/**
+ * Hand a soldier a checklist item outside any kit (e.g. a thigh pouch on the move). From the
+ * company's checklist only; recorded with who and when. The same item again adds to the quantity.
+ */
+export async function addSoldierItem(soldierId: string, itemId: string, quantity: number, note: string): Promise<LooseResult> {
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  const { user, db, deployment } = w;
+  if (typeof soldierId !== "string" || typeof itemId !== "string") return { ok: false, message: "בחירה לא תקינה" };
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) return { ok: false, message: "כמות: מספר שלם בין 1 ל-1,000" };
+  const [soldier, item] = await Promise.all([
+    db.soldier.findFirst({
+      where: { id: soldierId, isActive: true, absences: { none: { deploymentId: deployment.id } } },
+      select: { id: true },
+    }),
+    db.kitItemDef.findFirst({ where: { id: itemId, isActive: true, systemKey: null }, select: { id: true, label: true } }),
+  ]);
+  if (!soldier) return { ok: false, message: "הלוחם לא נמצא בהפעלה" };
+  if (!item) return { ok: false, message: "יש לבחור פריט מרשימת הציוד" };
+  const cleanNote = (typeof note === "string" ? note.trim().slice(0, 200) : "") || null;
+  await db.soldierItem.upsert({
+    where: { deploymentId_soldierId_itemId: { deploymentId: deployment.id, soldierId, itemId } },
+    update: { quantity: { increment: quantity }, ...(cleanNote ? { note: cleanNote } : {}), issuedById: user.id },
+    create: {
+      companyId: user.companyId,
+      deploymentId: deployment.id,
+      soldierId,
+      itemId,
+      quantity,
+      note: cleanNote,
+      issuedById: user.id,
+    },
+  });
+  refresh();
+  return { ok: true, message: quantity === 1 ? `נרשם: ${item.label}` : `נרשם: ${item.label} × ${quantity}` };
+}
+
+/**
+ * זיכוי of items held outside the kit: what came back per row (by row id), with notes on gaps.
+ * Recorded in the soldier's return history; the rows are cleared (gaps are documented, not kept).
+ */
+export async function returnSoldierItems(
+  soldierId: string,
+  input: { returned: Record<string, number>; gapNotes?: Record<string, string>; note?: string },
+): Promise<LooseResult> {
+  const w = await writableContext();
+  if (!w.ok) return { ok: false, message: w.message };
+  const { user, db, deployment } = w;
+  if (typeof soldierId !== "string" || !input || typeof input.returned !== "object") return { ok: false, message: "בקשה לא תקינה" };
+  const ids = Object.keys(input.returned).slice(0, 200);
+  const rows = await db.soldierItem.findMany({
+    where: { soldierId, id: { in: ids } },
+    orderBy: { item: { sortOrder: "asc" } },
+    select: { id: true, quantity: true, item: { select: { label: true } } },
+  });
+  if (!rows.length) return { ok: false, message: "אין פריטים לזיכוי" };
+  const notes = input.gapNotes && typeof input.gapNotes === "object" ? input.gapNotes : {};
+  const lines = rows.map((r) => {
+    const raw = Number(input.returned[r.id]);
+    const back = Number.isInteger(raw) ? Math.min(Math.max(raw, 0), r.quantity) : 0;
+    const gapNote = back < r.quantity && typeof notes[r.id] === "string" ? notes[r.id].trim().slice(0, 200) : "";
+    return { label: r.item.label, expected: r.quantity, returned: back, ...(gapNote ? { note: gapNote } : {}) };
+  });
+  const gaps = lines.filter((l) => l.returned < l.expected).length;
+  await db.$transaction([
+    db.soldierItemReturn.create({
+      data: {
+        companyId: user.companyId,
+        deploymentId: deployment.id,
+        soldierId,
+        lines,
+        gapCount: gaps,
+        note: (typeof input.note === "string" ? input.note.trim().slice(0, 300) : "") || null,
+        performedById: user.id,
+      },
+    }),
+    db.soldierItem.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } }),
+  ]);
+  refresh();
+  const what = rows.length === 1 ? "הפריט זוכה" : `${rows.length} פריטים זוכו`;
+  return { ok: true, message: gaps === 0 ? what : `${what} — ${gaps === 1 ? "פער אחד נרשם" : `${gaps} פערים נרשמו`}` };
 }

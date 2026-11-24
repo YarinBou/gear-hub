@@ -11,6 +11,7 @@ import {
   signatureCoverage,
   stockCheckState,
   type StockCheckState,
+  type KitSummaryLine,
   summarizeKits,
   type ChecklistLine,
 } from "@/lib/kit";
@@ -230,7 +231,7 @@ export async function getKitSummary(platoonId?: string) {
   await connection();
   const { db, deployment } = await companyContext();
   if (!deployment) return { kits: 0, signedKits: 0, stockKits: 0, partialStock: 0, lines: [], weapons: 0 };
-  const [kits, stockKits, partialStock, activeDefs] = await Promise.all([
+  const [kits, stockKits, partialStock, loose, activeDefs] = await Promise.all([
     db.personalKit.findMany({
       where: { soldierId: { not: null }, ...(platoonId ? { soldier: { platoonId } } : {}) },
       select: { signedAt: true, personalWeaponId: true, ...kitItemsSelect },
@@ -241,6 +242,12 @@ export async function getKitSummary(platoonId?: string) {
       ? []
       : db.personalKit.findMany({ where: { soldierId: null, contentsCheckedAt: { not: null } }, select: kitItemsSelect }),
     platoonId ? 0 : db.personalKit.count({ where: { soldierId: null, contentsCheckedAt: null, returns: { some: {} } } }),
+    // Held by soldiers outside any kit.
+    db.soldierItem.groupBy({
+      by: ["itemId"],
+      where: platoonId ? { soldier: { platoonId } } : {},
+      _sum: { quantity: true },
+    }),
     activeItemDefs(db),
   ]);
   const history = !!deployment.readOnly;
@@ -250,19 +257,39 @@ export async function getKitSummary(platoonId?: string) {
     stockKits: stockKits.length,
     /** Returned kits in stock whose contents weren't fully checked — not counted in "במלאי". */
     partialStock,
-    lines: summarizeKits([
+    lines: withLoose(summarizeKits([
       ...kits.map((k) => ({ signed: !!k.signedAt, lines: checklistLines(k.items, { history, activeDefs, pakal: k.pakal }) })),
       ...stockKits.map((k) => ({
         signed: false,
         inStock: true,
         lines: checklistLines(k.items, { history, activeDefs, pakal: k.pakal }),
       })),
-    ]),
+    ]), new Map(loose.map((g) => [g.itemId, g._sum.quantity ?? 0])), activeDefs),
     weapons: kits.filter((k) => k.personalWeaponId).length,
   };
 }
 
 export type KitSummary = Awaited<ReturnType<typeof getKitSummary>>;
+
+/**
+ * Add what soldiers hold outside any kit to the summary lines — including items no kit has a line
+ * for yet (e.g. no kit is issued), taken from the checklist.
+ */
+function withLoose(
+  lines: KitSummaryLine[],
+  loose: Map<string, number>,
+  defs: { id: string; label: string; groupName: string; sortOrder: number }[],
+) {
+  const out = lines.map((l) => ({ ...l, loose: loose.get(l.itemId) ?? 0 }));
+  const seen = new Set(out.map((l) => l.itemId));
+  for (const d of defs) {
+    const n = loose.get(d.id) ?? 0;
+    if (n > 0 && !seen.has(d.id)) {
+      out.push({ itemId: d.id, label: d.label, groupName: d.groupName, sortOrder: d.sortOrder, signed: 0, have: 0, missing: 0, stock: 0, loose: n });
+    }
+  }
+  return out.sort((a, b) => a.sortOrder - b.sortOrder);
+}
 
 /** The company's פק"לים with the items they require (for the kit page and /kits/items). */
 export async function getPakals() {
@@ -281,3 +308,10 @@ export async function getPakals() {
 }
 
 export type PakalDetail = Awaited<ReturnType<typeof getPakals>>[number];
+
+/** The company's active checklist items a soldier can be handed outside a kit (not the weapon line). */
+export async function getLooseItemOptions() {
+  const { db } = await companyContext();
+  const defs = await activeItemDefs(db);
+  return defs.filter((d) => !d.systemKey).map((d) => ({ id: d.id, label: d.label, groupName: d.groupName }));
+}

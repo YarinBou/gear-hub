@@ -179,6 +179,18 @@ export async function startDeployment(
   );
   await createKitStatuses(tx, { companyId, kitIds: newKits.map((k) => k.id), copyFrom });
 
+  // ── Items held outside any kit: "copy" carries them over with soldiers still on the roster ──
+  if (copy) {
+    const loose = await tx.soldierItem.findMany({
+      where: { deploymentId: copy.id },
+      select: { soldierId: true, itemId: true, quantity: true, note: true, issuedById: true },
+    });
+    const kept = loose.filter((r) => keepSoldier(r.soldierId));
+    if (kept.length) {
+      await tx.soldierItem.createMany({ data: kept.map((r) => ({ ...r, companyId, deploymentId: deployment.id })) });
+    }
+  }
+
   // ── Ammo: opening balance from the previous deployment ──
   if (copy) {
     const stocks = await tx.ammoStock.findMany({

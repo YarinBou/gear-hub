@@ -114,6 +114,18 @@ export async function getSoldier(id: string) {
         select: { id: true, kitNumber: true, signedAt: true, pakal: { select: { name: true, color: true } } },
       },
       absences: { where: { deploymentId }, take: 1, select: { id: true } },
+      looseItems: {
+        where: { deploymentId },
+        orderBy: { item: { sortOrder: "asc" } },
+        select: {
+          id: true,
+          quantity: true,
+          note: true,
+          updatedAt: true,
+          issuedBy: { select: { name: true } },
+          item: { select: { id: true, label: true, groupName: true } },
+        },
+      },
       assignments: {
         where: { deploymentId },
         orderBy: { item: { serialNumber: "asc" } },
@@ -126,9 +138,10 @@ export async function getSoldier(id: string) {
     },
   });
   if (!soldier) return null;
-  const { kits, assignments, absences, ...rest } = soldier;
+  const { kits, assignments, absences, looseItems, ...rest } = soldier;
   return {
     ...rest,
+    looseItems,
     kit: kits[0] ?? null,
     equipment: assignments.map((a) => ({ ...a.item, status: a.status, lastVerifiedAt: a.lastVerifiedAt })),
     /** null when no deployment is viewed. */
@@ -147,7 +160,7 @@ export async function getSoldierReturnHistory(soldierId: string) {
   const { user } = await companyContext();
   // Across deployments: company-scoped only (KitReturn / EquipmentLog aren't deployment models).
   const db = scopedDb(user.companyId);
-  const [kitReturns, equipmentReturns] = await Promise.all([
+  const [kitReturns, equipmentReturns, looseReturns] = await Promise.all([
     db.kitReturn.findMany({
       where: { soldierId },
       orderBy: { createdAt: "desc" },
@@ -178,10 +191,25 @@ export async function getSoldierReturnHistory(soldierId: string) {
         item: { select: { id: true, serialNumber: true, category: { select: { name: true } } } },
       },
     }),
+    db.soldierItemReturn.findMany({
+      where: { soldierId },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        createdAt: true,
+        lines: true,
+        gapCount: true,
+        note: true,
+        performedBy: { select: { name: true } },
+        deployment: { select: { name: true } },
+      },
+    }),
   ]);
   return {
     kitReturns: kitReturns.map(({ lines, ...r }) => ({ ...r, lines: parseReturnLines(lines) })),
     equipmentReturns,
+    looseReturns: looseReturns.map(({ lines, ...r }) => ({ ...r, lines: parseReturnLines(lines) })),
   };
 }
 
