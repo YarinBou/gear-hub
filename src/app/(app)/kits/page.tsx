@@ -6,6 +6,7 @@ import { NoDeploymentCard } from "@/components/deployment-gate";
 import { getPlatoons } from "@/lib/queries/platoons";
 import type { PlatoonRef } from "@/lib/platoons";
 import { listKits, type KitTile } from "@/lib/queries/kits";
+import { applyKitView, KIT_FILTERS as FILTERS, kitViewQuery, partialSign, type KitFilter as Filter } from "@/lib/kit-filters";
 import { cn, formatDayMonth } from "@/lib/utils";
 import { STOCK_CHECK_LABELS } from "@/lib/kit";
 import { PlatoonBadge, PlatoonDot } from "@/components/platoon-badge";
@@ -15,17 +16,6 @@ import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "ציוד אישי והחתמות" };
-
-type Filter = "missing" | "unissued" | "unsigned" | "checked" | "unchecked" | "partialSign";
-const partialSign = (k: KitTile) => !!k.coverage && k.coverage.signed < k.coverage.total;
-const FILTERS: Record<Filter, { label: string; test: (k: KitTile) => boolean }> = {
-  missing: { label: "חסרים פריטים", test: (k) => !!k.soldier && k.readiness < 100 },
-  unsigned: { label: "לא הוחתמו", test: (k) => !!k.soldier && !k.signedAt },
-  partialSign: { label: "חתימה חלקית", test: partialSign },
-  unissued: { label: "לא הונפקו", test: (k) => !k.soldier },
-  checked: { label: "נבדקו", test: (k) => k.stock?.state === "checked" },
-  unchecked: { label: "במלאי — לא נבדקו", test: (k) => !!k.stock && k.stock.state !== "checked" },
-};
 
 function first(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -60,10 +50,7 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
   const full = issued.filter((k) => k.readiness === 100).length;
   const signed = issued.filter((k) => k.signedAt).length;
 
-  const shown = all
-    .filter((k) => !platoon || k.soldier?.platoon.id === platoon)
-    .filter((k) => !filter || FILTERS[filter].test(k))
-    .filter((k) => !pakal || (pakal === "any" ? !!k.pakal : k.pakal?.id === pakal));
+  const shown = applyKitView(all, { platoon, filter, pakal });
 
   const href = (next: { platoon?: string | null; filter?: Filter | null; pakal?: string | null }) => {
     const p = new URLSearchParams();
@@ -92,8 +79,8 @@ export default async function KitsPage({ searchParams }: PageProps<"/kits">) {
       </Link>
     </li>
   );
-  // Kit links carry the platoon so prev/next on the kit page walks the same platoon.
-  const kitHref = (n: number) => `/kits/${n}${platoon ? `?platoon=${platoon}` : ""}`;
+  // Kit links carry the view (platoon / filter / פק"ל) so the kit page's ‹ › walk the same kits.
+  const kitHref = (n: number) => `/kits/${n}${kitViewQuery({ platoon, filter, pakal })}`;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
