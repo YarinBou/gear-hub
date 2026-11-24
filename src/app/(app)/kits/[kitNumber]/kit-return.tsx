@@ -5,7 +5,7 @@ import { AlertTriangle, Check, CheckCheck, CheckCircle2, Minus, Plus, Undo2, X }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { groupLines, type ReturnCheckLine } from "@/lib/kit";
+import { groupLines, type ReturnCheckLine, type ReturnRestLine } from "@/lib/kit";
 import { cn } from "@/lib/utils";
 import { returnKit } from "../actions";
 
@@ -19,17 +19,21 @@ export function KitReturn({
   soldierId,
   soldierName,
   lines,
+  rest,
   hasWeapon,
 }: {
   kitNumber: number;
   soldierId: string;
   soldierName: string;
   lines: ReturnCheckLine[];
+  /** The rest of the bag (not signed for), with what's recorded in it now — checked during the return too. */
+  rest: ReturnRestLine[];
   hasWeapon: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [returned, setReturned] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [found, setFound] = useState<Record<string, number>>(() => Object.fromEntries(rest.map((r) => [r.key, r.have])));
   const [note, setNote] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [pending, start] = useTransition();
@@ -50,7 +54,7 @@ export function KitReturn({
   const submit = () => {
     setError(null);
     start(async () => {
-      const r = await returnKit(kitNumber, { soldierId, returned, gapNotes: notes, note });
+      const r = await returnKit(kitNumber, { soldierId, returned, gapNotes: notes, note, found });
       if (!r.ok) {
         setError(r.message ?? "הזיכוי נכשל");
         setConfirming(false);
@@ -158,6 +162,55 @@ export function KitReturn({
             </ul>
           </section>
         ))
+      )}
+
+      {rest.length > 0 && (
+        <section className="flex flex-col gap-1">
+          <h3 className="text-sm font-semibold">שאר התיק — לא נחתם</h3>
+          <p className="text-muted-foreground text-xs">
+            ודאו מה יש בתיק בפועל (מוצג מה שרשום עכשיו). כך הזיכוי הוא בדיקת תכולה מלאה, והתיק יסומן כנבדק.
+          </p>
+          <ul className="divide-y rounded-md border">
+            {rest.map((r) => {
+              const n = found[r.key] ?? 0;
+              const set = (v: number) => {
+                setConfirming(false);
+                setFound((f) => ({ ...f, [r.key]: Math.max(0, v) }));
+              };
+              return (
+                <li key={r.key} className="flex min-h-12 items-center gap-2 px-3 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm">
+                    {r.label} <span className="text-muted-foreground text-xs">· {r.groupName}</span>
+                  </span>
+                  {r.counted ? (
+                    <div className="flex items-center gap-1">
+                      <Button type="button" variant="outline" size="icon" aria-label={`פחות ${r.label}`} onClick={() => set(n - 1)} disabled={pending || n <= 0}>
+                        <Minus />
+                      </Button>
+                      <span className="w-10 text-center text-sm font-semibold tabular-nums">{n}</span>
+                      <Button type="button" variant="outline" size="icon" aria-label={`עוד ${r.label}`} onClick={() => set(n + 1)} disabled={pending}>
+                        <Plus />
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant={n > 0 ? "default" : "outline"}
+                      size="sm"
+                      aria-pressed={n > 0}
+                      onClick={() => set(n > 0 ? 0 : 1)}
+                      disabled={pending}
+                      className="w-24"
+                    >
+                      {n > 0 ? <Check /> : <X />}
+                      {n > 0 ? "יש" : "אין"}
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
 
       {gaps.length === 0 ? (

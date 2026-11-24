@@ -8,6 +8,7 @@ import { AssignmentError, applyAssignment, ensureAssignment, NOT_IN_DEPLOYMENT_M
 import {
   checklistLines,
   coversWholeKit,
+  haveOf,
   kitItemsSelect,
   missingDescriptions,
   returnCheckLines,
@@ -381,6 +382,11 @@ export type ReturnKitInput = {
   returned: Record<string, number>;
   /** Free text next to a gap (e.g. אובדן / נהרס), by key. */
   gapNotes: Record<string, string>;
+  /**
+   * The rest of the bag — lines the soldier didn't sign for — as found during the return, by item id.
+   * Given, the return is a full contents check of the kit.
+   */
+  found?: Record<string, number>;
   note?: string;
 };
 
@@ -429,7 +435,10 @@ export async function returnKit(
     const gaps = record.filter((l) => l.returned < l.expected).length;
     // A return checks what was signed for. When that was the whole kit, its contents are now known;
     // when the soldier signed for only part of it, the rest of the bag still needs a contents check.
-    const fullCheck = !!kit.signedAt && coversWholeKit(lines);
+    // The rest of the bag (lines not signed for): what was found, checked during the return. When the
+    // return covers it, the whole kit was checked; otherwise only a kit signed in full counts as checked.
+    const found = input.found && typeof input.found === "object" ? input.found : null;
+    const fullCheck = !!found || (!!kit.signedAt && coversWholeKit(lines));
 
     await tx.kitReturn.create({
       data: {
@@ -464,11 +473,14 @@ export async function returnKit(
       const got = back.get(l.itemId);
       // The weapon line follows the weapon link, which was just removed.
       const weapon = l.systemKey === WEAPON_ITEM;
-      if (got === undefined && !weapon) {
+      if (got === undefined && !weapon && !found) {
         await tx.kitItemStatus.updateMany({ where: { kitId: kit.id, itemId: l.itemId }, data: { baseline: null } });
         continue;
       }
-      const n = weapon ? 0 : got!;
+      // A line not signed for: what was found in the bag (as marked during the return).
+      const raw = got === undefined && found ? Number(found[l.itemId]) : NaN;
+      const rest = Number.isInteger(raw) ? Math.min(Math.max(raw, 0), 1000) : haveOf(l);
+      const n = weapon ? 0 : (got ?? rest);
       const data = l.targetQuantity != null ? { quantity: n, baseline: null } : { present: n > 0, baseline: null };
       await tx.kitItemStatus.upsert({
         where: { kitId_itemId: { kitId: kit.id, itemId: l.itemId } },

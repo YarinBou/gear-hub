@@ -278,6 +278,17 @@ export function returnCheckLines(lines: ChecklistLine[]): ReturnCheckLine[] {
   return out;
 }
 
+/** The rest of a kit at return time: lines not in the return check (not signed for), with what's in the bag now. */
+export function returnRestLines(lines: ChecklistLine[]) {
+  const checked = new Set(returnCheckLines(lines).map((c) => c.key));
+  return [...lines]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .filter((l) => l.systemKey !== WEAPON_ITEM && !checked.has(l.itemId))
+    .map((l) => ({ key: l.itemId, label: l.label, groupName: l.groupName, counted: l.targetQuantity != null, have: haveOf(l) }));
+}
+
+export type ReturnRestLine = ReturnType<typeof returnRestLines>[number];
+
 /** KitReturn.lines (JSON) as clean lines; anything malformed is dropped. */
 export function parseReturnLines(json: unknown): ReturnLine[] {
   if (!Array.isArray(json)) return [];

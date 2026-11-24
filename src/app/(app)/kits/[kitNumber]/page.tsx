@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, ClipboardList, Crosshair, History, PenLine, 
 import { companyContext } from "@/lib/context";
 import { NoDeploymentCard, ReadOnlyWhenClosed } from "@/components/deployment-gate";
 import { getPlatoons } from "@/lib/queries/platoons";
-import { describeGap, kitReadiness, returnCheckLines, returnGaps, signatureCoverage, STOCK_CHECK_LABELS, stockCheckState } from "@/lib/kit";
+import { describeGap, kitReadiness, returnCheckLines, returnGaps, returnRestLines, signatureCoverage, STOCK_CHECK_LABELS, stockCheckState } from "@/lib/kit";
 import { getKit, getKitNeighbours, getSoldiersWithKit, getWeaponOptions, getKitSlots } from "@/lib/queries/kits";
 import { getSoldierOptions } from "@/lib/queries/soldiers";
 import { formatDateTime, formatDaysAgo } from "@/lib/utils";
@@ -244,6 +244,7 @@ export default async function KitPage({ params, searchParams }: PageProps<"/kits
                     soldierName={kit.soldier.name}
                     hasWeapon={!!kit.personalWeaponId}
                     lines={returnCheckLines(lines)}
+                    rest={returnRestLines(lines)}
                   />
                 </CardContent>
               </Card>
