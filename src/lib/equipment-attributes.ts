@@ -106,3 +106,39 @@ export function attributeTags(defs: AttributeDef[], values: AttributeValues) {
     return [{ label: String(v), missing: false }];
   });
 }
+
+export type AttributeSummary =
+  | { key: string; label: string; kind: "check"; yes: number; no: number; unset: number }
+  | { key: string; label: string; kind: "count"; total: number; recorded: number; unset: number }
+  | { key: string; label: string; kind: "choice"; options: { option: string; n: number }[]; unset: number };
+
+/**
+ * A type's properties added up over its items, for the report: a yes / no → how many יש / אין /
+ * not marked; a count → the total (e.g. 24 batteries); a choice → how many of each option.
+ */
+export function summarizeAttributes(defs: AttributeDef[], items: AttributeValues[]): AttributeSummary[] {
+  return defs.map((d) => {
+    const values = items.map((v) => v[d.key]);
+    const unset = values.filter((v) => v === undefined).length;
+    if (d.kind === "check") {
+      return { key: d.key, label: d.label, kind: "check", yes: values.filter((v) => v === true).length, no: values.filter((v) => v === false).length, unset };
+    }
+    if (d.kind === "count") {
+      const nums = values.filter((v): v is number => typeof v === "number");
+      return { key: d.key, label: d.label, kind: "count", total: nums.reduce((a, b) => a + b, 0), recorded: nums.length, unset };
+    }
+    return { key: d.key, label: d.label, kind: "choice", options: d.options.map((option) => ({ option, n: values.filter((v) => v === option).length })), unset };
+  });
+}
+
+/** One line per property: "קייס: 12 יש · 3 אין · 2 לא סומן", "סוללות: סה״כ 24", "צבע: חום 5 · שחור 3". */
+export function describeSummary(s: AttributeSummary) {
+  const parts =
+    s.kind === "check"
+      ? [`${s.yes} יש`, `${s.no} אין`]
+      : s.kind === "count"
+        ? [`סה"כ ${s.total}`]
+        : s.options.map((o) => `${o.option} ${o.n}`);
+  if (s.unset) parts.push(`${s.unset} לא סומן`);
+  return parts.join(" · ");
+}

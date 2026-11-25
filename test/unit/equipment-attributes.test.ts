@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attributeTags, describeValue, isMissing, parseAttributeDefs, parseAttributeValues, validValue } from "@/lib/equipment-attributes";
+import { attributeTags, describeSummary, describeValue, isMissing, parseAttributeDefs, parseAttributeValues, summarizeAttributes, validValue } from "@/lib/equipment-attributes";
 
 const defs = parseAttributeDefs([
   { key: "case", label: "קייס", kind: "check" },
@@ -51,5 +51,24 @@ describe("count properties (drones: batteries, propellers)", () => {
     expect(isMissing(drone[0], 3)).toBe(false);
     expect(validValue(drone[0], 12)).toBe(true);
     expect(validValue(drone[0], 1000)).toBe(false);
+  });
+});
+
+describe("summarizeAttributes (report breakdown)", () => {
+  const d = parseAttributeDefs([
+    { key: "case", label: "קייס", kind: "check" },
+    { key: "bat", label: "סוללות", kind: "count" },
+    { key: "color", label: "צבע", kind: "choice", options: ["חום", "שחור"] },
+  ]);
+  const s = summarizeAttributes(d, [{ case: true, bat: 4, color: "חום" }, { case: false, bat: 2, color: "חום" }, { case: true }, {}]);
+  it("counts יש / אין / not marked, sums counts and splits choices", () => {
+    expect(s[0]).toMatchObject({ kind: "check", yes: 2, no: 1, unset: 1 });
+    expect(s[1]).toMatchObject({ kind: "count", total: 6, recorded: 2, unset: 2 });
+    expect(s[2]).toMatchObject({ kind: "choice", options: [{ option: "חום", n: 2 }, { option: "שחור", n: 0 }], unset: 2 });
+  });
+  it("describes each line for the export", () => {
+    expect(describeSummary(s[0])).toBe("2 יש · 1 אין · 1 לא סומן");
+    expect(describeSummary(s[1])).toBe('סה"כ 6 · 2 לא סומן');
+    expect(describeSummary(s[2])).toBe("חום 2 · שחור 0 · 2 לא סומן");
   });
 });

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { Download } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { getPlatoons } from "@/lib/queries/platoons";
 import { itemLabel } from "@/lib/equipment-rules";
+import { attributeTags, type AttributeSummary } from "@/lib/equipment-attributes";
 import { getEquipmentReport, type EquipmentReportType } from "@/lib/queries/equipment";
 import { cn, formatDateTime, formatNumber } from "@/lib/utils";
 import { Serial } from "@/components/equipment/serial";
@@ -83,6 +85,7 @@ export default async function EquipmentReportPage({ searchParams }: PageProps<"/
       ) : (
         <>
           <SummaryTable types={types} companyWide={!platoon} />
+          <AttributesSummary types={types.filter((t) => t.attributeSummary.length > 0 && t.held > 0)} />
           {types
             .filter((t) => t.equipmentItems.length > 0)
             .map((t) => (
@@ -146,6 +149,61 @@ function SummaryTable({ types, companyWide }: { types: EquipmentReportType[]; co
   );
 }
 
+/** פירוט מאפיינים: per type, how many have each property (קייס, מתאם…), counts summed, choices split. */
+function AttributesSummary({ types }: { types: EquipmentReportType[] }) {
+  if (types.length === 0) return null;
+  return (
+    <section className="bg-card rounded-xl border print:break-inside-avoid print:border-0">
+      <h2 className="border-b px-4 py-3 font-semibold">
+        פירוט מאפיינים <span className="text-muted-foreground text-sm font-normal">· לפי הפריטים במצאי</span>
+      </h2>
+      <div className="divide-y">
+        {types.map((t) => (
+          <div key={t.id} className="flex flex-col gap-1.5 px-4 py-3 sm:flex-row sm:gap-4">
+            <a href={`#type-${t.id}`} className="w-40 shrink-0 text-sm font-medium hover:underline">
+              {t.name} <span className="text-muted-foreground font-normal tabular-nums">({formatNumber(t.held)})</span>
+            </a>
+            <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              {t.attributeSummary.map((s) => (
+                <li key={s.key}>
+                  <bdi className="font-medium">{s.label}</bdi>: <SummaryValue summary={s} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SummaryValue({ summary: s }: { summary: AttributeSummary }) {
+  const parts: ReactNode[] =
+    s.kind === "check"
+      ? [
+          <span key="y" className={s.yes ? "text-success font-semibold" : "text-muted-foreground"}>{formatNumber(s.yes)} יש</span>,
+          <span key="n" className={s.no ? "text-danger font-semibold" : "text-muted-foreground"}>{formatNumber(s.no)} אין</span>,
+        ]
+      : s.kind === "count"
+        ? [<span key="t" className="font-semibold">סה&quot;כ {formatNumber(s.total)}</span>]
+        : s.options.map((o) => (
+            <span key={o.option}>
+              {o.option} <span className="font-semibold">{formatNumber(o.n)}</span>
+            </span>
+          ));
+  if (s.unset) parts.push(<span key="u" className="text-muted-foreground">{formatNumber(s.unset)} לא סומן</span>);
+  return (
+    <span className="tabular-nums">
+      {parts.map((p, i) => (
+        <span key={i}>
+          {i > 0 && <span className="text-muted-foreground"> · </span>}
+          {p}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** Positive gap = short of תקן (red); negative = above תקן; 0 = exactly on תקן. */
 function Gap({ gap }: { gap: number | null }) {
   if (gap == null) return <span className="text-muted-foreground">—</span>;
@@ -155,6 +213,7 @@ function Gap({ gap }: { gap: number | null }) {
 }
 
 function TypeSection({ type: t }: { type: EquipmentReportType }) {
+  const hasAttrs = t.attributeDefs.length > 0;
   return (
     <section id={`type-${t.id}`} className="bg-card scroll-mt-20 rounded-xl border print:break-inside-avoid print:border-0">
       <h2 className="flex flex-wrap items-baseline gap-x-3 border-b px-4 py-3 font-semibold">
@@ -174,6 +233,7 @@ function TypeSection({ type: t }: { type: EquipmentReportType }) {
               <th className="px-3 py-2 text-start font-medium">חייל</th>
               <th className="px-3 py-2 text-start font-medium">מ.א</th>
               <th className="px-3 py-2 text-start font-medium">סטטוס</th>
+              {hasAttrs && <th className="px-3 py-2 text-start font-medium">מאפיינים</th>}
               <th className="px-3 py-2 text-start font-medium">הערות</th>
             </tr>
           </thead>
@@ -202,6 +262,13 @@ function TypeSection({ type: t }: { type: EquipmentReportType }) {
                   <td className="px-3 py-2">
                     <EquipmentStatusBadge status={i.status} />
                   </td>
+                  {hasAttrs && (
+                    <td className="px-3 py-2 text-xs">
+                      {attributeTags(t.attributeDefs, i.attributeValues)
+                        .map((a) => a.label)
+                        .join(" · ") || <span className="text-muted-foreground">—</span>}
+                    </td>
+                  )}
                   <td className="text-muted-foreground px-3 py-2 text-xs">{notes.join(" · ") || "—"}</td>
                 </tr>
               );

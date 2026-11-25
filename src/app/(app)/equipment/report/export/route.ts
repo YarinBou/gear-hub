@@ -3,6 +3,7 @@ import { EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
 import { getPlatoons } from "@/lib/queries/platoons";
 import { NO_SERIAL_LABEL, itemLabel } from "@/lib/equipment-rules";
 import { getEquipmentReport } from "@/lib/queries/equipment";
+import { attributeTags, describeSummary } from "@/lib/equipment-attributes";
 
 /** CSV cell: quote everything, double inner quotes; neutralize spreadsheet formulas. */
 function cell(value: string | number | null | undefined) {
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
   const platoon = (await getPlatoons()).find((p) => p.id === raw)?.id;
   const report = await getEquipmentReport(platoon);
 
-  const header = ["אמצעי", 'צ / מס"ט', "מחלקה", "חייל", "מ.א", "סטטוס", "רכיב של", "רכיבים מצורפים", "הערות"];
+  const header = ["אמצעי", 'צ / מס"ט', "מחלקה", "חייל", "מ.א", "סטטוס", "רכיב של", "רכיבים מצורפים", "מאפיינים", "הערות"];
   const rows: string[][] = [];
   for (const t of report) {
     for (const i of t.equipmentItems) {
@@ -34,6 +35,9 @@ export async function GET(request: Request) {
         EQUIPMENT_STATUS_LABELS[i.status],
         i.parent ? itemLabel(i.parent) : "",
         i.components.map(itemLabel).join(", "),
+        attributeTags(t.attributeDefs, i.attributeValues)
+          .map((a) => a.label)
+          .join(", "),
         i.notes ?? "",
       ]);
     }
@@ -51,6 +55,15 @@ export async function GET(request: Request) {
         String(t.missing),
         String(t.noSerial),
       ]);
+    }
+  }
+
+  // Properties breakdown: how many have each property / totals / per option (held items only).
+  const withAttrs = report.filter((t) => t.attributeSummary.length > 0 && t.held > 0);
+  if (withAttrs.length) {
+    rows.push([], ["פירוט מאפיינים (פריטים במצאי)"], ["אמצעי", "מאפיין", "פירוט"]);
+    for (const t of withAttrs) {
+      for (const s of t.attributeSummary) rows.push([t.name, s.label, describeSummary(s)]);
     }
   }
 
