@@ -1,5 +1,5 @@
 import "server-only";
-import { attributeTags, isMissing, parseAttributeDefs, parseAttributeValues } from "@/lib/equipment-attributes";
+import { attributeTags, isMissing, parseAttributeDefs, parseAttributeValues, summarizeAttributes } from "@/lib/equipment-attributes";
 import { connection } from "next/server";
 import { getActiveCategories } from "@/lib/queries/catalog";
 import { companyContext } from "@/lib/context";
@@ -270,6 +270,7 @@ export async function getEquipmentReport(platoonId?: string) {
       id: true,
       name: true,
       targetQuantity: true,
+      attributes: true,
       equipmentItems: {
         where: platoonId ? (deploymentId ? inState(deploymentId, { platoonId }) : NO_ITEMS) : {},
         orderBy: [{ serialNumber: { sort: "asc", nulls: "last" } }],
@@ -277,6 +278,7 @@ export async function getEquipmentReport(platoonId?: string) {
           id: true,
           serialNumber: true,
           notes: true,
+          attributes: true,
           parent: { select: { serialNumber: true, category: { select: { name: true } } } },
           components: { select: { serialNumber: true, category: { select: { name: true } } } },
           ...stateSelect(deploymentId, { name: true, personalNumber: true }),
@@ -286,15 +288,22 @@ export async function getEquipmentReport(platoonId?: string) {
   });
   const order = (await getPlatoons()).map((p) => p.id);
   const platoonOrder = (p: { id: string } | null) => (p ? order.indexOf(p.id) : 99);
-  return categories.map((c) => {
+  return categories.map(({ attributes, ...c }) => {
+    const attributeDefs = parseAttributeDefs(attributes);
     const equipmentItems = c.equipmentItems
-      .map(flattenState)
+      .map(({ attributes, ...i }) => ({ ...flattenState(i), attributeValues: parseAttributeValues(attributes, attributeDefs) }))
       .sort((a, b) => platoonOrder(a.platoon) - platoonOrder(b.platoon));
     const missing = equipmentItems.filter((i) => i.status === "MISSING").length;
     const held = equipmentItems.length - missing;
     return {
       ...c,
       equipmentItems,
+      attributeDefs,
+      // Added up over the items actually held (missing items aren't counted).
+      attributeSummary: summarizeAttributes(
+        attributeDefs,
+        equipmentItems.filter((i) => i.status !== "MISSING").map((i) => i.attributeValues),
+      ),
       held,
       missing,
       noSerial: equipmentItems.filter((i) => !i.serialNumber).length,

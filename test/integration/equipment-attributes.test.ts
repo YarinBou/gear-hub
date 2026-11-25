@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { createCategory, updateCategory } from "@/app/(app)/catalog/actions";
 import { createEquipment, setItemAttributes } from "@/app/(app)/equipment/actions";
-import { getEquipmentCounts, getEquipmentItem, listEquipment } from "@/lib/queries/equipment";
+import { getEquipmentCounts, getEquipmentItem, getEquipmentReport, listEquipment } from "@/lib/queries/equipment";
 import { RedirectSignal } from "./auth-mock";
 import { activeDeployment, form, loginAs, makeItem } from "./factories";
 
@@ -78,5 +78,26 @@ describe("equipment properties", () => {
     expect(await setItemAttributes(item.id, { d0: -2 })).toMatchObject({ ok: false });
     // Chargers / cables not marked yet → missing.
     expect((await listEquipment({ attrMissing: true })).items.map((i) => i.id)).toContain(item.id);
+  });
+
+  it("the company report adds them up per type: יש / אין / not marked, totals, per option", async () => {
+    await loginAs("ADMIN");
+    await activeDeployment();
+    const defs = [...LASER, { key: "bat", label: "סוללות", kind: "count" }, { key: "color", label: "צבע", kind: "choice", options: ["חום", "שחור"] }];
+    await createCategory("EQUIPMENT", undefined, form({ name: "מכלול", attributes: JSON.stringify(defs) }));
+    const cat = await prisma.equipmentCategory.findFirstOrThrow({ where: { name: "מכלול" } });
+    const a = await makeItem({ categoryId: cat.id });
+    const b = await makeItem({ categoryId: cat.id });
+    await makeItem({ categoryId: cat.id });
+    await setItemAttributes(a.id, { case: true, bat: 4, color: "חום" });
+    await setItemAttributes(b.id, { case: false, bat: 2, color: "שחור" });
+
+    const type = (await getEquipmentReport()).find((t) => t.id === cat.id)!;
+    expect(type.attributeSummary).toEqual([
+      { key: "case", label: "קייס", kind: "check", yes: 1, no: 1, unset: 1 },
+      { key: "ptt", label: "שלט PTT", kind: "check", yes: 0, no: 0, unset: 3 },
+      { key: "bat", label: "סוללות", kind: "count", total: 6, recorded: 2, unset: 1 },
+      { key: "color", label: "צבע", kind: "choice", options: [{ option: "חום", n: 1 }, { option: "שחור", n: 1 }], unset: 1 },
+    ]);
   });
 });
