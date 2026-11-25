@@ -6,6 +6,7 @@ import type { CatalogDomain } from "@/generated/prisma/enums";
 import { adminContext } from "@/lib/context";
 import { CATALOG_DOMAINS, catalogTag } from "@/lib/queries/catalog";
 import { parseCategory } from "@/lib/validation/catalog";
+import { parseAttributeDefs } from "@/lib/equipment-attributes";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
 
 export type CategoryFormState =
@@ -24,6 +25,16 @@ function prismaCode(e: unknown) {
 
 const DUPLICATE: FieldErrors = { name: "כבר קיים סוג בשם זה" };
 
+/** EQUIPMENT types: the properties editor's JSON (hidden "attributes" field), cleaned. */
+function readAttributes(domain: CatalogDomain, fd: FormData) {
+  if (domain !== "EQUIPMENT") return {};
+  try {
+    return { attributes: parseAttributeDefs(JSON.parse(String(fd.get("attributes") ?? "[]"))) };
+  } catch {
+    return { attributes: [] };
+  }
+}
+
 export async function createCategory(
   domain: CatalogDomain,
   _prev: CategoryFormState,
@@ -36,7 +47,9 @@ export async function createCategory(
 
   try {
     await db.$transaction(async (tx) => {
-      const category = await tx.equipmentCategory.create({ data: { ...parsed.data, domain, companyId: user.companyId } });
+      const category = await tx.equipmentCategory.create({
+        data: { ...parsed.data, ...readAttributes(domain, fd), domain, companyId: user.companyId },
+      });
       // Storage is tracked one row per type (תקן / מצאי) — open the row right away.
       if (domain === "STORAGE") {
         await tx.storageItem.create({
@@ -60,7 +73,7 @@ export async function updateCategory(id: string, _prev: CategoryFormState, fd: F
   if (!parsed.success) return { errors: toFieldErrors(parsed.error) };
 
   try {
-    await db.equipmentCategory.update({ where: { id }, data: parsed.data });
+    await db.equipmentCategory.update({ where: { id }, data: { ...parsed.data, ...readAttributes(existing.domain, fd) } });
   } catch (e) {
     if (prismaCode(e) === "P2002") return { errors: DUPLICATE };
     throw e;

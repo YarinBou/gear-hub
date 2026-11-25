@@ -6,6 +6,7 @@ import { Undo2 } from "lucide-react";
 import type { EquipmentStatus } from "@/generated/prisma/enums";
 import { EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
 import { Serial } from "@/components/equipment/serial";
+import { AttributeTags } from "@/components/equipment/attribute-tags";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { returnSoldierEquipment, type ReturnResult } from "../actions";
@@ -17,6 +18,7 @@ export type SoldierEquipmentItem = {
   category: { name: string };
   status: EquipmentStatus;
   stale: boolean;
+  attributeTags: { label: string; missing: boolean }[];
 };
 
 /**
@@ -92,6 +94,7 @@ export function SoldierEquipment({
                 <Serial value={e.serialNumber} />
                 {e.parentId && " · רכיב — מזוכה עם הפריט הראשי"}
               </p>
+              <AttributeTags tags={e.attributeTags} className="mt-1" />
             </Link>
             {e.stale && <Badge variant="warning">לא אומת</Badge>}
             <Badge variant={e.status === "MISSING" ? "danger" : "secondary"}>{EQUIPMENT_STATUS_LABELS[e.status]}</Badge>

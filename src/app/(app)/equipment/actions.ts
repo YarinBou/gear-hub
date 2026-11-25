@@ -29,6 +29,7 @@ import {
   type FieldErrors,
 } from "@/lib/validation/equipment";
 import { SignSetSchema, type SignSetInput } from "@/lib/equipment-sets";
+import { describeValue, parseAttributeDefs, parseAttributeValues, type AttributeValues } from "@/lib/equipment-attributes";
 
 // Items are company-level (create / edit details / delete work with or without a deployment).
 // Who holds them, their status and platoon belong to a deployment: those actions need the viewed
@@ -60,7 +61,8 @@ function isUniqueViolation(e: unknown) {
 
 export async function createEquipment(_prev: FormState, fd: FormData): Promise<FormState> {
   const { user, db, deployment } = await companyContext();
-  const values = formValues(fd, ["categoryId", "serials", "quantity", "noSerial", "status", "soldierId", "platoon", "notes"]);
+  const attrKeys = [...fd.keys()].filter((k) => k.startsWith("attr_"));
+  const values = formValues(fd, ["categoryId", "serials", "quantity", "noSerial", "status", "soldierId", "platoon", "notes", ...attrKeys]);
   const parsed = CreateEquipmentSchema.safeParse(values);
   if (!parsed.success) return { errors: toFieldErrors(parsed.error), values };
   const { categoryId, notes, noSerial } = parsed.data;
@@ -97,9 +99,16 @@ export async function createEquipment(_prev: FormState, fd: FormData): Promise<F
 
   const category = await db.equipmentCategory.findFirst({
     where: { id: categoryId, domain: "EQUIPMENT", isActive: true },
-    select: { id: true },
+    select: { id: true, attributes: true },
   });
   if (!category) return { errors: { categoryId: "סוג פריט לא תקין" }, values };
+  // The type's properties, as set on the form (attr_<key>: "yes" / "no" / an option / "" = not recorded).
+  const attributes: AttributeValues = {};
+  for (const d of parseAttributeDefs(category.attributes)) {
+    const raw = String(fd.get(`attr_${d.key}`) ?? "");
+    if (d.kind === "check" && (raw === "yes" || raw === "no")) attributes[d.key] = raw === "yes";
+    if (d.kind === "choice" && d.options.includes(raw)) attributes[d.key] = raw;
+  }
 
   let platoonId = parsed.data.platoon ?? null;
   if (platoonId && !(await db.platoon.findFirst({ where: { id: platoonId, isActive: true }, select: { id: true } }))) {
@@ -132,7 +141,7 @@ export async function createEquipment(_prev: FormState, fd: FormData): Promise<F
   try {
     created = await companyDb.$transaction(async (tx) => {
       const items = await tx.equipmentItem.createManyAndReturn({
-        data: serials.map((serialNumber) => ({ companyId: user.companyId, serialNumber, categoryId, notes })),
+        data: serials.map((serialNumber) => ({ companyId: user.companyId, serialNumber, categoryId, notes, attributes })),
         select: { id: true },
       });
       const soldierId = parsed.data.soldierId ?? null;
@@ -202,6 +211,44 @@ export async function updateDetails(id: string, _prev: FormState, fd: FormData):
   }
   refresh();
   return { ok: true, message: "הפרטים נשמרו" };
+}
+
+/**
+ * Record an item's properties (מאפיינים: קייס, שלט PTT, מתאם לקסדה, צבע…). `changes` by key: true /
+ * false, an option, or null to clear. Any user; each change is written to the item's history.
+ */
+export async function setItemAttributes(id: string, changes: Record<string, boolean | string | null>): Promise<SimpleResult> {
+  const { user, db } = await companyContext();
+  if (!changes || typeof changes !== "object") return { ok: false, message: "בקשה לא תקינה" };
+  const item = await db.equipmentItem.findUnique({
+    where: { id },
+    select: { id: true, attributes: true, category: { select: { attributes: true } } },
+  });
+  if (!item) return { ok: false, message: "הפריט לא נמצא" };
+  const defs = parseAttributeDefs(item.category.attributes);
+  const before = parseAttributeValues(item.attributes, defs);
+  const after: AttributeValues = { ...before };
+  const notes: string[] = [];
+  for (const d of defs) {
+    if (!(d.key in changes)) continue;
+    const v = changes[d.key];
+    const ok = v === null || (d.kind === "check" ? typeof v === "boolean" : typeof v === "string" && d.options.includes(v));
+    if (!ok) return { ok: false, message: `ערך לא תקין ל${d.label}` };
+    if (v === null) delete after[d.key];
+    else after[d.key] = v;
+    if (before[d.key] !== after[d.key]) notes.push(`${d.label}: ${describeValue(d, before[d.key])} ← ${describeValue(d, after[d.key])}`);
+  }
+  if (!notes.length) return { ok: true };
+  // History entries belong to the company's active deployment, if there is one.
+  const active = await scopedDb(user.companyId).deployment.findFirst({ where: { status: "ACTIVE" }, select: { id: true } });
+  await db.$transaction([
+    db.equipmentItem.update({ where: { id }, data: { attributes: after } }),
+    db.equipmentLog.create({
+      data: { companyId: user.companyId, deploymentId: active?.id ?? null, itemId: id, note: notes.join(" · "), performedById: user.id },
+    }),
+  ]);
+  refresh();
+  return { ok: true, message: "נשמר" };
 }
 
 function deploymentCtx(w: { user: { id: string; companyId: string }; deployment: { id: string } }): DeploymentCtx {

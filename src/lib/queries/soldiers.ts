@@ -3,6 +3,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { companyContext } from "@/lib/context";
 import { scopedDb } from "@/lib/db";
 import { parseReturnLines } from "@/lib/kit";
+import { attributeTags, parseAttributeDefs, parseAttributeValues } from "@/lib/equipment-attributes";
 import { platoonSelect, type PlatoonRef } from "@/lib/platoons";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -132,7 +133,15 @@ export async function getSoldier(id: string) {
         select: {
           status: true,
           lastVerifiedAt: true,
-          item: { select: { id: true, serialNumber: true, parentId: true, category: { select: { name: true } } } },
+          item: {
+            select: {
+              id: true,
+              serialNumber: true,
+              parentId: true,
+              attributes: true,
+              category: { select: { name: true, attributes: true } },
+            },
+          },
         },
       },
     },
@@ -143,7 +152,16 @@ export async function getSoldier(id: string) {
     ...rest,
     looseItems,
     kit: kits[0] ?? null,
-    equipment: assignments.map((a) => ({ ...a.item, status: a.status, lastVerifiedAt: a.lastVerifiedAt })),
+    equipment: assignments.map(({ item: { attributes, category, ...item }, ...a }) => {
+      const defs = parseAttributeDefs(category.attributes);
+      return {
+        ...item,
+        category: { name: category.name },
+        attributeTags: attributeTags(defs, parseAttributeValues(attributes, defs)),
+        status: a.status,
+        lastVerifiedAt: a.lastVerifiedAt,
+      };
+    }),
     /** null when no deployment is viewed. */
     inDeployment: deployment ? absences.length === 0 : null,
   };

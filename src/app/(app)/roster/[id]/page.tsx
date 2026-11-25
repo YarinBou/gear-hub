@@ -132,6 +132,7 @@ export default async function SoldierPage({ params }: PageProps<"/roster/[id]">)
                   category: e.category,
                   status: e.status,
                   stale: !e.lastVerifiedAt || e.lastVerifiedAt < staleBefore,
+                  attributeTags: e.attributeTags,
                 }))}
               />
             </CardContent>

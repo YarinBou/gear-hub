@@ -1,4 +1,5 @@
 import "server-only";
+import { parseAttributeDefs } from "@/lib/equipment-attributes";
 import { cacheLife, cacheTag } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { companyContext } from "@/lib/context";
@@ -24,7 +25,7 @@ async function cachedActiveCategories(companyId: string, domain: CatalogDomain) 
   return scopedDb(companyId).equipmentCategory.findMany({
     where: { domain, isActive: true },
     orderBy: { name: "asc" },
-    select: { id: true, name: true, ammoCategory: true, minThreshold: true, requiresExpiry: true },
+    select: { id: true, name: true, ammoCategory: true, minThreshold: true, requiresExpiry: true, attributes: true },
   });
 }
 
@@ -39,8 +40,9 @@ export async function listCatalog(domain: CatalogDomain) {
       storageItems: { select: { currentQuantity: true, targetQuantity: true } },
     },
   });
-  return rows.map(({ _count, storageItems, ...c }) => ({
+  return rows.map(({ _count, storageItems, attributes, ...c }) => ({
     ...c,
+    attributes: parseAttributeDefs(attributes),
     // The empty storage row opened automatically for a new STORAGE type doesn't count as usage.
     usage:
       _count.equipmentItems +

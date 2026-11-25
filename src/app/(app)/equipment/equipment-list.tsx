@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Serial } from "@/components/equipment/serial";
+import { AttributeTags } from "@/components/equipment/attribute-tags";
 import { EquipmentStatusBadge } from "@/components/equipment/status-badge";
 import { PlatoonBadge } from "@/components/platoon-badge";
 import { EQUIPMENT_STATUSES, EQUIPMENT_STATUS_LABELS } from "@/lib/constants";
@@ -92,6 +93,7 @@ export function EquipmentList({ items, platoons }: { items: EquipmentListItem[];
                     <span className="font-medium">{i.category.name}</span>
                     <Serial value={i.serialNumber} className="text-muted-foreground text-sm" />
                     <SetMarker item={i} />
+                    <AttributeTags tags={i.attributeTags} />
                   </p>
                   <p className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                     <EquipmentStatusBadge status={i.status} />
@@ -150,6 +152,7 @@ export function EquipmentList({ items, platoons }: { items: EquipmentListItem[];
                       {i.category.name}
                     </Link>
                     <SetMarker item={i} className="ms-2" />
+                    <AttributeTags tags={i.attributeTags} className="ms-2" />
                   </td>
                   <td className="px-3 py-2.5">
                     <Link href={`/equipment/${i.id}`} className="hover:underline">
