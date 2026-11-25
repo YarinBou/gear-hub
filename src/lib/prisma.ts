@@ -12,7 +12,19 @@ function createPrismaClient() {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set");
   }
-  const adapter = new PrismaPg({ connectionString: explicitSslMode(connectionString), max: 5, idleTimeoutMillis: 10_000 });
+  const adapter = new PrismaPg({
+    connectionString: explicitSslMode(connectionString),
+    max: 5,
+    // Keep a warm instance's connections for a few minutes: reconnecting (TCP + TLS + auth to the
+    // pooler) on every click after a short pause made navigation feel stuck. Neon's pooler is
+    // built for many idle client connections.
+    idleTimeoutMillis: 120_000,
+    // Detect connections that died while the instance was idle instead of waiting on them.
+    keepAlive: true,
+    // Never wait forever for a connection (default: no limit) — fail and let the user retry.
+    // Long enough for a suspended Neon compute to wake up.
+    connectionTimeoutMillis: 15_000,
+  });
   return new PrismaClient({
     adapter,
     // Interactive transactions (equipment moves, starting a deployment) make many round trips;
