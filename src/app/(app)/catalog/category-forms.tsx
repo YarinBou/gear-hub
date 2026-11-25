@@ -16,6 +16,8 @@ import {
   setCategoryActive,
   updateCategory,
 } from "./actions";
+import { AttributesEditor } from "./attributes-editor";
+import type { AttributeDef } from "@/lib/equipment-attributes";
 
 type CategoryValues = {
   name: string;
@@ -24,6 +26,7 @@ type CategoryValues = {
   minThreshold: number | null;
   targetQuantity: number | null;
   requiresExpiry: boolean;
+  attributes?: AttributeDef[];
 };
 
 const AMMO_ORDER: AmmoCategory[] = ["STANDARD", "EXPLOSIVE", "NON_LETHAL"];
@@ -98,6 +101,7 @@ function CategoryFields({
           />
         </Field>
       )}
+      {domain === "EQUIPMENT" && <AttributesEditor initial={values?.attributes ?? []} />}
       {domain === "STORAGE" && (
         <label className="flex min-h-11 items-center gap-3 text-sm sm:col-span-2">
           <input type="checkbox" name="requiresExpiry" defaultChecked={values?.requiresExpiry ?? false} className="accent-primary size-5" />
@@ -228,6 +232,12 @@ export function CategoryRow({
               </Badge>
             )}
             {domain === "STORAGE" && category.requiresExpiry && <Badge variant="warning">מעקב תוקף</Badge>}
+            {domain === "EQUIPMENT" &&
+              category.attributes?.map((a) => (
+                <Badge key={a.key} variant="outline">
+                  {a.label}
+                </Badge>
+              ))}
             {!category.isActive && <Badge variant="outline">מושבת</Badge>}
           </p>
           <p className="text-muted-foreground text-xs">

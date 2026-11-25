@@ -1,0 +1,61 @@
+import { describe, expect, it } from "vitest";
+import { prisma } from "@/lib/prisma";
+import { createCategory, updateCategory } from "@/app/(app)/catalog/actions";
+import { createEquipment, setItemAttributes } from "@/app/(app)/equipment/actions";
+import { getEquipmentCounts, getEquipmentItem, listEquipment } from "@/lib/queries/equipment";
+import { RedirectSignal } from "./auth-mock";
+import { activeDeployment, form, loginAs, makeItem } from "./factories";
+
+const LASER = [
+  { key: "case", label: "קייס", kind: "check" },
+  { key: "ptt", label: "שלט PTT", kind: "check" },
+];
+
+describe("equipment properties", () => {
+  it("an admin defines them on the type; items are added and marked with them; changes are logged", async () => {
+    await loginAs("ADMIN");
+    await activeDeployment();
+    expect(await createCategory("EQUIPMENT", undefined, form({ name: "ציין לייזר", attributes: JSON.stringify(LASER) }))).toMatchObject({ ok: true });
+    const laser = await prisma.equipmentCategory.findFirstOrThrow({ where: { name: "ציין לייזר" } });
+
+    // Added with a case, PTT not marked yet.
+    await expect(
+      createEquipment(undefined, form({ categoryId: laser.id, serials: "L-1", attr_case: "yes", attr_ptt: "" })),
+    ).rejects.toBeInstanceOf(RedirectSignal);
+    const item = await prisma.equipmentItem.findFirstOrThrow({ where: { serialNumber: "L-1" } });
+    expect(item.attributes).toEqual({ case: true });
+
+    // Missing PTT (not marked) → in the "חסר מאפיין" filter.
+    expect((await getEquipmentCounts()).attrMissing).toBe(1);
+    expect((await listEquipment({ attrMissing: true })).items.map((i) => i.id)).toEqual([item.id]);
+
+    // Any user marks it; the change goes to the item's history.
+    await loginAs("REGULAR");
+    expect(await setItemAttributes(item.id, { ptt: true })).toMatchObject({ ok: true });
+    const detail = (await getEquipmentItem(item.id))!;
+    expect(detail.attributeValues).toEqual({ case: true, ptt: true });
+    expect(detail.logs[0].note).toBe("שלט PTT: — ← יש");
+    expect((await getEquipmentCounts()).attrMissing).toBe(0);
+    expect((await listEquipment({})).items.find((i) => i.id === item.id)?.attributeTags).toEqual([
+      { label: "קייס", missing: false },
+      { label: "שלט PTT", missing: false },
+    ]);
+    // A value that isn't one of the type's options is refused.
+    expect(await setItemAttributes(item.id, { ptt: "maybe" })).toMatchObject({ ok: false });
+  });
+
+  it("a choice (Romeo color); renaming a property keeps the values (stable key)", async () => {
+    await loginAs("ADMIN");
+    await activeDeployment();
+    const romeo = [{ key: "color", label: "צבע", kind: "choice", options: ["חום", "שחור"] }];
+    await createCategory("EQUIPMENT", undefined, form({ name: "רומיאו", attributes: JSON.stringify(romeo) }));
+    const cat = await prisma.equipmentCategory.findFirstOrThrow({ where: { name: "רומיאו" } });
+    const item = await makeItem({ categoryId: cat.id });
+    expect(await setItemAttributes(item.id, { color: "חום" })).toMatchObject({ ok: true });
+
+    await updateCategory(cat.id, undefined, form({ name: "רומיאו", attributes: JSON.stringify([{ ...romeo[0], label: "צבע גוף" }]) }));
+    const detail = (await getEquipmentItem(item.id))!;
+    expect(detail.attributeDefs[0].label).toBe("צבע גוף");
+    expect(detail.attributeValues).toEqual({ color: "חום" });
+  });
+});

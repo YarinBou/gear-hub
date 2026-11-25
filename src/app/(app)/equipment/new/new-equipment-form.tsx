@@ -12,6 +12,7 @@ import type { PlatoonRef } from "@/lib/platoons";
 import { MAX_BATCH_SERIALS } from "@/lib/validation/equipment";
 import type { SoldierOption } from "@/lib/queries/soldiers";
 import { createEquipment } from "../actions";
+import type { AttributeDef } from "@/lib/equipment-attributes";
 
 export function NewEquipmentForm({
   categories,
@@ -19,7 +20,7 @@ export function NewEquipmentForm({
   defaultCategoryId,
   platoons,
 }: {
-  categories: { id: string; name: string }[];
+  categories: { id: string; name: string; attributeDefs: AttributeDef[] }[];
   soldiers: SoldierOption[];
   defaultCategoryId?: string;
   platoons: PlatoonRef[];
@@ -31,6 +32,8 @@ export function NewEquipmentForm({
   const [soldierId, setSoldierId] = useState(v.soldierId ?? "");
   const [noSerial, setNoSerial] = useState(v.noSerial === "on");
   const [quantity, setQuantity] = useState(v.quantity ?? "1");
+  const [categoryId, setCategoryId] = useState(v.categoryId ?? defaultCategoryId ?? "");
+  const attributeDefs = categories.find((c) => c.id === categoryId)?.attributeDefs ?? [];
   const serialCount = serials.split(/[\r\n,]+/).filter((s) => s.trim()).length;
   const count = noSerial ? Math.max(0, Math.floor(Number(quantity) || 0)) : serialCount;
   const soldier = soldiers.find((s) => s.id === soldierId);
@@ -47,7 +50,14 @@ export function NewEquipmentForm({
       noValidate
     >
       <Field id="categoryId" label="סוג פריט" error={err.categoryId} required>
-        <Select id="categoryId" name="categoryId" defaultValue={v.categoryId ?? defaultCategoryId ?? ""} required aria-invalid={!!err.categoryId}>
+        <Select
+          id="categoryId"
+          name="categoryId"
+          value={categoryId}
+          onChange={(e) => setCategoryId(e.target.value)}
+          required
+          aria-invalid={!!err.categoryId}
+        >
           <option value="" disabled>
             בחירת סוג…
           </option>
@@ -58,6 +68,31 @@ export function NewEquipmentForm({
           ))}
         </Select>
       </Field>
+
+      {attributeDefs.length > 0 && (
+        <fieldset className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2">
+          <legend className="px-1 text-sm font-medium">מאפיינים (לכל הפריטים שנקלטים)</legend>
+          {attributeDefs.map((d) => (
+            <Field key={d.key} id={`attr-${d.key}`} label={d.label}>
+              <Select id={`attr-${d.key}`} name={`attr_${d.key}`} defaultValue={String(v[`attr_${d.key}`] ?? "")}>
+                <option value="">לא סומן</option>
+                {d.kind === "check" ? (
+                  <>
+                    <option value="yes">יש</option>
+                    <option value="no">אין</option>
+                  </>
+                ) : (
+                  d.options.map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))
+                )}
+              </Select>
+            </Field>
+          ))}
+        </fieldset>
+      )}
 
       <label className="flex min-h-11 items-center gap-3 text-sm">
         <input

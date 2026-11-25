@@ -34,6 +34,7 @@ import {
   VerifyNowButton,
 } from "./item-forms";
 import { isCompanyAdmin } from "@/lib/roles";
+import { ItemAttributes } from "./attributes-card";
 
 export const metadata: Metadata = { title: 'פריט צל"ם' };
 
@@ -204,6 +205,17 @@ export default async function EquipmentItemPage({ params }: PageProps<"/equipmen
                     candidates={candidates}
                   />
                 </ReadOnlyWhenClosed>
+              </CardContent>
+            </Card>
+          )}
+          {item.attributeDefs.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>מאפיינים</CardTitle>
+                <CardDescription>לחיצה שוב על הבחירה מנקה אותה. כל שינוי נרשם בהיסטוריה.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ItemAttributes key={item.id} itemId={item.id} defs={item.attributeDefs} values={item.attributeValues} />
               </CardContent>
             </Card>
           )}

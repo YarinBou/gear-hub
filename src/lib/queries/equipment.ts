@@ -1,4 +1,5 @@
 import "server-only";
+import { attributeTags, parseAttributeDefs, parseAttributeValues } from "@/lib/equipment-attributes";
 import { connection } from "next/server";
 import { getActiveCategories } from "@/lib/queries/catalog";
 import { companyContext } from "@/lib/context";
@@ -20,7 +21,7 @@ export const PAGE_SIZE = 100;
 /** Active equipment types for dropdowns (cached; see lib/queries/catalog.ts). */
 export async function getEquipmentCategories() {
   const all = await getActiveCategories("EQUIPMENT");
-  return all.map(({ id, name }) => ({ id, name }));
+  return all.map(({ id, name, attributes }) => ({ id, name, attributeDefs: parseAttributeDefs(attributes) }));
 }
 
 export type EquipmentFilters = {
@@ -34,6 +35,8 @@ export type EquipmentFilters = {
   setMissing?: boolean;
   /** Only items whose serial number hasn't been recorded yet. */
   noSerial?: boolean;
+  /** Only items missing a yes / no property of their type (marked "אין", or not marked yet). */
+  attrMissing?: boolean;
   page?: number;
 };
 
@@ -75,13 +78,40 @@ async function incompleteSetItemIds(db: PrismaClient) {
   return items.filter((i) => i.set && !setStatus(i.set.slots, i.components).complete).map((i) => i.id);
 }
 
+/**
+ * Items missing a yes / no property of their type (קייס, שלט PTT…: marked "אין" or not marked yet).
+ * Computed in memory — only types that define such properties are read.
+ */
+async function missingAttributeItemIds(db: PrismaClient) {
+  const types = (await db.equipmentCategory.findMany({ where: { domain: "EQUIPMENT" }, select: { id: true, attributes: true } }))
+    .map((c) => ({ id: c.id, checks: parseAttributeDefs(c.attributes).filter((d) => d.kind === "check") }))
+    .filter((c) => c.checks.length);
+  if (!types.length) return [];
+  const byType = new Map(types.map((t) => [t.id, t.checks]));
+  const items = await db.equipmentItem.findMany({
+    where: { categoryId: { in: types.map((t) => t.id) } },
+    select: { id: true, categoryId: true, attributes: true },
+  });
+  return items
+    .filter((i) => {
+      const checks = byType.get(i.categoryId)!;
+      const values = parseAttributeValues(i.attributes, checks);
+      return checks.some((d) => values[d.key] !== true);
+    })
+    .map((i) => i.id);
+}
+
 export async function listEquipment(f: EquipmentFilters) {
   await connection();
   const { db, deployment } = await companyContext();
   const deploymentId = deployment?.id ?? null;
   const now = new Date();
   const base = buildWhere(f, now, deploymentId);
-  const where = f.setMissing ? { AND: [base, { id: { in: await incompleteSetItemIds(db) } }] } : base;
+  const only = [
+    ...(f.setMissing ? [{ id: { in: await incompleteSetItemIds(db) } }] : []),
+    ...(f.attrMissing ? [{ id: { in: await missingAttributeItemIds(db) } }] : []),
+  ];
+  const where = only.length ? { AND: [base, ...only] } : base;
   const page = Math.max(1, f.page ?? 1);
   const [items, total] = await Promise.all([
     db.equipmentItem.findMany({
@@ -92,7 +122,8 @@ export async function listEquipment(f: EquipmentFilters) {
       select: {
         id: true,
         serialNumber: true,
-        category: { select: { name: true } },
+        attributes: true,
+        category: { select: { name: true, attributes: true } },
         parent: { select: { id: true, serialNumber: true, category: { select: { name: true } } } },
         _count: { select: { components: true } },
         set: { select: { name: true, slots: slotSelect } },
@@ -102,11 +133,18 @@ export async function listEquipment(f: EquipmentFilters) {
     }),
     db.equipmentItem.count({ where }),
   ]);
-  const rows = items.map(({ set, components, ...i }) => {
+  const rows = items.map(({ set, components, attributes, ...i }) => {
     const status = set ? setStatus(set.slots, components) : null;
     // "What's missing from its set" — null when it isn't a set or the set is complete.
     const setMissing = status && !status.complete ? missingSummary(status) : null;
-    return { ...flattenState(i), setName: set?.name ?? null, setMissing };
+    const defs = parseAttributeDefs(i.category.attributes);
+    return {
+      ...flattenState(i),
+      category: { name: i.category.name },
+      setName: set?.name ?? null,
+      setMissing,
+      attributeTags: attributeTags(defs, parseAttributeValues(attributes, defs)),
+    };
   });
   return { items: rows, total, page, pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)) };
 }
@@ -117,15 +155,16 @@ export type EquipmentListItem = Awaited<ReturnType<typeof listEquipment>>["items
 export async function getEquipmentCounts() {
   await connection();
   const { db, deployment } = await companyContext();
-  const [total, noSerial, setMissing] = await Promise.all([
+  const [total, noSerial, setMissing, attrMissing] = await Promise.all([
     db.equipmentItem.count(),
     db.equipmentItem.count({ where: { serialNumber: null } }),
     incompleteSetItemIds(db).then((ids) => ids.length),
+    missingAttributeItemIds(db).then((ids) => ids.length),
   ]);
   const status = Object.fromEntries(EQUIPMENT_STATUSES.map((s) => [s, 0])) as Record<EquipmentStatus, number>;
   if (!deployment) {
     status.IN_ARMORY = total;
-    return { status, stale: 0, total, noSerial, setMissing };
+    return { status, stale: 0, total, noSerial, setMissing, attrMissing };
   }
   // `db` is scoped to the viewed deployment, so these count that deployment's state rows.
   const [byStatus, stale] = await Promise.all([
@@ -133,7 +172,7 @@ export async function getEquipmentCounts() {
     db.equipmentAssignment.count({ where: staleWhere() }),
   ]);
   for (const r of byStatus) status[r.status] = r._count._all;
-  return { status, stale, total, noSerial, setMissing };
+  return { status, stale, total, noSerial, setMissing, attrMissing };
 }
 
 export async function getEquipmentItem(id: string) {
@@ -147,7 +186,8 @@ export async function getEquipmentItem(id: string) {
       notes: true,
       createdAt: true,
       categoryId: true,
-      category: { select: { id: true, name: true } },
+      attributes: true,
+      category: { select: { id: true, name: true, attributes: true } },
       parent: { select: { id: true, serialNumber: true, category: { select: { name: true } } } },
       set: { select: { id: true, name: true, isActive: true, slots: slotSelect } },
       components: {
@@ -177,9 +217,12 @@ export async function getEquipmentItem(id: string) {
     },
   });
   if (!item) return null;
-  const { personalKits, components, ...rest } = item;
+  const { personalKits, components, attributes, ...rest } = item;
+  const attributeDefs = parseAttributeDefs(item.category.attributes);
   return {
     ...flattenState(rest),
+    attributeDefs,
+    attributeValues: parseAttributeValues(attributes, attributeDefs),
     personalKit: personalKits[0] ?? null,
     components: components.map(flattenState),
   };

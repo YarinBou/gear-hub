@@ -34,6 +34,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
     stale: first(sp.filter) === "stale",
     noSerial: first(sp.filter) === "noserial",
     setMissing: first(sp.filter) === "setmissing",
+    attrMissing: first(sp.filter) === "attrmissing",
     page: Number(first(sp.page)) || 1,
   };
 
@@ -44,7 +45,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
   ]);
 
   /** Status / stale chips keep the other filters. */
-  const chipHref = (next: { status?: EquipmentStatus; stale?: boolean; noSerial?: boolean; setMissing?: boolean }) => {
+  const chipHref = (next: { status?: EquipmentStatus; stale?: boolean; noSerial?: boolean; setMissing?: boolean; attrMissing?: boolean }) => {
     const p = new URLSearchParams();
     if (filters.q) p.set("q", filters.q);
     if (filters.categoryId) p.set("category", filters.categoryId);
@@ -53,6 +54,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
     if (next.stale) p.set("filter", "stale");
     if (next.noSerial) p.set("filter", "noserial");
     if (next.setMissing) p.set("filter", "setmissing");
+    if (next.attrMissing) p.set("filter", "attrmissing");
     const s = p.toString();
     return s ? `/equipment?${s}` : "/equipment";
   };
@@ -63,7 +65,7 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
     return `/equipment?${p.toString()}`;
   };
 
-  const noFilterChip = !filters.status && !filters.stale && !filters.noSerial && !filters.setMissing;
+  const noFilterChip = !filters.status && !filters.stale && !filters.noSerial && !filters.setMissing && !filters.attrMissing;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
@@ -120,6 +122,15 @@ export default async function EquipmentPage({ searchParams }: PageProps<"/equipm
               active={!!filters.setMissing}
               label="מארז חסר"
               count={counts.setMissing}
+              tone="warning"
+            />
+          )}
+          {(counts.attrMissing > 0 || filters.attrMissing) && (
+            <Chip
+              href={chipHref({ attrMissing: true })}
+              active={!!filters.attrMissing}
+              label="חסר מאפיין"
+              count={counts.attrMissing}
               tone="warning"
             />
           )}

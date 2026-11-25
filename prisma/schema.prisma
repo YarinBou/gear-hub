@@ -261,6 +261,10 @@ model EquipmentCategory {
   targetQuantity Int?
   /// STORAGE items that require expiry tracking (e.g. tourniquets, medical).
   requiresExpiry Boolean       @default(false)
+  /// EQUIPMENT: properties every item of this type records, e.g. [{ "key": "case", "label": "קייס",
+  /// "kind": "check" }, { "key": "color", "label": "צבע", "kind": "choice", "options": ["חום", "שחור"] }].
+  /// Defined by admins on /catalog; read through parseAttributeDefs().
+  attributes     Json          @default("[]")
   isActive       Boolean       @default(true)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
@@ -284,6 +288,9 @@ model EquipmentItem {
   company      Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
   /// צ / מס"ט. Null = not recorded yet ("ללא צ"); unique within the company when present.
   serialNumber String?
+  /// Values of the type's properties, by key: true / false (check) or one of the options (choice),
+  /// e.g. { "case": true, "color": "חום" }. Belongs to the item across deployments; changes are logged.
+  attributes   Json              @default("{}")
   categoryId   String
   category     EquipmentCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   notes        String?
