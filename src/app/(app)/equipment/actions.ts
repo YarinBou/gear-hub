@@ -29,7 +29,7 @@ import {
   type FieldErrors,
 } from "@/lib/validation/equipment";
 import { SignSetSchema, type SignSetInput } from "@/lib/equipment-sets";
-import { describeValue, parseAttributeDefs, parseAttributeValues, type AttributeValues } from "@/lib/equipment-attributes";
+import { describeValue, parseAttributeDefs, parseAttributeValues, validValue, type AttributeValues } from "@/lib/equipment-attributes";
 
 // Items are company-level (create / edit details / delete work with or without a deployment).
 // Who holds them, their status and platoon belong to a deployment: those actions need the viewed
@@ -108,6 +108,7 @@ export async function createEquipment(_prev: FormState, fd: FormData): Promise<F
     const raw = String(fd.get(`attr_${d.key}`) ?? "");
     if (d.kind === "check" && (raw === "yes" || raw === "no")) attributes[d.key] = raw === "yes";
     if (d.kind === "choice" && d.options.includes(raw)) attributes[d.key] = raw;
+    if (d.kind === "count" && raw !== "" && validValue(d, Number(raw))) attributes[d.key] = Number(raw);
   }
 
   let platoonId = parsed.data.platoon ?? null;
@@ -217,7 +218,7 @@ export async function updateDetails(id: string, _prev: FormState, fd: FormData):
  * Record an item's properties (מאפיינים: קייס, שלט PTT, מתאם לקסדה, צבע…). `changes` by key: true /
  * false, an option, or null to clear. Any user; each change is written to the item's history.
  */
-export async function setItemAttributes(id: string, changes: Record<string, boolean | string | null>): Promise<SimpleResult> {
+export async function setItemAttributes(id: string, changes: Record<string, boolean | string | number | null>): Promise<SimpleResult> {
   const { user, db } = await companyContext();
   if (!changes || typeof changes !== "object") return { ok: false, message: "בקשה לא תקינה" };
   const item = await db.equipmentItem.findUnique({
@@ -232,10 +233,10 @@ export async function setItemAttributes(id: string, changes: Record<string, bool
   for (const d of defs) {
     if (!(d.key in changes)) continue;
     const v = changes[d.key];
-    const ok = v === null || (d.kind === "check" ? typeof v === "boolean" : typeof v === "string" && d.options.includes(v));
+    const ok = v === null || validValue(d, v);
     if (!ok) return { ok: false, message: `ערך לא תקין ל${d.label}` };
     if (v === null) delete after[d.key];
-    else after[d.key] = v;
+    else after[d.key] = v as boolean | string | number;
     if (before[d.key] !== after[d.key]) notes.push(`${d.label}: ${describeValue(d, before[d.key])} ← ${describeValue(d, after[d.key])}`);
   }
   if (!notes.length) return { ok: true };

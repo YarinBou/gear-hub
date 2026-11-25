@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attributeTags, describeValue, parseAttributeDefs, parseAttributeValues } from "@/lib/equipment-attributes";
+import { attributeTags, describeValue, isMissing, parseAttributeDefs, parseAttributeValues, validValue } from "@/lib/equipment-attributes";
 
 const defs = parseAttributeDefs([
   { key: "case", label: "קייס", kind: "check" },
@@ -29,5 +29,27 @@ describe("equipment properties (מאפיינים)", () => {
       { label: "בלי שלט PTT", missing: true },
       { label: "שחור", missing: false },
     ]);
+  });
+});
+
+describe("count properties (drones: batteries, propellers)", () => {
+  const drone = parseAttributeDefs([
+    { key: "bat", label: "סוללות", kind: "count" },
+    { key: "sd", label: "כרטיס זיכרון", kind: "check" },
+  ]);
+  it("keeps whole numbers 0–999 only", () => {
+    expect(parseAttributeValues({ bat: 4, sd: true }, drone)).toEqual({ bat: 4, sd: true });
+    expect(parseAttributeValues({ bat: -1 }, drone)).toEqual({});
+    expect(parseAttributeValues({ bat: 2.5 }, drone)).toEqual({});
+    expect(parseAttributeValues({ bat: "4" }, drone)).toEqual({});
+  });
+  it("tags 'סוללות × 4'; 0 or unrecorded counts as missing", () => {
+    expect(attributeTags(drone, { bat: 4 })).toEqual([{ label: "סוללות × 4", missing: false }]);
+    expect(attributeTags(drone, { bat: 0 })).toEqual([{ label: "בלי סוללות", missing: true }]);
+    expect(isMissing(drone[0], undefined)).toBe(true);
+    expect(isMissing(drone[0], 0)).toBe(true);
+    expect(isMissing(drone[0], 3)).toBe(false);
+    expect(validValue(drone[0], 12)).toBe(true);
+    expect(validValue(drone[0], 1000)).toBe(false);
   });
 });
