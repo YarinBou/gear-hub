@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Minus, Plus, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { AttributeDef, AttributeValues } from "@/lib/equipment-attributes";
+import { MAX_COUNT, type AttributeDef, type AttributeValues } from "@/lib/equipment-attributes";
 import { setItemAttributes } from "../actions";
 
 /**
@@ -15,7 +16,7 @@ export function ItemAttributes({ itemId, defs, values }: { itemId: string; defs:
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const save = (key: string, value: boolean | string | null) => {
+  const save = (key: string, value: boolean | string | number | null) => {
     const prev = current;
     const next = { ...current };
     if (value === null) delete next[key];
@@ -61,6 +62,32 @@ export function ItemAttributes({ itemId, defs, values }: { itemId: string; defs:
                       {o.label}
                     </button>
                   ))}
+                </div>
+              ) : d.kind === "count" ? (
+                <div className="flex items-center gap-1" role="group" aria-label={d.label}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label={`פחות ${d.label}`}
+                    disabled={pending || v === undefined || v === 0}
+                    onClick={() => save(d.key, Math.max(0, Number(v) - 1))}
+                  >
+                    <Minus />
+                  </Button>
+                  <span className={cn("w-12 text-center font-semibold tabular-nums", !v && "text-danger")}>
+                    {v === undefined ? "—" : String(v)}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label={`עוד ${d.label}`}
+                    disabled={pending || Number(v ?? 0) >= MAX_COUNT}
+                    onClick={() => save(d.key, Number(v ?? 0) + 1)}
+                  >
+                    <Plus />
+                  </Button>
                 </div>
               ) : (
                 <div role="radiogroup" aria-label={d.label} className="bg-muted flex flex-wrap rounded-lg p-1">

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ATTRIBUTE_PRESETS, MAX_ATTRIBUTES, type AttributeDef } from "@/lib/equipment-attributes";
+import { ATTRIBUTE_PRESETS, DRONE_PRESET, MAX_ATTRIBUTES, type AttributeDef } from "@/lib/equipment-attributes";
 
 /** A short stable key for a new property (kept when it's renamed, so item values stay attached). */
 function newKey() {
@@ -25,7 +25,8 @@ export function AttributesEditor({ initial }: { initial: AttributeDef[] }) {
       <input type="hidden" name="attributes" value={JSON.stringify(defs)} />
       <p className="text-sm font-medium">מאפיינים לכל פריט מסוג זה</p>
       <p className="text-muted-foreground -mt-1 text-xs">
-        יש / אין (למשל קייס, שלט PTT, מתאם לקסדה) או בחירה מרשימה (למשל צבע: חום / שחור). מסמנים אותם על כל פריט.
+        יש / אין (למשל קייס, שלט PTT, מתאם לקסדה), בחירה מרשימה (למשל צבע: חום / שחור) או כמות (למשל סוללות, מדחפים). מסמנים
+        אותם על כל פריט.
       </p>
       {defs.map((d, i) => (
         <div key={d.key} className="flex flex-wrap items-center gap-2 rounded-md border p-2">
@@ -38,6 +39,8 @@ export function AttributesEditor({ initial }: { initial: AttributeDef[] }) {
           />
           {d.kind === "check" ? (
             <span className="text-muted-foreground text-xs">יש / אין</span>
+          ) : d.kind === "count" ? (
+            <span className="text-muted-foreground text-xs">כמות</span>
           ) : (
             <Input
               aria-label={`אפשרויות ל${d.label} (מופרדות בפסיק)`}
@@ -54,6 +57,24 @@ export function AttributesEditor({ initial }: { initial: AttributeDef[] }) {
       ))}
       {defs.length < MAX_ATTRIBUTES && (
         <div className="flex flex-wrap gap-1.5">
+          {DRONE_PRESET.some((p) => !used.has(p.label)) && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setDefs([
+                  ...defs,
+                  ...DRONE_PRESET.filter((p) => !used.has(p.label))
+                    .slice(0, MAX_ATTRIBUTES - defs.length)
+                    .map((p) => ({ ...p, key: newKey() }) as AttributeDef),
+                ])
+              }
+            >
+              <Plus />
+              ערכת רחפן
+            </Button>
+          )}
           {ATTRIBUTE_PRESETS.filter((p) => !used.has(p.label)).map((p) => (
             <Button key={p.label} type="button" variant="outline" size="sm" onClick={() => setDefs([...defs, { ...p, key: newKey() } as AttributeDef])}>
               <Plus />
@@ -72,6 +93,10 @@ export function AttributesEditor({ initial }: { initial: AttributeDef[] }) {
           >
             <Plus />
             בחירה מרשימה
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setDefs([...defs, { key: newKey(), label: "", kind: "count" }])}>
+            <Plus />
+            כמות
           </Button>
         </div>
       )}

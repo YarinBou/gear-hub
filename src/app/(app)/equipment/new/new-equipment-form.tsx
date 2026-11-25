@@ -74,6 +74,17 @@ export function NewEquipmentForm({
           <legend className="px-1 text-sm font-medium">מאפיינים (לכל הפריטים שנקלטים)</legend>
           {attributeDefs.map((d) => (
             <Field key={d.key} id={`attr-${d.key}`} label={d.label}>
+              {d.kind === "count" ? (
+                <Input
+                  id={`attr-${d.key}`}
+                  name={`attr_${d.key}`}
+                  inputMode="numeric"
+                  dir="ltr"
+                  className="text-start"
+                  placeholder="לא סומן"
+                  defaultValue={String(v[`attr_${d.key}`] ?? "")}
+                />
+              ) : (
               <Select id={`attr-${d.key}`} name={`attr_${d.key}`} defaultValue={String(v[`attr_${d.key}`] ?? "")}>
                 <option value="">לא סומן</option>
                 {d.kind === "check" ? (
@@ -89,6 +100,7 @@ export function NewEquipmentForm({
                   ))
                 )}
               </Select>
+              )}
             </Field>
           ))}
         </fieldset>

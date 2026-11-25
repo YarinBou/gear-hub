@@ -1,5 +1,5 @@
 import "server-only";
-import { attributeTags, parseAttributeDefs, parseAttributeValues } from "@/lib/equipment-attributes";
+import { attributeTags, isMissing, parseAttributeDefs, parseAttributeValues } from "@/lib/equipment-attributes";
 import { connection } from "next/server";
 import { getActiveCategories } from "@/lib/queries/catalog";
 import { companyContext } from "@/lib/context";
@@ -79,12 +79,13 @@ async function incompleteSetItemIds(db: PrismaClient) {
 }
 
 /**
- * Items missing a yes / no property of their type (קייס, שלט PTT…: marked "אין" or not marked yet).
+ * Items missing a property of their type: a yes / no not marked "יש" (קייס, שלט PTT…), or a count not
+ * recorded or 0 (סוללות, מדחפים).
  * Computed in memory — only types that define such properties are read.
  */
 async function missingAttributeItemIds(db: PrismaClient) {
   const types = (await db.equipmentCategory.findMany({ where: { domain: "EQUIPMENT" }, select: { id: true, attributes: true } }))
-    .map((c) => ({ id: c.id, checks: parseAttributeDefs(c.attributes).filter((d) => d.kind === "check") }))
+    .map((c) => ({ id: c.id, checks: parseAttributeDefs(c.attributes).filter((d) => d.kind !== "choice") }))
     .filter((c) => c.checks.length);
   if (!types.length) return [];
   const byType = new Map(types.map((t) => [t.id, t.checks]));
@@ -96,7 +97,7 @@ async function missingAttributeItemIds(db: PrismaClient) {
     .filter((i) => {
       const checks = byType.get(i.categoryId)!;
       const values = parseAttributeValues(i.attributes, checks);
-      return checks.some((d) => values[d.key] !== true);
+      return checks.some((d) => isMissing(d, values[d.key]));
     })
     .map((i) => i.id);
 }

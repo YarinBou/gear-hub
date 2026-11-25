@@ -58,4 +58,25 @@ describe("equipment properties", () => {
     expect(detail.attributeDefs[0].label).toBe("צבע גוף");
     expect(detail.attributeValues).toEqual({ color: "חום" });
   });
+
+  it("drones: counts (batteries, propellers) with the yes / no accessories", async () => {
+    await loginAs("ADMIN");
+    await activeDeployment();
+    const { DRONE_PRESET } = await import("@/lib/equipment-attributes");
+    const defs = DRONE_PRESET.map((p, i) => ({ ...p, key: `d${i}` }));
+    await createCategory("EQUIPMENT", undefined, form({ name: "רחפן מתקדם", attributes: JSON.stringify(defs) }));
+    const cat = await prisma.equipmentCategory.findFirstOrThrow({ where: { name: "רחפן מתקדם" } });
+    await expect(
+      createEquipment(undefined, form({ categoryId: cat.id, serials: "D-1", attr_d0: "4", attr_d1: "8", attr_d2: "yes" })),
+    ).rejects.toBeInstanceOf(RedirectSignal);
+    const item = await prisma.equipmentItem.findFirstOrThrow({ where: { serialNumber: "D-1" } });
+    expect(item.attributes).toEqual({ d0: 4, d1: 8, d2: true });
+
+    await loginAs("REGULAR");
+    expect(await setItemAttributes(item.id, { d0: 3 })).toMatchObject({ ok: true });
+    expect((await getEquipmentItem(item.id))!.logs[0].note).toBe("סוללות: 4 ← 3");
+    expect(await setItemAttributes(item.id, { d0: -2 })).toMatchObject({ ok: false });
+    // Chargers / cables not marked yet → missing.
+    expect((await listEquipment({ attrMissing: true })).items.map((i) => i.id)).toContain(item.id);
+  });
 });
