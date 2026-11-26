@@ -40,3 +40,22 @@ export const MovementSchema = z
       ctx.addIssue({ code: "custom", path: ["amount"], message: "הכמות חייבת להיות גדולה מ-0" });
     }
   });
+
+/** העברה: to an existing row ("stock:<id>"), a place (free text) or a soldier. */
+export const TransferSchema = z
+  .object({
+    to: z.string().min(1, "יש לבחור יעד"),
+    location: z.preprocess(emptyToUndef, LocationSchema.optional()),
+    soldierId: z.preprocess(emptyToUndef, z.string().optional()),
+    amount: z.preprocess(emptyToUndef, quantity.optional()),
+    note: z.preprocess(emptyToUndef, z.string().trim().max(200, "ההערה ארוכה מדי").optional()),
+  })
+  .superRefine((d, ctx) => {
+    if (d.amount === undefined || d.amount === 0) ctx.addIssue({ code: "custom", path: ["amount"], message: "יש להזין כמות להעברה" });
+    if (d.to === "place" && !d.location) ctx.addIssue({ code: "custom", path: ["location"], message: "יש להזין מיקום" });
+    if (d.to === "soldier" && !d.soldierId) ctx.addIssue({ code: "custom", path: ["soldierId"], message: "יש לבחור חייל" });
+    if (d.to !== "place" && d.to !== "soldier" && !/^stock:.+/.test(d.to)) {
+      ctx.addIssue({ code: "custom", path: ["to"], message: "יש לבחור יעד" });
+    }
+  })
+  .transform((d) => ({ ...d, amount: d.amount! }));

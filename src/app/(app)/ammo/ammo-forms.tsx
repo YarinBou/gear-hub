@@ -1,7 +1,7 @@
 "use client";
 
-import { startTransition, useActionState, useState, useTransition } from "react";
-import { CheckCheck, CheckCircle2, ChevronDown, Minus, Plus, Trash2, User } from "lucide-react";
+import { createContext, startTransition, useActionState, useContext, useState, useTransition } from "react";
+import { ArrowLeftRight, CheckCheck, CheckCircle2, ChevronDown, Minus, Plus, Trash2, User } from "lucide-react";
 import { PlatoonBadge } from "@/components/platoon-badge";
 import { Field } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,22 @@ import { cn, formatDateTime, formatDaysAgo, formatNumber } from "@/lib/utils";
 import type { AmmoLogType } from "@/generated/prisma/enums";
 import type { AmmoStockRow } from "@/lib/queries/ammo";
 import type { SoldierOption } from "@/lib/queries/soldiers";
-import { addStock, deleteStock, recordMovement, verifyStocks, type VerifyResult } from "./actions";
+import { addStock, deleteStock, recordMovement, transferAmmo, verifyStocks, type VerifyResult } from "./actions";
+
+/** Place names and soldiers for the transfer destination — given once for the whole page. */
+const AmmoOptions = createContext<{ locations: string[]; soldiers: SoldierOption[] }>({ locations: [], soldiers: [] });
+
+export function AmmoOptionsProvider({
+  locations,
+  soldiers,
+  children,
+}: {
+  locations: string[];
+  soldiers: SoldierOption[];
+  children: React.ReactNode;
+}) {
+  return <AmmoOptions value={{ locations, soldiers }}>{children}</AmmoOptions>;
+}
 
 function submitWith(action: (fd: FormData) => void) {
   return (e: React.FormEvent<HTMLFormElement>) => {
@@ -123,15 +138,20 @@ export function AddStockForm({
 
 // ───────────── One location row with its movement panel ─────────────
 
-const MODES: { type: AmmoLogType; label: string; hint: string }[] = [
+type Mode = AmmoLogType | "TRANSFER";
+const MODES: { type: Mode; label: string; hint: string }[] = [
   { type: "COUNT", label: "ספירה", hint: "הכמות שנספרה בפועל" },
   { type: "RECEIVE", label: "קליטה", hint: "כמות שהתקבלה" },
   { type: "ISSUE", label: "ניפוק", hint: "כמות שנופקה" },
+  { type: "TRANSFER", label: "העברה", hint: "כמות להעברה" },
 ];
 
-export function StockRow({ stock, isAdmin }: { stock: AmmoStockRow; isAdmin: boolean }) {
+/** Another row of the same ammo type — a transfer destination. */
+export type SiblingStock = { id: string; location: string; isSoldier: boolean };
+
+export function StockRow({ stock, isAdmin, siblings }: { stock: AmmoStockRow; isAdmin: boolean; siblings: SiblingStock[] }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<AmmoLogType>("COUNT");
+  const [mode, setMode] = useState<Mode>("COUNT");
   const [state, action, pending] = useActionState(recordMovement.bind(null, stock.id), undefined);
   const [busy, startBusy] = useTransition();
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -185,7 +205,7 @@ export function StockRow({ stock, isAdmin }: { stock: AmmoStockRow; isAdmin: boo
       {open && (
         <div className="flex flex-col gap-4 px-4 pt-1 pb-4">
           {/* Mode switch */}
-          <div role="radiogroup" aria-label="סוג פעולה" className="bg-muted grid grid-cols-3 rounded-lg p-1">
+          <div role="radiogroup" aria-label="סוג פעולה" className="bg-muted grid grid-cols-4 rounded-lg p-1">
             {MODES.map((m) => (
               <button
                 key={m.type}
@@ -200,11 +220,15 @@ export function StockRow({ stock, isAdmin }: { stock: AmmoStockRow; isAdmin: boo
               >
                 {m.type === "RECEIVE" && <Plus className="size-3.5" />}
                 {m.type === "ISSUE" && <Minus className="size-3.5" />}
+                {m.type === "TRANSFER" && <ArrowLeftRight className="size-3.5" />}
                 {m.label}
               </button>
             ))}
           </div>
 
+          {mode === "TRANSFER" ? (
+            <TransferForm stock={stock} siblings={siblings} />
+          ) : (
           <form key={state?.at ?? 0} onSubmit={submitWith(action)} className="flex flex-col gap-3" noValidate>
             {state?.ok && <Success message={state.message} />}
             <input type="hidden" name="type" value={mode} />
@@ -234,6 +258,7 @@ export function StockRow({ stock, isAdmin }: { stock: AmmoStockRow; isAdmin: boo
               </p>
             )}
           </form>
+          )}
 
           {stock.logs.length > 0 && (
             <div>
@@ -280,6 +305,115 @@ export function StockRow({ stock, isAdmin }: { stock: AmmoStockRow; isAdmin: boo
         </div>
       )}
     </li>
+  );
+}
+
+// ───────────── Transfer to another location / soldier ─────────────
+
+/**
+ * העברה: the amount (all of it by default) goes from this row to another row of the same type, a
+ * place (new or existing) or a soldier.
+ */
+function TransferForm({ stock, siblings }: { stock: AmmoStockRow; siblings: SiblingStock[] }) {
+  const { locations, soldiers } = useContext(AmmoOptions);
+  const [state, action, pending] = useActionState(transferAmmo.bind(null, stock.id), undefined);
+  const [to, setTo] = useState(() => (siblings.find((x) => !x.isSoldier) ? `stock:${siblings.find((x) => !x.isSoldier)!.id}` : "place"));
+  const err = state?.errors ?? {};
+  const places = siblings.filter((x) => !x.isSoldier);
+  const holders = siblings.filter((x) => x.isSoldier);
+
+  if (stock.quantity === 0) {
+    return <p className="text-muted-foreground text-sm">אין כמות להעברה במיקום הזה.</p>;
+  }
+  return (
+    <form key={state?.at ?? 0} onSubmit={submitWith(action)} className="flex flex-col gap-3" noValidate>
+      {state?.ok && <Success message={state.message} />}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field id={`to-${stock.id}`} label={`העברה מ${stock.location} אל`} error={err.to} required>
+          <Select id={`to-${stock.id}`} name="to" value={to} onChange={(e) => setTo(e.target.value)}>
+            {places.length > 0 && (
+              <optgroup label="מיקומים">
+                {places.map((x) => (
+                  <option key={x.id} value={`stock:${x.id}`}>
+                    {x.location}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {holders.length > 0 && (
+              <optgroup label="אצל חיילים">
+                {holders.map((x) => (
+                  <option key={x.id} value={`stock:${x.id}`}>
+                    {x.location}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label="אחר">
+              <option value="place">מיקום אחר / חדש…</option>
+              <option value="soldier">חייל אחר…</option>
+            </optgroup>
+          </Select>
+        </Field>
+        {to === "place" && (
+          <Field id={`to-location-${stock.id}`} label="מיקום" error={err.location} required>
+            <Input
+              id={`to-location-${stock.id}`}
+              name="location"
+              list={`to-locations-${stock.id}`}
+              autoComplete="off"
+              placeholder="למשל: בונקר פלוגתי"
+              aria-invalid={!!err.location}
+            />
+            <datalist id={`to-locations-${stock.id}`}>
+              {locations
+                .filter((l) => l !== stock.location)
+                .map((l) => (
+                  <option key={l} value={l} />
+                ))}
+            </datalist>
+          </Field>
+        )}
+        {to === "soldier" && (
+          <Field id={`to-soldier-${stock.id}`} label="חייל" error={err.soldierId} required>
+            <SoldierSelect
+              id={`to-soldier-${stock.id}`}
+              name="soldierId"
+              options={soldiers}
+              allowEmpty={false}
+              placeholder="בחירת חייל…"
+              aria-invalid={!!err.soldierId}
+            />
+          </Field>
+        )}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-[10rem_1fr_auto] sm:items-end">
+        <Field id={`t-amount-${stock.id}`} label={`כמות (יש ${formatNumber(stock.quantity)})`} error={err.amount}>
+          <Input
+            id={`t-amount-${stock.id}`}
+            name="amount"
+            inputMode="numeric"
+            dir="ltr"
+            className="h-12 text-start text-lg font-semibold"
+            defaultValue={String(stock.quantity)}
+            autoComplete="off"
+            aria-invalid={!!err.amount}
+          />
+        </Field>
+        <Field id={`t-note-${stock.id}`} label="הערה" error={err.note}>
+          <Input id={`t-note-${stock.id}`} name="note" autoComplete="off" placeholder="למשל: זיכוי מחלקה 2" />
+        </Field>
+        <Button type="submit" size="lg" disabled={pending}>
+          <ArrowLeftRight />
+          {pending ? "מעביר…" : "העברה"}
+        </Button>
+      </div>
+      {state?.error && (
+        <p role="alert" className="text-danger text-sm">
+          {state.error}
+        </p>
+      )}
+    </form>
   );
 }
 
