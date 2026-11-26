@@ -6,7 +6,7 @@ import type { AmmoLogType } from "@/generated/prisma/enums";
 import { applyMovement, VERIFY_NOTE } from "@/lib/ammo-rules";
 import { writableContext } from "@/lib/context";
 import { formatNumber } from "@/lib/utils";
-import { AddStockSchema, MovementSchema } from "@/lib/validation/ammo";
+import { AddStockSchema, MovementSchema, TransferSchema } from "@/lib/validation/ammo";
 import { toFieldErrors, type FieldErrors } from "@/lib/validation/equipment";
 
 export type AmmoFormState =
@@ -14,6 +14,22 @@ export type AmmoFormState =
   | undefined;
 
 class MovementError extends Error {}
+class FieldError extends Error {
+  constructor(
+    readonly field: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+type Db = Extract<Awaited<ReturnType<typeof writableContext>>, { ok: true }>["db"];
+
+/** A soldier's ammo row is named after them; with the personal number if another soldier shares the name. */
+async function soldierLocation(db: Db | Prisma.TransactionClient, soldier: { id: string; name: string; personalNumber: string | null }) {
+  const namesake = await db.soldier.count({ where: { name: soldier.name, id: { not: soldier.id } } });
+  return namesake && soldier.personalNumber ? `${soldier.name} (${soldier.personalNumber})` : soldier.name;
+}
 
 /** Open a new (type, location) stock row with an initial count. */
 export async function addStock(_prev: AmmoFormState, fd: FormData): Promise<AmmoFormState> {
@@ -47,9 +63,7 @@ export async function addStock(_prev: AmmoFormState, fd: FormData): Promise<Ammo
     });
     if (!soldier) return { errors: { soldierId: "חייל לא תקין" } };
     soldierId = soldier.id;
-    // The soldier's name is the row's location; add the personal number if another soldier shares the name.
-    const namesake = await db.soldier.count({ where: { name: soldier.name, id: { not: soldier.id } } });
-    location = namesake && soldier.personalNumber ? `${soldier.name} (${soldier.personalNumber})` : soldier.name;
+    location = await soldierLocation(db, soldier);
   } else {
     location = parsed.data.location;
   }
@@ -210,4 +224,123 @@ export async function deleteStock(stockId: string): Promise<{ ok: boolean; messa
   if (!count) return { ok: false, message: "ניתן להסיר רק מיקום ריק (כמות 0)" };
   refresh();
   return { ok: true };
+}
+
+/**
+ * העברה: move ammo from one location (or soldier) to another of the same type — e.g. what was
+ * taken from a soldier or from חווה 5 goes to the בונקר. The destination is an existing row, a
+ * place (opened if new) or a soldier. Both sides are logged (ניפוק / קליטה with "העברה" notes),
+ * so the company total doesn't change.
+ */
+export async function transferAmmo(stockId: string, _prev: AmmoFormState, fd: FormData): Promise<AmmoFormState> {
+  const w = await writableContext();
+  if (!w.ok) return { error: w.message };
+  const { user, db, deployment } = w;
+  const parsed = TransferSchema.safeParse({
+    to: fd.get("to") ?? "",
+    location: fd.get("location") ?? "",
+    soldierId: fd.get("soldierId") ?? "",
+    amount: fd.get("amount") ?? "",
+    note: fd.get("note") ?? "",
+  });
+  if (!parsed.success) return { errors: toFieldErrors(parsed.error) };
+  const { to, amount, note } = parsed.data;
+  const ctx = { companyId: user.companyId, deploymentId: deployment.id };
+
+  let result: { from: string; to: string; left: number };
+  try {
+    result = await db.$transaction(async (tx) => {
+      const source = await tx.ammoStock.findFirst({ where: { id: stockId }, select: { id: true, categoryId: true, location: true } });
+      if (!source) throw new MovementError("המיקום לא נמצא");
+
+      // Resolve (or open) the destination row of the same type.
+      let destId: string | null = null;
+      let destName = "";
+      if (to.startsWith("stock:")) {
+        const dest = await tx.ammoStock.findFirst({
+          where: { id: to.slice(6), categoryId: source.categoryId },
+          select: { id: true, location: true },
+        });
+        if (!dest) throw new MovementError("מיקום היעד לא נמצא");
+        destId = dest.id;
+        destName = dest.location;
+      } else if (to === "soldier") {
+        const soldier = await tx.soldier.findFirst({
+          where: { id: parsed.data.soldierId, isActive: true, absences: { none: { deploymentId: deployment.id } } },
+          select: { id: true, name: true, personalNumber: true },
+        });
+        if (!soldier) throw new FieldError("soldierId", "חייל לא תקין");
+        const existing = await tx.ammoStock.findFirst({
+          where: { categoryId: source.categoryId, soldierId: soldier.id },
+          select: { id: true, location: true },
+        });
+        destName = existing?.location ?? (await soldierLocation(tx, soldier));
+        destId = existing?.id ?? null;
+        if (!destId) {
+          const taken = await tx.ammoStock.findFirst({ where: { categoryId: source.categoryId, location: destName }, select: { id: true } });
+          if (taken) throw new FieldError("soldierId", `כבר קיים מיקום בשם "${destName}"`);
+          destId = (await tx.ammoStock.create({ data: { ...ctx, categoryId: source.categoryId, location: destName, soldierId: soldier.id } })).id;
+        }
+      } else {
+        destName = parsed.data.location!;
+        const existing = await tx.ammoStock.findFirst({
+          where: { categoryId: source.categoryId, location: destName },
+          select: { id: true, soldierId: true },
+        });
+        if (existing?.soldierId) throw new FieldError("location", `"${destName}" הוא חייל — יש לבחור אותו ברשימה`);
+        destId = existing?.id ?? (await tx.ammoStock.create({ data: { ...ctx, categoryId: source.categoryId, location: destName } })).id;
+      }
+      if (destId === source.id) throw new MovementError("יש לבחור יעד אחר מהמקור");
+
+      // Lock both rows, in a fixed order (no deadlock between opposite transfers).
+      const locked = await tx.$queryRaw<{ id: string; quantity: number }[]>`
+        SELECT id, quantity FROM "AmmoStock"
+        WHERE id = ANY(${[source.id, destId]}) AND "companyId" = ${user.companyId} AND "deploymentId" = ${deployment.id}
+        ORDER BY id FOR UPDATE`;
+      const from = locked.find((r) => r.id === source.id);
+      const dest = locked.find((r) => r.id === destId);
+      if (!from || !dest) throw new MovementError("המיקום לא נמצא");
+      if (amount > from.quantity) throw new FieldError("amount", `לא ניתן להעביר ${formatNumber(amount)} — ב${source.location} יש ${formatNumber(from.quantity)} בלבד`);
+
+      const suffix = note ? ` — ${note}` : "";
+      await tx.ammoStock.update({ where: { id: source.id }, data: { quantity: from.quantity - amount } });
+      await tx.ammoLog.create({
+        data: {
+          companyId: user.companyId,
+          stockId: source.id,
+          type: "ISSUE",
+          amount,
+          previousQuantity: from.quantity,
+          newQuantity: from.quantity - amount,
+          note: `העברה ל${destName}${suffix}`.slice(0, 300),
+          performedById: user.id,
+        },
+      });
+      await tx.ammoStock.update({ where: { id: dest.id }, data: { quantity: dest.quantity + amount } });
+      await tx.ammoLog.create({
+        data: {
+          companyId: user.companyId,
+          stockId: dest.id,
+          type: "RECEIVE",
+          amount,
+          previousQuantity: dest.quantity,
+          newQuantity: dest.quantity + amount,
+          note: `העברה מ${source.location}${suffix}`.slice(0, 300),
+          performedById: user.id,
+        },
+      });
+      return { from: source.location, to: destName, left: from.quantity - amount };
+    });
+  } catch (e) {
+    if (e instanceof FieldError) return { errors: { [e.field]: e.message } };
+    if (e instanceof MovementError) return { error: e.message };
+    throw e;
+  }
+
+  refresh();
+  return {
+    ok: true,
+    message: `הועברו ${formatNumber(amount)} מ${result.from} ל${result.to}${result.left ? ` · נשארו ${formatNumber(result.left)}` : ""}`,
+    at: Date.now(),
+  };
 }

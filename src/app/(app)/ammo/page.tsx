@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import type { AmmoCategory } from "@/generated/prisma/enums";
-import { AddStockForm, StockRow, VerifyLocation } from "./ammo-forms";
+import { AddStockForm, AmmoOptionsProvider, StockRow, VerifyLocation } from "./ammo-forms";
 import { isCompanyAdmin } from "@/lib/roles";
 
 export const metadata: Metadata = { title: "ניהול תחמושת" };
@@ -173,6 +173,7 @@ export default async function AmmoPage({ searchParams }: PageProps<"/ammo">) {
           />
         )}
 
+        <AmmoOptionsProvider locations={locations} soldiers={soldiers}>
         {[...groups, ...(uncategorized.length ? [{ category: null, types: uncategorized }] : [])].map((g) => (
           <section key={g.category ?? "none"} className="flex flex-col gap-3">
             <h2 className="text-muted-foreground text-sm font-semibold">
@@ -185,6 +186,7 @@ export default async function AmmoPage({ searchParams }: PageProps<"/ammo">) {
             </div>
           </section>
         ))}
+        </AmmoOptionsProvider>
 
         {shown.length === 0 && overview.length > 0 && (
           <Card className="items-center py-10 text-center">
@@ -236,7 +238,12 @@ function AmmoTypeCard({ type: t, location, isAdmin }: { type: AmmoTypeOverview; 
         ) : (
           <ul className="divide-y">
             {stocks.map((s) => (
-              <StockRow key={s.id} stock={s} isAdmin={isAdmin} />
+              <StockRow
+                key={s.id}
+                stock={s}
+                isAdmin={isAdmin}
+                siblings={t.ammoStocks.filter((x) => x.id !== s.id).map((x) => ({ id: x.id, location: x.location, isSoldier: !!x.soldier }))}
+              />
             ))}
           </ul>
         )}

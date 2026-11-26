@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { addStock, recordMovement, verifyStocks } from "@/app/(app)/ammo/actions";
+import { addStock, recordMovement, transferAmmo, verifyStocks } from "@/app/(app)/ammo/actions";
 import { assignKit, completeInspection, setKitItem, signKit, updateWeapon } from "@/app/(app)/kits/actions";
 import { activeDeployment, form, kitItemId, kitLine, loginAs, makeAmmoStock, makeCategory, makeItem, makeSoldier, stateOf } from "./factories";
 
@@ -155,5 +155,55 @@ describe("personal kits", () => {
     // Recorded by name, as items are called at the time.
     expect(insp.missingItems).not.toContain("קסדה");
     expect(insp.missingItems).toContain("שק שינה");
+  });
+});
+
+describe("ammo transfer (העברה)", () => {
+  it("moves ammo between existing locations, logging both sides; the total stays the same", async () => {
+    await loginAs("REGULAR");
+    const from = await makeAmmoStock({ location: "חווה 5", quantity: 300 });
+    const to = await makeAmmoStock({ categoryId: from.categoryId, location: "בונקר", quantity: 1000 });
+
+    const r = await transferAmmo(from.id, undefined, form({ to: `stock:${to.id}`, amount: 300, note: "זיכוי" }));
+    expect(r).toMatchObject({ ok: true, message: "הועברו 300 מחווה 5 לבונקר" });
+    expect((await prisma.ammoStock.findUniqueOrThrow({ where: { id: from.id } })).quantity).toBe(0);
+    expect((await prisma.ammoStock.findUniqueOrThrow({ where: { id: to.id } })).quantity).toBe(1300);
+    const logs = await prisma.ammoLog.findMany({ orderBy: { type: "asc" } });
+    expect(logs.map((l) => [l.type, l.previousQuantity, l.newQuantity, l.note])).toEqual([
+      ["RECEIVE", 1000, 1300, "העברה מחווה 5 — זיכוי"],
+      ["ISSUE", 300, 0, "העברה לבונקר — זיכוי"],
+    ]);
+  });
+
+  it("from a soldier to a new place (opened on the way); more than there is is refused", async () => {
+    await loginAs();
+    await activeDeployment();
+    const cat = await makeCategory({ domain: "AMMUNITION" });
+    const soldier = await makeSoldier({ name: "יאיר עמיחי" });
+    await addStock(undefined, form({ holder: "soldier", categoryId: cat.id, soldierId: soldier.id, quantity: 90 }));
+    const held = await prisma.ammoStock.findFirstOrThrow({ where: { soldierId: soldier.id } });
+
+    expect(await transferAmmo(held.id, undefined, form({ to: "place", location: "בונקר", amount: 91 }))).toMatchObject({
+      errors: { amount: expect.stringContaining("יש 90 בלבד") },
+    });
+    expect(await prisma.ammoStock.count({ where: { location: "בונקר" } })).toBe(0);
+
+    expect(await transferAmmo(held.id, undefined, form({ to: "place", location: "בונקר", amount: 60 }))).toMatchObject({ ok: true });
+    const bunker = await prisma.ammoStock.findFirstOrThrow({ where: { location: "בונקר", categoryId: cat.id } });
+    expect(bunker.quantity).toBe(60);
+    expect((await prisma.ammoStock.findUniqueOrThrow({ where: { id: held.id } })).quantity).toBe(30);
+  });
+
+  it("to a soldier (row opened under their name); not to itself or another type", async () => {
+    await loginAs();
+    const from = await makeAmmoStock({ location: "בונקר", quantity: 50 });
+    const other = await makeAmmoStock({ location: "בונקר", quantity: 5 }); // another type
+    const soldier = await makeSoldier({ name: "דנה" });
+
+    expect(await transferAmmo(from.id, undefined, form({ to: `stock:${from.id}`, amount: 1 }))).toHaveProperty("error");
+    expect(await transferAmmo(from.id, undefined, form({ to: `stock:${other.id}`, amount: 1 }))).toHaveProperty("error");
+    expect(await transferAmmo(from.id, undefined, form({ to: "soldier", soldierId: soldier.id, amount: 20 }))).toMatchObject({ ok: true });
+    const row = await prisma.ammoStock.findFirstOrThrow({ where: { soldierId: soldier.id } });
+    expect(row).toMatchObject({ location: "דנה", quantity: 20, categoryId: from.categoryId });
   });
 });
